@@ -1,11 +1,16 @@
 [package]
-name = "assay"
+name = "plumb-assay"
 version = "0.1.0"
 edition = "2021"
 description = "The convergence engine. Exact rational boundary flux over unfolded manifolds; mints Upsilon when the divergence cancels on every axis."
 license = "MIT OR Apache-2.0"
 keywords = ["geometry", "exact", "convergence", "flux"]
 categories = ["mathematics"]
+
+# The package is namespaced for the registry; the library keeps its
+# name, so code says `use assay::` and the docs stay true.
+[lib]
+name = "assay"
 
 # ===================================================================
 # ASSAY IS A LEAF. THERE ARE NO PATH DEPENDENCIES AND THERE NEVER WILL

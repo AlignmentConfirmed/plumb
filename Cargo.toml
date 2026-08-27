@@ -10,3 +10,6 @@
 [workspace]
 resolver = "2"
 members = ["crates/isthmus", "crates/assay", "crates/datum"]
+
+[workspace.package]
+license = "MIT OR Apache-2.0"

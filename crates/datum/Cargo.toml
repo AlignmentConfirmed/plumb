@@ -1,8 +1,15 @@
 [package]
-name = "datum"
+name = "plumb-datum"
 version = "0.1.0"
 edition = "2021"
 description = "The court of the proof economy: priced space, work-identity rewards, funded settlement, the founding chain."
+license = "MIT OR Apache-2.0"
+keywords = ["settlement", "ledger", "proof", "pouw"]
+
+# The package is namespaced for the registry; the library keeps its
+# name, so code says `use datum::` and the docs stay true.
+[lib]
+name = "datum"
 
 # datum imports the substrate and the physics, and is imported by
 # nothing. That is what makes it the datum: a court a kernel can link
@@ -12,8 +19,8 @@ description = "The court of the proof economy: priced space, work-identity rewar
 # (the xylarium and netstratum crossing suites) live in the lab
 # repository, which depends on these crates the way any outsider would.
 [dependencies]
-isthmus = { path = "../isthmus" }
-assay = { path = "../assay" }
+isthmus = { path = "../isthmus", package = "plumb-isthmus" }
+assay = { path = "../assay", package = "plumb-assay" }
 num-rational = "0.4"
 num-bigint = "0.4"
 num-traits = "0.2"

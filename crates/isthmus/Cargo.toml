@@ -1,12 +1,16 @@
 [package]
-name = "isthmus"
+name = "plumb-isthmus"
 version = "0.1.0"
 edition = "2021"
 description = "The Isthmus wire protocol: the record, the exact rational, the session rule, the registry, the declaration. Implements IS-1, IS-2 §7, IS-3, IS-5."
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/xylarium/isthmus"
 keywords = ["protocol", "wire", "mesh", "tlv"]
 categories = ["encoding", "network-programming"]
+
+# The package is namespaced for the registry; the library keeps its
+# name, so code says `use isthmus::` and the docs stay true.
+[lib]
+name = "isthmus"
 
 # ===================================================================
 # THERE ARE NO PATH DEPENDENCIES HERE, AND THAT IS THE POINT.
