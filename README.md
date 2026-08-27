@@ -33,9 +33,13 @@ cargo run -p plumb-sdk --example join
 
 ## The protocols
 
-The wire is specified independently of the code, with conformance
-vectors an implementation in any language can be checked against:
+The wire language is called **Plumbline** — utterances are linear
+bytes; meanings live in spaces ([`PLUMBLINE.md`](PLUMBLINE.md)). It is
+specified independently of the code, with conformance vectors an
+implementation in any language can be checked against:
 
+- [`PLUMBLINE.md`](PLUMBLINE.md) — the language, and how it is
+  multi-dimensional
 - [`protocols/`](protocols/) — IS-1 (wire) through IS-6 (chain)
 - [`conformance/`](conformance/) — the vectors, the manifest, and a
   Python reference reader

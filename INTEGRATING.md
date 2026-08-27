@@ -1,6 +1,9 @@
 # INTEGRATING
 
-How to connect a development title to this substrate.
+How to connect a development title to this substrate — that is, how
+to speak **Plumbline**, the wire language the IS documents specify
+(`PLUMBLINE.md`). A peer declares which Plumbline revisions it
+speaks; revisions compare for equality and are never ordered.
 
 ## 0. If you write Rust, you are done in one line
 
