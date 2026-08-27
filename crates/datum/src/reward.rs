@@ -37,6 +37,12 @@ pub enum RewardRefused {
         /// What was required, per axis.
         price: Extent,
     },
+    /// A proof cites a lemma this book has not settled (SQ2). A
+    /// citation is a claim about the LEDGER, and the ledger answers.
+    UnsettledDependency {
+        /// The cited content address nothing here has settled.
+        work_id: WorkId,
+    },
     /// ARC-class domain is forged curriculum — never mintable (directive I).
     ///
     /// Present when a xylarium on-ramp presents
@@ -275,6 +281,18 @@ impl RewardBook {
 
     fn credit_claim_inner(&mut self, body: &[u8]) -> Result<Credit, RewardRefused> {
         let work = WorkBody::parse(body).map_err(|_| RewardRefused::Malformed)?;
+        // SQ2 — citations answer to the book, and to nothing else. A
+        // settled lemma is trusted as closed (it could not have entered
+        // `seen` otherwise) and costs no re-derivation: the replay set
+        // IS the memoization cache, here spent as one.
+        if let WorkBody::Proof(p) = &work {
+            for dep in &p.deps {
+                let cited = WorkId::from_bytes(dep.clone());
+                if !self.seen.contains(&cited) {
+                    return Err(RewardRefused::UnsettledDependency { work_id: cited });
+                }
+            }
+        }
         if !work.verifies() {
             return Err(RewardRefused::OpenWork);
         }
@@ -297,7 +315,7 @@ impl RewardBook {
         }
         let witness = match &work {
             WorkBody::Boundary(c) => c.verify(),
-            WorkBody::Shape(_) | WorkBody::Declared(_) => None,
+            WorkBody::Shape(_) | WorkBody::Declared(_) | WorkBody::Proof(_) => None,
         };
         let credit = Credit {
             work_id,

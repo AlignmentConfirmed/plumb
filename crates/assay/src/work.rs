@@ -180,6 +180,8 @@ pub enum WorkBody {
     Shape(crate::shape::ShapeClaim),
     /// Domain 3: a closure in a complex declared as data (UC1–UC3).
     Declared(crate::complex::DeclaredClaim),
+    /// Domain 4: a proof — prescribed boundary + cited lemmas (SQ).
+    Proof(crate::complex::ProofClaim),
 }
 
 impl WorkBody {
@@ -201,6 +203,11 @@ impl WorkBody {
                     .map(WorkBody::Declared)
                     .map_err(ParseBroken::Declared)
             }
+            Some(crate::complex::DOMAIN_PROOF) => {
+                crate::complex::ProofClaim::decode(bytes)
+                    .map(WorkBody::Proof)
+                    .map_err(ParseBroken::Declared)
+            }
             Some(d) => Err(ParseBroken::Domain(d)),
             None => Err(ParseBroken::Empty),
         }
@@ -212,6 +219,7 @@ impl WorkBody {
             WorkBody::Boundary(c) => c.work_id(),
             WorkBody::Shape(s) => s.work_id(),
             WorkBody::Declared(d) => d.work_id(),
+            WorkBody::Proof(p) => p.work_id(),
         }
     }
 
@@ -221,6 +229,7 @@ impl WorkBody {
             WorkBody::Boundary(c) => c.nonce,
             WorkBody::Shape(s) => s.transport,
             WorkBody::Declared(d) => d.transport,
+            WorkBody::Proof(p) => p.transport,
         }
     }
 
@@ -236,6 +245,7 @@ impl WorkBody {
                 }
             }
             WorkBody::Declared(d) => d.credit_axes(),
+            WorkBody::Proof(p) => p.credit_axes(),
         }
     }
 
@@ -245,7 +255,7 @@ impl WorkBody {
     pub fn witness(&self) -> Option<Upsilon> {
         match self {
             WorkBody::Boundary(c) => c.verify(),
-            WorkBody::Shape(_) | WorkBody::Declared(_) => None,
+            WorkBody::Shape(_) | WorkBody::Declared(_) | WorkBody::Proof(_) => None,
         }
     }
 
@@ -255,6 +265,7 @@ impl WorkBody {
             WorkBody::Boundary(c) => c.verify().is_some(),
             WorkBody::Shape(s) => s.verify().is_ok(),
             WorkBody::Declared(d) => d.verify(crate::complex::DEFAULT_FUEL).is_ok(),
+            WorkBody::Proof(p) => p.verify(crate::complex::DEFAULT_FUEL).is_ok(),
         }
     }
 }

@@ -132,8 +132,8 @@ decentralized matrix multiplication.
 
 | ID | task | done when |
 |---|---|---|
-| **SQ1** | Prescribed-boundary evaluation: verify $\partial c = z$ for a declared target chain $z$ (relative closure), fuel-metered | a proof-shaped chain closes onto target − axioms; wrong boundary refuses naming the mismatch |
-| **SQ2** | Dependency citation: claim bodies reference settled `work_id`s; the court expands them from its book as trusted-closed | citing an unsettled id refuses; a cited lemma costs no re-derivation fuel |
+| **SQ1** | Prescribed-boundary evaluation: $\partial c = z$ (relative closure), fuel-metered | **DONE** — `closes_to`, `ProofClaim` (domain 4), `BoundaryMismatch{cell}` names missing premises and dangling conclusions; $z = \varnothing$ recovers plain closure |
+| **SQ2** | Dependency citation: settled `work_id`s as trusted infrastructure | **DONE** — citations answer to the book: `UnsettledDependency{work_id}` names the missing lemma; citation order is settlement order; citing lemmas costs zero verification fuel; citations are part of proof identity |
 | **SQ3** | Polygraph encoding: 0/1/2/3-cells as a declared-complex family; a small calculus (a rewriting presentation) registered via `Act::Declare` with vectors | a machine-checkable derivation in the registered calculus settles end to end |
 | **SQ4** | Conjecture space: open 1-boundary posted as priced space (with X1 `query_id` when it lands) | an unproven target is visibly open, funded space |
 | **SQ5** | Sublet lemma market: nested conjecture spaces funded from the parent bounty through the moon cascade | a two-solver proof settles from two independently-paid lemmas |

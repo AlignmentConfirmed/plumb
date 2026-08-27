@@ -25,6 +25,10 @@ use num_traits::Zero;
 /// Domain byte for declared-complex claims. Boundary is 1, Shape is 2.
 pub const DOMAIN_DECLARED: u8 = 3;
 
+/// Domain byte for proof claims (SQ): prescribed boundary + cited
+/// lemmas. Deduction as boundary annihilation.
+pub const DOMAIN_PROOF: u8 = 4;
+
 /// Fuel the reward path evaluates under when no deployment says
 /// otherwise. A *default*, not a constant of nature — UC6 prices
 /// fuel on the board per-space.
@@ -85,6 +89,13 @@ pub enum ComplexBroken {
     /// not close.
     OpenBoundary {
         /// A cell with nonzero net boundary flux.
+        cell: u32,
+    },
+    /// The witness chain's boundary does not equal the PRESCRIBED
+    /// target (SQ1): a missing premise or a dangling conclusion, and
+    /// the refusal names where.
+    BoundaryMismatch {
+        /// The cell where computed flux and target disagree.
         cell: u32,
     },
     /// The evaluation budget ran out. A refusal, never a hang — and
@@ -244,6 +255,101 @@ impl DeclaredComplex {
             return Err(ComplexBroken::Trailing);
         }
         Ok(Self { cells, ops })
+    }
+
+    /// SQ1 — does a witness chain have exactly the **prescribed**
+    /// boundary: `∂c = z`?
+    ///
+    /// This is the proof shape: `z = target − axioms`, and a chain
+    /// closing onto it is watertight — no missing premises (flux the
+    /// target demands but the witness lacks) and no dangling
+    /// conclusions (flux the witness produces but the target does not
+    /// name). `z = ∅` recovers plain closure. The mismatch refusal
+    /// names the offending cell.
+    pub fn closes_to(
+        &self,
+        dim: u32,
+        witness: &[(u32, Exact)],
+        target: &[(u32, Exact)],
+        fuel: u64,
+    ) -> Result<u64, ComplexBroken> {
+        let mut fuel = Fuel::new(fuel);
+        let dim = dim as usize;
+        let count = self
+            .cells
+            .get(dim)
+            .copied()
+            .ok_or(ComplexBroken::NoSuchDimension)?;
+        if witness.is_empty() {
+            return Err(ComplexBroken::Empty);
+        }
+        let mut previous: Option<u32> = None;
+        for (cell, coeff) in witness {
+            fuel.spend(1)?;
+            if *cell >= count {
+                return Err(ComplexBroken::CellOutOfRange { op: dim as u32 });
+            }
+            if coeff.is_zero() || previous.is_some_and(|p| p >= *cell) {
+                return Err(ComplexBroken::NotCanonical);
+            }
+            previous = Some(*cell);
+        }
+        // The target lives one dimension down, canonical like the
+        // witness (a target that is not one byte string per meaning
+        // would break content addressing).
+        let below = if dim == 0 {
+            0
+        } else {
+            self.cells.get(dim - 1).copied().unwrap_or(0)
+        };
+        let mut previous: Option<u32> = None;
+        for (cell, coeff) in target {
+            fuel.spend(1)?;
+            if dim == 0 || *cell >= below {
+                return Err(ComplexBroken::CellOutOfRange { op: dim as u32 });
+            }
+            if coeff.is_zero() || previous.is_some_and(|p| p >= *cell) {
+                return Err(ComplexBroken::NotCanonical);
+            }
+            previous = Some(*cell);
+        }
+        if dim == 0 {
+            // A 0-chain has no boundary; only the empty target matches.
+            return Ok(fuel.spent());
+        }
+        let op = self
+            .ops
+            .get(dim - 1)
+            .map(Vec::as_slice)
+            .ok_or(ComplexBroken::NoSuchDimension)?;
+        let mut flux: std::collections::BTreeMap<u32, Exact> =
+            std::collections::BTreeMap::new();
+        for (cell, coeff) in witness {
+            for entry in op {
+                if entry.col == *cell {
+                    fuel.spend(1)?;
+                    let slot = flux
+                        .entry(entry.row)
+                        .or_insert_with(|| Exact::from_integer(0.into()));
+                    *slot += entry.coeff.clone() * coeff.clone();
+                }
+            }
+        }
+        for (cell, coeff) in target {
+            fuel.spend(1)?;
+            let slot = flux
+                .entry(*cell)
+                .or_insert_with(|| Exact::from_integer(0.into()));
+            *slot -= coeff.clone();
+        }
+        if let Some((cell, _)) = flux.iter().find(|(_, v)| !v.is_zero()) {
+            return Err(if target.is_empty() {
+                ComplexBroken::OpenBoundary { cell: *cell }
+            } else {
+                ComplexBroken::BoundaryMismatch { cell: *cell }
+            });
+        }
+        Ok(fuel.spent())
     }
 
     /// Does a witness chain in dimension `dim` **close**: `∂c = 0`?
@@ -498,4 +604,137 @@ pub fn from_shape(shape: &crate::shape::Shape) -> Result<DeclaredClaim, ComplexB
         dim: 0,
         witness,
     })
+}
+
+/// SQ — a proof claim: a chain with a **prescribed** boundary, plus
+/// cited lemmas.
+///
+/// The proof shape: `∂(witness) = target`, where the target encodes
+/// `theorem − axioms` in the registered calculus. Dependencies are
+/// `work_id`s of previously settled claims, cited as trusted
+/// infrastructure — **this leaf does not check them**, because the
+/// ledger is the court's; `RewardBook` refuses a proof citing any
+/// work its book has not settled, and never re-pays cited compute
+/// (the T2 memoization cache, spent as a cache).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProofClaim {
+    /// **Transport only** — not the credit key.
+    pub transport: u64,
+    /// The universe the proof lives in.
+    pub complex: DeclaredComplex,
+    /// The dimension the witness lives in.
+    pub dim: u32,
+    /// The prescribed boundary: `theorem − axioms`, canonical.
+    pub target: Vec<(u32, Exact)>,
+    /// The derivation chain claimed to close onto the target.
+    pub witness: Vec<(u32, Exact)>,
+    /// Settled lemmas this proof stands on, by content address.
+    pub deps: Vec<Vec<u8>>,
+}
+
+impl ProofClaim {
+    /// Verify by re-derivation under `fuel`: the universe admits and
+    /// the witness closes **onto the target** (SQ1). Cited lemmas
+    /// cost nothing here — the court's book answers for them.
+    pub fn verify(&self, fuel: u64) -> Result<u64, ComplexBroken> {
+        let spent = self.complex.admit(fuel)?;
+        let remaining = fuel.saturating_sub(spent);
+        let more = self
+            .complex
+            .closes_to(self.dim, &self.witness, &self.target, remaining)?;
+        Ok(spent.saturating_add(more))
+    }
+
+    /// **Primary identity:** structure only, transport zeroed. The
+    /// citations are part of the structure — the same derivation
+    /// standing on different lemmas is a different proof.
+    pub fn work_id(&self) -> crate::work::WorkId {
+        crate::work::WorkId::from_bytes(self.encode_with_transport(0))
+    }
+
+    /// Multi-axial credit: the breadth of the universe the proof was
+    /// verified in, one component per dimension. Empty unless it
+    /// verifies.
+    pub fn credit_axes(&self) -> Vec<u128> {
+        if self.verify(DEFAULT_FUEL).is_err() {
+            return Vec::new();
+        }
+        self.complex.cells.iter().map(|c| u128::from(*c)).collect()
+    }
+
+    /// Wire body, domain-tagged.
+    pub fn encode(&self) -> Vec<u8> {
+        self.encode_with_transport(self.transport)
+    }
+
+    fn encode_with_transport(&self, transport: u64) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.push(DOMAIN_PROOF);
+        out.extend_from_slice(&transport.to_le_bytes());
+        let definition = self.complex.encode();
+        let dl = u32::try_from(definition.len()).unwrap_or(u32::MAX);
+        out.extend_from_slice(&dl.to_le_bytes());
+        out.extend_from_slice(&definition);
+        out.extend_from_slice(&self.dim.to_le_bytes());
+        for chain in [&self.target, &self.witness] {
+            let n = u32::try_from(chain.len()).unwrap_or(u32::MAX);
+            out.extend_from_slice(&n.to_le_bytes());
+            for (cell, coeff) in chain {
+                out.extend_from_slice(&cell.to_le_bytes());
+                exact_codec::put_exact(coeff, &mut out);
+            }
+        }
+        let n = u32::try_from(self.deps.len()).unwrap_or(u32::MAX);
+        out.extend_from_slice(&n.to_le_bytes());
+        for dep in &self.deps {
+            let l = u32::try_from(dep.len()).unwrap_or(u32::MAX);
+            out.extend_from_slice(&l.to_le_bytes());
+            out.extend_from_slice(dep);
+        }
+        out
+    }
+
+    /// Decode a domain-tagged proof body.
+    pub fn decode(bytes: &[u8]) -> Result<Self, ComplexBroken> {
+        let mut at = 0usize;
+        let domain = exact_codec::take_u8(bytes, &mut at)?;
+        if domain != DOMAIN_PROOF {
+            return Err(ComplexBroken::Domain(domain));
+        }
+        let transport = exact_codec::take_u64(bytes, &mut at)?;
+        let dl = exact_codec::take_u32(bytes, &mut at)? as usize;
+        let definition = exact_codec::take_bytes(bytes, &mut at, dl)?;
+        let complex = DeclaredComplex::decode(definition)?;
+        let dim = exact_codec::take_u32(bytes, &mut at)?;
+        let mut chains = Vec::new();
+        for _ in 0..2 {
+            let n = exact_codec::take_u32(bytes, &mut at)? as usize;
+            let mut chain = Vec::with_capacity(n.min(1 << 16));
+            for _ in 0..n {
+                let cell = exact_codec::take_u32(bytes, &mut at)?;
+                let coeff = exact_codec::take_exact(bytes, &mut at)?;
+                chain.push((cell, coeff));
+            }
+            chains.push(chain);
+        }
+        let witness = chains.pop().unwrap_or_default();
+        let target = chains.pop().unwrap_or_default();
+        let n = exact_codec::take_u32(bytes, &mut at)? as usize;
+        let mut deps = Vec::with_capacity(n.min(1 << 12));
+        for _ in 0..n {
+            let l = exact_codec::take_u32(bytes, &mut at)? as usize;
+            deps.push(exact_codec::take_bytes(bytes, &mut at, l)?.to_vec());
+        }
+        if at != bytes.len() {
+            return Err(ComplexBroken::Trailing);
+        }
+        Ok(Self {
+            transport,
+            complex,
+            dim,
+            target,
+            witness,
+            deps,
+        })
+    }
 }
