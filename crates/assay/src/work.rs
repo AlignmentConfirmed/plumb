@@ -178,6 +178,8 @@ pub enum WorkBody {
     Boundary(Claim),
     /// Shape-domain PoUW claim.
     Shape(crate::shape::ShapeClaim),
+    /// Domain 3: a closure in a complex declared as data (UC1–UC3).
+    Declared(crate::complex::DeclaredClaim),
 }
 
 impl WorkBody {
@@ -194,6 +196,11 @@ impl WorkBody {
             Some(crate::shape::DOMAIN_SHAPE) => crate::shape::ShapeClaim::decode(bytes)
                 .map(WorkBody::Shape)
                 .map_err(ParseBroken::Shape),
+            Some(crate::complex::DOMAIN_DECLARED) => {
+                crate::complex::DeclaredClaim::decode(bytes)
+                    .map(WorkBody::Declared)
+                    .map_err(ParseBroken::Declared)
+            }
             Some(d) => Err(ParseBroken::Domain(d)),
             None => Err(ParseBroken::Empty),
         }
@@ -204,6 +211,7 @@ impl WorkBody {
         match self {
             WorkBody::Boundary(c) => c.work_id(),
             WorkBody::Shape(s) => s.work_id(),
+            WorkBody::Declared(d) => d.work_id(),
         }
     }
 
@@ -212,6 +220,7 @@ impl WorkBody {
         match self {
             WorkBody::Boundary(c) => c.nonce,
             WorkBody::Shape(s) => s.transport,
+            WorkBody::Declared(d) => d.transport,
         }
     }
 
@@ -226,6 +235,7 @@ impl WorkBody {
                     Vec::new()
                 }
             }
+            WorkBody::Declared(d) => d.credit_axes(),
         }
     }
 
@@ -235,7 +245,7 @@ impl WorkBody {
     pub fn witness(&self) -> Option<Upsilon> {
         match self {
             WorkBody::Boundary(c) => c.verify(),
-            WorkBody::Shape(_) => None,
+            WorkBody::Shape(_) | WorkBody::Declared(_) => None,
         }
     }
 
@@ -244,6 +254,7 @@ impl WorkBody {
         match self {
             WorkBody::Boundary(c) => c.verify().is_some(),
             WorkBody::Shape(s) => s.verify().is_ok(),
+            WorkBody::Declared(d) => d.verify(crate::complex::DEFAULT_FUEL).is_ok(),
         }
     }
 }
@@ -259,4 +270,6 @@ pub enum ParseBroken {
     Boundary(ClaimBroken),
     /// Shape domain refused.
     Shape(crate::shape::ShapeBroken),
+    /// Declared domain refused.
+    Declared(crate::complex::ComplexBroken),
 }

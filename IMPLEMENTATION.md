@@ -78,9 +78,9 @@ compiled path stays until UC5's verdict-equivalence suite is green.
 
 | ID | task | done when |
 |---|---|---|
-| **UC1** | Declared-complex codec: incidence + boundary operators + exact weights as data, no geometry structs | round-trip vectors; hexagon ≠ five-simplex as bytes |
-| **UC2** | Fixed evaluator in assay: submitted chain closes against a declared complex, exact arithmetic, fuel-bounded | closure accepts; non-closure and fuel exhaustion refuse, named |
-| **UC3** | Domain-3 claim body: complex reference + witness; content-addressed `work_id` | replay refuses across transports |
+| **UC1** | Declared-complex codec: incidence + boundary operators + exact weights as data, no geometry structs | **DONE** — `assay::complex`, `tests/declared.rs`: hexagon ≠ five-simplex as bytes |
+| **UC2** | Fixed evaluator in assay: submitted chain closes against a declared complex, exact arithmetic, fuel-bounded | **DONE** — ∂∂=0 admitted, closure checked, `OpenBoundary` names the leaking cell, `FuelExhausted` refuses |
+| **UC3** | Domain-3 claim body: complex reference + witness; content-addressed `work_id` | **DONE** — `DOMAIN_DECLARED=3` through `WorkBody`; replay refuses across transports; multi-axial credit per declared dimension |
 | **UC4** | Domain registration on chain, bound to a tag grant; courts resolve tag → definition from chain state | a node learns a discipline from the chain alone, no rebuild |
 | **UC5** | Shape re-expressed as declared complex; verdict equivalence vs compiled domain 2 | equivalence suite green; tag-51 class closed |
 | **UC6** | Fuel/size bounds priced as board axes | over-budget refuses with the price named |

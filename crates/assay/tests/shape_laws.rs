@@ -49,7 +49,7 @@ fn work_body_dispatches_domains() {
     let shape = triangle_claim(0).encode();
     match WorkBody::parse(&shape).expect("shape") {
         WorkBody::Shape(s) => assert!(s.verify().is_ok()),
-        WorkBody::Boundary(_) => panic!("expected shape"),
+        other => panic!("expected shape, got {other:?}"),
     }
     // boundary domain still works
     let mut b = assay::Boundary::new(1);
@@ -67,7 +67,7 @@ fn work_body_dispatches_domains() {
     assert_eq!(bound[0], DOMAIN_BOUNDARY);
     match WorkBody::parse(&bound).expect("boundary") {
         WorkBody::Boundary(c) => assert!(c.verify().is_some()),
-        WorkBody::Shape(_) => panic!("expected boundary"),
+        other => panic!("expected boundary, got {other:?}"),
     }
 }
 

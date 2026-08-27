@@ -75,6 +75,7 @@
 
 #![deny(missing_docs)]
 
+pub mod complex;
 pub mod credit_event;
 pub mod exact_codec;
 pub mod extent;

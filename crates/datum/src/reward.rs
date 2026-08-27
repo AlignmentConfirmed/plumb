@@ -297,7 +297,7 @@ impl RewardBook {
         }
         let witness = match &work {
             WorkBody::Boundary(c) => c.verify(),
-            WorkBody::Shape(_) => None,
+            WorkBody::Shape(_) | WorkBody::Declared(_) => None,
         };
         let credit = Credit {
             work_id,
