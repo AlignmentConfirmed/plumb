@@ -1,0 +1,43 @@
+[package]
+name = "plumb-sdk"
+version = "0.1.0"
+edition = "2021"
+description = "The kernel attach surface for plumb: declare, check a grant, wrap portable claims in highway envelopes."
+license = "MIT OR Apache-2.0"
+keywords = ["sdk", "protocol", "settlement"]
+
+# The SDK imports the substrate and nothing else. It builds envelopes
+# and reads verdicts; it never verifies a claim. A kernel that wants
+# to VERIFY runs a court — a different decision than attaching to one.
+#
+#     sdk    ->  isthmus            the attach surface
+#     datum  ->  isthmus + assay    the court; dev-only here, so the
+#                                   example can run a court in-process
+#                                   until transport exists
+[lib]
+name = "sdk"
+
+[dependencies]
+isthmus = { path = "../isthmus", package = "plumb-isthmus" }
+
+# The example plays both sides of the wire in one process: the SDK as
+# the kernel, datum as the court. Dev-only — the library a kernel
+# links never pulls the court.
+[dev-dependencies]
+datum = { path = "../datum", package = "plumb-datum" }
+assay = { path = "../assay", package = "plumb-assay" }
+num-bigint = "0.4"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"
+
+[lints.rustdoc]
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "deny"
+
+[lints.clippy]
+panic = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"

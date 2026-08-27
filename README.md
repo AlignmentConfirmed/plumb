@@ -28,7 +28,7 @@ refuses arbiters.
 
 ```bash
 cargo test            # the whole suite; touches nothing outside this directory
-cargo run -p datum --example join
+cargo run -p plumb-sdk --example join
 ```
 
 ## The protocols
@@ -44,13 +44,34 @@ vectors an implementation in any language can be checked against:
 ## What this is, honestly
 
 A complete, tested **model** of a settlement layer: the wire, the
-court, the economics, ~270 tests. It is not yet a deployable network —
-cryptographic identity (signatures), transport, and the witness role
-are specified or deliberately deferred, not built. The status
-discipline lives in `PROOF_ECONOMY.md` §5: nothing here claims to be
-built unless a test can fail over it.
+court, the economics, ~270 tests. It is not yet a deployable network.
+The status discipline lives in `PROOF_ECONOMY.md` §5: nothing here
+claims to be built unless a test can fail over it.
 
 Kernel-edge measurements — the suites that verify live domain engines
 against this reference — live in the lab, a separate repository that
 depends on these crates the way any outsider would. This workspace
 reaches nothing outside its own directory.
+
+## Known gaps
+
+Published with these gaps **stated, not hidden**. An earlier publishing
+policy held release until they closed; that hold was **waived by a
+recorded decision (2026-08-27)** on the grounds that transparency about
+what is verified versus pending builds more trust than delay. The gaps:
+
+1. **No cryptographic identity.** No signatures exist; the chain's
+   digest field is opaque and no digest family is wired in.
+   "Independent parties" is structural in transit but unenforceable at
+   the edges — one party can present as many. The signature layer is
+   designed (`decide/signatures.md`), not built.
+2. **No transport.** The substrate is a library, not a daemon. IS-2 §6
+   session freshness is specified open.
+3. **IS-4 witness role** is specified, not built.
+4. **Tag-51 relation frame carries no shape.** A hexagon crosses as a
+   five-simplex. Known wrong; owed as a frame revision. Do not build
+   on tag 51 as published.
+5. **No independent reader yet.** Every specification gap found so far
+   (four) was found by the author re-reading. If you implement IS-1
+   from the documents and the conformance vectors alone, what you trip
+   over is exactly the feedback this project wants — file it.

@@ -75,3 +75,13 @@ dependencies = [
  "num-rational",
  "num-traits",
 ]
+
+[[package]]
+name = "plumb-sdk"
+version = "0.1.0"
+dependencies = [
+ "num-bigint",
+ "plumb-assay",
+ "plumb-datum",
+ "plumb-isthmus",
+]
