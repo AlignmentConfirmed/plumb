@@ -40,6 +40,9 @@ vectors an implementation in any language can be checked against:
 - [`conformance/`](conformance/) — the vectors, the manifest, and a
   Python reference reader
 - [`INTEGRATING.md`](INTEGRATING.md) — the entry point for implementers
+- [`decide/`](decide/) — design decisions and research tracks:
+  the signature layer (ratified design), topological cryptography
+  (prospective), x402 payment rails (prospective)
 
 ## What this is, honestly
 

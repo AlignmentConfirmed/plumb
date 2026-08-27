@@ -80,6 +80,11 @@ admitted by a chain act rather than a wire break. Revisions compare
 for equality, never order; two peers on different schemes disagree
 about what a signature means, and neither is wrong.
 
+The settlement receipt this layer makes possible is what external
+payment rails settle against — see
+[`x402-integration.md`](x402-integration.md) for the HTTP/stablecoin
+flow (PROSPECTIVE; depends on S1–S7).
+
 ## Task list
 
 | ID | task | done when |
