@@ -320,6 +320,31 @@ pub enum Act {
         /// Last epoch this binding presents in, inclusive.
         until_epoch: u64,
     },
+
+    /// A domain definition, published **on the record** (`IS-6/5`, UC4).
+    ///
+    /// The definition bytes are opaque here for the same reason a
+    /// bind's key and an anchor's digest are: what an evaluation
+    /// definition means is the court's leaf's business (the declared-
+    /// complex codec today; whatever a fixed evaluator speaks
+    /// tomorrow), never the chain's. The chain records that THIS
+    /// holder published THESE bytes for THIS tag — and a court that
+    /// resolves the tag learns the discipline from the chain alone,
+    /// with no rebuild.
+    ///
+    /// A later declare for the same tag supersedes the earlier —
+    /// definitions version by append, like keys. Whether the declarer
+    /// actually holds the tag is the resolver's rule (registration
+    /// requires holding the grant), applied at read time so a
+    /// declaration by a since-retired holder visibly lapses.
+    Declare {
+        /// Who published, as the holder names itself.
+        holder: String,
+        /// The tag the definition governs.
+        tag: Tag,
+        /// The definition bytes, uninterpreted here.
+        definition: Vec<u8>,
+    },
 }
 
 /// What [`Ledger::binding_of`] answers: the key a holder presents
@@ -405,7 +430,8 @@ impl Act {
             Act::Retire { .. }
             | Act::Open { .. }
             | Act::Anchor { .. }
-            | Act::Bind { .. } => return None,
+            | Act::Bind { .. }
+            | Act::Declare { .. } => return None,
         };
         if region.len() > axes {
             return None;
@@ -1600,6 +1626,28 @@ impl Ledger {
         })
     }
 
+    /// The definition governing `tag`, if a **current holder** of the
+    /// tag ever published one (UC4).
+    ///
+    /// The resolver's rule, applied at read time: the last `Declare`
+    /// for the tag whose declarer holds the tag's live deed NOW.
+    /// A definition published by a since-retired holder lapses with
+    /// the deed — a vocabulary does not outlive its grant.
+    #[must_use]
+    pub fn declaration_of(&self, tag: Tag) -> Option<Vec<u8>> {
+        let holder = self.holder_of(tag).filter(|d| d.live)?.holder;
+        self.acts.iter().rev().find_map(|act| match act {
+            Act::Declare {
+                holder: declared_by,
+                tag: declared_tag,
+                definition,
+            } if *declared_tag == tag && *declared_by == holder => {
+                Some(definition.clone())
+            }
+            _ => None,
+        })
+    }
+
     /// Which deed holds a tag on the zero slice, if a live one does.
     pub fn holder_of(&self, tag: Tag) -> Option<Deed> {
         self.deepest(|d| d.covers(tag))
@@ -1724,6 +1772,9 @@ impl Ledger {
                 // A key issues nothing either: binding is identity,
                 // not ground.
                 Act::Bind { .. } => {}
+                // A definition issues nothing: publishing is speech,
+                // not ground.
+                Act::Declare { .. } => {}
                 Act::Issue { holder, .. } | Act::IssueBox { holder, .. } => {
                     let Some(mut region) = act.region(axes_now) else {
                         continue;
@@ -1961,6 +2012,9 @@ impl Ledger {
                 // horizontal rule can trip on it. Whether its window is
                 // honored is the court's enforcement, not chain shape.
                 Act::Bind { .. } => {}
+                // Likewise a declaration: whether the declarer holds
+                // the tag is the resolver's read-time rule.
+                Act::Declare { .. } => {}
                 Act::Retire { holder } => {
                     live.remove(holder);
                 }
@@ -2193,6 +2247,9 @@ pub mod chain {
     /// (`IS-6/4`). Additive: an older reader refuses tag 10 rather
     /// than misfolding, as with every act added since the founding.
     pub const BIND: u64 = 10;
+    /// Chain-record tag for an [`Act::Declare`] — the published
+    /// domain definition (`IS-6/5`). Additive, same rule.
+    pub const DECLARE: u64 = 11;
     /// Chain-record tag for an [`Act::Anchor`] — **the vertical**.
     ///
     /// Tags 1–7 all move this chain's own fold. This one names another
@@ -2337,6 +2394,16 @@ pub mod chain {
                     value.extend_from_slice(&until_epoch.to_le_bytes());
                     BIND
                 }
+                Act::Declare {
+                    holder,
+                    tag: declared,
+                    definition,
+                } => {
+                    put_text(holder, &mut value);
+                    value.extend_from_slice(&declared.to_le_bytes());
+                    put_blob(definition, &mut value);
+                    DECLARE
+                }
             };
             // The founding layout holds tags 1..=3 and every value here
             // fits its length field; ignoring the Ok is the total path.
@@ -2441,6 +2508,16 @@ pub mod chain {
                         key,
                         from_epoch,
                         until_epoch,
+                    }
+                }
+                DECLARE => {
+                    let holder = take_text(&mut reader)?;
+                    let tag = reader.u64()?;
+                    let definition = take_blob(&mut reader)?;
+                    Act::Declare {
+                        holder,
+                        tag,
+                        definition,
                     }
                 }
                 found => {

@@ -189,7 +189,13 @@ pub fn revisions() -> Vec<String> {
     // older reader refuses tag 10 rather than misfolding. A holder
     // with no bind is legacy/unbound — visible, and refusable by
     // courts that demand keys.
-    ["IS-1/4", "IS-2/1", "IS-3/2", "IS-5/2", "IS-6/4"]
+    // IS-6/5: tag 11 `Declare` — a domain definition published on the
+    // record, bound to a tag by the resolver's read-time rule
+    // (registration requires holding the grant; a definition lapses
+    // with its deed). The bytes are opaque to the chain — a court's
+    // evaluator interprets them, which is how a node learns a new
+    // discipline from the chain alone, with no rebuild.
+    ["IS-1/4", "IS-2/1", "IS-3/2", "IS-5/2", "IS-6/5"]
         .iter()
         .map(|s| (*s).to_string())
         .collect()

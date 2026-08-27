@@ -150,9 +150,12 @@ fn fuel_exhaustion_refuses_rather_than_hanging() {
     assert!(big.verify(DEFAULT_FUEL).is_ok(), "affordable at the default");
     assert_eq!(
         big.verify(10),
-        Err(ComplexBroken::FuelExhausted),
-        "an axiom pack is code by another name, and this is its meter"
+        Err(ComplexBroken::FuelExhausted { budget: 10 }),
+        "an axiom pack is code by another name, and this is its meter — \
+         the refusal names the budget"
     );
+    let spent = big.verify(DEFAULT_FUEL).expect("affordable");
+    assert!(spent > 10, "and the meter reads what checking actually cost");
 }
 
 #[test]

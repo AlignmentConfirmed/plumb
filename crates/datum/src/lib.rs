@@ -44,6 +44,7 @@ pub mod court_store;
 /// Wave 4 V16 / D-L3c live multi-host court federation (TCP XDCT).
 pub mod court_live;
 pub mod court_service;
+pub mod domains;
 pub mod extent;
 pub mod hygiene;
 pub mod ledger;

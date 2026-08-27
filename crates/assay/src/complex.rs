@@ -87,8 +87,13 @@ pub enum ComplexBroken {
         /// A cell with nonzero net boundary flux.
         cell: u32,
     },
-    /// The evaluation budget ran out. A refusal, never a hang.
-    FuelExhausted,
+    /// The evaluation budget ran out. A refusal, never a hang — and
+    /// it names the budget, because an over-budget evaluation is
+    /// refused *at a price* (UC6), not at a mystery.
+    FuelExhausted {
+        /// The budget the evaluation was given.
+        budget: u64,
+    },
     /// An exact coefficient failed to decode.
     Exact(ExactBroken),
 }
@@ -105,25 +110,39 @@ impl From<ExactBroken> for ComplexBroken {
 /// The evaluation budget: one unit per multiply-accumulate or
 /// canonical-order comparison. Charging is infallible; spending past
 /// the budget refuses.
-struct Fuel(u64);
+struct Fuel {
+    budget: u64,
+    left: u64,
+}
 
 impl Fuel {
+    fn new(budget: u64) -> Self {
+        Self { budget, left: budget }
+    }
+
     fn spend(&mut self, units: u64) -> Result<(), ComplexBroken> {
-        match self.0.checked_sub(units) {
+        match self.left.checked_sub(units) {
             Some(left) => {
-                self.0 = left;
+                self.left = left;
                 Ok(())
             }
-            None => Err(ComplexBroken::FuelExhausted),
+            None => Err(ComplexBroken::FuelExhausted {
+                budget: self.budget,
+            }),
         }
+    }
+
+    fn spent(&self) -> u64 {
+        self.budget - self.left
     }
 }
 
 impl DeclaredComplex {
     /// Admit the declaration: shape, canonicality, and `∂∘∂ = 0`,
-    /// all under `fuel`.
-    pub fn admit(&self, fuel: u64) -> Result<(), ComplexBroken> {
-        let mut fuel = Fuel(fuel);
+    /// all under `fuel`. Returns the fuel **spent** — the price of
+    /// having checked (UC6).
+    pub fn admit(&self, fuel: u64) -> Result<u64, ComplexBroken> {
+        let mut fuel = Fuel::new(fuel);
         if self.cells.is_empty() || self.cells.iter().all(|c| *c == 0) {
             return Err(ComplexBroken::Empty);
         }
@@ -172,7 +191,59 @@ impl DeclaredComplex {
                 return Err(ComplexBroken::NotAComplex { dim: k as u32 });
             }
         }
-        Ok(())
+        Ok(fuel.spent())
+    }
+
+    /// The definition bytes a chain publishes (UC4): the complex
+    /// alone, canonically — no transport, no witness. What
+    /// `Act::Declare` carries and a resolver compares against.
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        let dims = u32::try_from(self.cells.len()).unwrap_or(u32::MAX);
+        out.extend_from_slice(&dims.to_le_bytes());
+        for count in &self.cells {
+            out.extend_from_slice(&count.to_le_bytes());
+        }
+        for op in &self.ops {
+            let n = u32::try_from(op.len()).unwrap_or(u32::MAX);
+            out.extend_from_slice(&n.to_le_bytes());
+            for entry in op {
+                out.extend_from_slice(&entry.row.to_le_bytes());
+                out.extend_from_slice(&entry.col.to_le_bytes());
+                exact_codec::put_exact(&entry.coeff, &mut out);
+            }
+        }
+        out
+    }
+
+    /// Read definition bytes back. Canonicality and complex-hood are
+    /// [`DeclaredComplex::admit`]'s answer, not this codec's.
+    pub fn decode(bytes: &[u8]) -> Result<Self, ComplexBroken> {
+        let mut at = 0usize;
+        let dims = exact_codec::take_u32(bytes, &mut at)? as usize;
+        if dims == 0 || dims > 4096 {
+            return Err(ComplexBroken::Empty);
+        }
+        let mut cells = Vec::with_capacity(dims);
+        for _ in 0..dims {
+            cells.push(exact_codec::take_u32(bytes, &mut at)?);
+        }
+        let mut ops = Vec::with_capacity(dims.saturating_sub(1));
+        for _ in 0..dims.saturating_sub(1) {
+            let n = exact_codec::take_u32(bytes, &mut at)? as usize;
+            let mut op = Vec::with_capacity(n.min(1 << 16));
+            for _ in 0..n {
+                let row = exact_codec::take_u32(bytes, &mut at)?;
+                let col = exact_codec::take_u32(bytes, &mut at)?;
+                let coeff = exact_codec::take_exact(bytes, &mut at)?;
+                op.push(Entry { row, col, coeff });
+            }
+            ops.push(op);
+        }
+        if at != bytes.len() {
+            return Err(ComplexBroken::Trailing);
+        }
+        Ok(Self { cells, ops })
     }
 
     /// Does a witness chain in dimension `dim` **close**: `∂c = 0`?
@@ -185,8 +256,8 @@ impl DeclaredComplex {
         dim: u32,
         witness: &[(u32, Exact)],
         fuel: u64,
-    ) -> Result<(), ComplexBroken> {
-        let mut fuel = Fuel(fuel);
+    ) -> Result<u64, ComplexBroken> {
+        let mut fuel = Fuel::new(fuel);
         let dim = dim as usize;
         let count = self
             .cells
@@ -208,7 +279,7 @@ impl DeclaredComplex {
             previous = Some(*cell);
         }
         if dim == 0 {
-            return Ok(()); // a 0-chain has no boundary to open
+            return Ok(fuel.spent()); // a 0-chain has no boundary to open
         }
         let op = self
             .ops
@@ -231,7 +302,7 @@ impl DeclaredComplex {
         if let Some((cell, _)) = flux.iter().find(|(_, v)| !v.is_zero()) {
             return Err(ComplexBroken::OpenBoundary { cell: *cell });
         }
-        Ok(())
+        Ok(fuel.spent())
     }
 }
 
@@ -250,10 +321,13 @@ pub struct DeclaredClaim {
 
 impl DeclaredClaim {
     /// Verify by re-derivation under `fuel`: the declaration is a
-    /// complex, and the witness closes in it.
-    pub fn verify(&self, fuel: u64) -> Result<(), ComplexBroken> {
-        self.complex.admit(fuel)?;
-        self.complex.closes(self.dim, &self.witness, fuel)
+    /// complex, and the witness closes in it. Returns total fuel
+    /// spent — what a board prices (UC6).
+    pub fn verify(&self, fuel: u64) -> Result<u64, ComplexBroken> {
+        let spent = self.complex.admit(fuel)?;
+        let remaining = fuel.saturating_sub(spent);
+        let more = self.complex.closes(self.dim, &self.witness, remaining)?;
+        Ok(spent.saturating_add(more))
     }
 
     /// **Primary identity for credit:** structure only, transport
@@ -361,4 +435,67 @@ impl DeclaredClaim {
             witness,
         })
     }
+}
+
+/// UC5 — Shape, re-expressed as a declared complex.
+///
+/// The shape vocabulary (an undirected simple charged graph) is a
+/// constrained sub-language of declared complexes; its constraints
+/// live in this translation, and everything else is checked by the
+/// same fixed evaluator that checks every domain. The witness is the
+/// all-orbs 0-chain — Shape's law is structural admission, not
+/// closure, and a 0-chain closes trivially, so the verdict is
+/// exactly the declaration's admissibility.
+///
+/// Refusals reuse the complex's own names: a zero charge is a
+/// non-canonical coefficient, a duplicate edge is a non-canonical
+/// column, an out-of-range orb is an out-of-range cell.
+pub fn from_shape(shape: &crate::shape::Shape) -> Result<DeclaredClaim, ComplexBroken> {
+    let orbs = shape.orbs();
+    let edges = shape.edges();
+    if orbs == 0 || edges.is_empty() {
+        return Err(ComplexBroken::Empty);
+    }
+    let mut op = Vec::with_capacity(edges.len() * 2);
+    let mut previous: Option<(u32, u32)> = None;
+    for (k, edge) in edges.iter().enumerate() {
+        let col = u32::try_from(k).map_err(|_| ComplexBroken::OperatorShape)?;
+        if edge.i >= orbs || edge.j >= orbs || edge.i >= edge.j {
+            return Err(ComplexBroken::CellOutOfRange { op: 0 });
+        }
+        if edge.charge.is_zero() {
+            return Err(ComplexBroken::NotCanonical);
+        }
+        // A duplicate (i, j) pair is the same column signature twice —
+        // one structure, one byte string, so it refuses here.
+        if previous.is_some_and(|p| p == (edge.i, edge.j)) {
+            return Err(ComplexBroken::NotCanonical);
+        }
+        previous = Some((edge.i, edge.j));
+        // ∂(edge) = j − i, weighted by the charge. Canonical order
+        // within the column: row i < row j.
+        op.push(Entry {
+            row: edge.i,
+            col,
+            coeff: -edge.charge.clone(),
+        });
+        op.push(Entry {
+            row: edge.j,
+            col,
+            coeff: edge.charge.clone(),
+        });
+    }
+    let count = u32::try_from(edges.len()).map_err(|_| ComplexBroken::OperatorShape)?;
+    let witness = (0..orbs)
+        .map(|orb| (orb, Exact::from_integer(1.into())))
+        .collect();
+    Ok(DeclaredClaim {
+        transport: 0,
+        complex: DeclaredComplex {
+            cells: vec![orbs, count],
+            ops: vec![op],
+        },
+        dim: 0,
+        witness,
+    })
 }

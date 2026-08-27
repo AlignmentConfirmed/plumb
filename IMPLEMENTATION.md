@@ -51,7 +51,7 @@ which is most of §3.
 
 ---
 
-## 2 · The universal checker (UC) — ruled, blocks beta
+## 2 · The universal checker (UC) — COMPLETE (UC1–UC6, 2026-08-27)
 
 **Ruling (2026-08-27): adopt now, ahead of the beta network.** The
 binary is the invariant proof-checker; domains circulate as data. If
@@ -81,9 +81,9 @@ compiled path stays until UC5's verdict-equivalence suite is green.
 | **UC1** | Declared-complex codec: incidence + boundary operators + exact weights as data, no geometry structs | **DONE** — `assay::complex`, `tests/declared.rs`: hexagon ≠ five-simplex as bytes |
 | **UC2** | Fixed evaluator in assay: submitted chain closes against a declared complex, exact arithmetic, fuel-bounded | **DONE** — ∂∂=0 admitted, closure checked, `OpenBoundary` names the leaking cell, `FuelExhausted` refuses |
 | **UC3** | Domain-3 claim body: complex reference + witness; content-addressed `work_id` | **DONE** — `DOMAIN_DECLARED=3` through `WorkBody`; replay refuses across transports; multi-axial credit per declared dimension |
-| **UC4** | Domain registration on chain, bound to a tag grant; courts resolve tag → definition from chain state | a node learns a discipline from the chain alone, no rebuild |
-| **UC5** | Shape re-expressed as declared complex; verdict equivalence vs compiled domain 2 | equivalence suite green; tag-51 class closed |
-| **UC6** | Fuel/size bounds priced as board axes | over-budget refuses with the price named |
+| **UC4** | Domain registration on chain, bound to a tag grant; courts resolve tag → definition from chain state | **DONE** — `Act::Declare` (IS-6/5), `Ledger::declaration_of`, `datum::domains::verify_registered`; a definition lapses with its grant; registration is not trust (bad definitions refuse at judgment) |
+| **UC5** | Shape re-expressed as declared complex; verdict equivalence vs compiled domain 2 | **DONE** — `complex::from_shape`, `tests/shape_equivalence.rs` over the constructible corpus; charges survive exactly |
+| **UC6** | Fuel/size bounds priced as board axes | **DONE** — metered verify returns spent; `FuelExhausted { budget }` names the price; `domains::fuel_budget` reads it off a board price axis |
 
 Registration authority (ruled here): publishing a domain definition
 requires holding the tag grant it binds to — the same authorization

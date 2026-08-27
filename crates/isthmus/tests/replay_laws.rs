@@ -118,6 +118,14 @@ fn every_act() -> Vec<(u64, Act)> {
                 until_epoch: 9,
             },
         ),
+        (
+            chain::DECLARE,
+            Act::Declare {
+                holder: "beta".to_owned(),
+                tag: 42,
+                definition: vec![3, 0, 0],
+            },
+        ),
     ]
 }
 
@@ -137,6 +145,7 @@ fn tag_of(act: &Act) -> u64 {
         Act::Sublet { .. } => chain::SUBLET,
         Act::Anchor { .. } => chain::ANCHOR,
         Act::Bind { .. } => chain::BIND,
+        Act::Declare { .. } => chain::DECLARE,
     }
 }
 
