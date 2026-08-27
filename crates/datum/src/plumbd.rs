@@ -328,3 +328,71 @@ fn produce_inner(
     }
     Ok(sent)
 }
+
+/// One carried session: records from `client` forwarded to `upstream`
+/// **unread** — the carrier's whole capability, and its whole limit.
+///
+/// The carrier declares itself to both sides; after the declarations
+/// it never decodes another value. What a carrier cannot read, a
+/// carrier cannot front-run.
+pub fn carrier_session(
+    mut client: TcpStream,
+    layout: &Layout,
+    ledger: &Ledger,
+    holder: &str,
+    bound: usize,
+    upstream: impl ToSocketAddrs,
+) -> Result<usize, NodeBroken> {
+    let ours = Hello::of(ledger, holder, u32::try_from(bound).unwrap_or(u32::MAX));
+
+    // Face the client: hear their declaration, answer with ours.
+    let mut client_buf = Vec::new();
+    let _client_hello = read_hello(&mut client, &mut client_buf, layout, &ours, bound)?;
+    send_hello(&mut client, layout, hello_tag(ledger, holder), &ours)?;
+
+    // Face upstream: declare, hear the court.
+    let mut court = TcpStream::connect(upstream)?;
+    send_hello(&mut court, layout, hello_tag(ledger, holder), &ours)?;
+    let mut court_buf = Vec::new();
+    let _court_hello = read_hello(&mut court, &mut court_buf, layout, &ours, bound)?;
+
+    // Forward whole frames, unread, in order.
+    let mut forwarded = 0usize;
+    while let Some((_tag, frame)) = read_record(&mut client, &mut client_buf, layout, bound)? {
+        court.write_all(&frame)?;
+        forwarded += 1;
+    }
+    Ok(forwarded)
+}
+
+/// Accept and carry forever, one thread per client session.
+pub fn carry(
+    listener: &TcpListener,
+    layout: &Layout,
+    ledger: &Ledger,
+    holder: &str,
+    bound: usize,
+    upstream: String,
+    on_session: impl Fn(usize) + Send + Sync + 'static,
+) -> std::io::Error {
+    let on_session = Arc::new(on_session);
+    loop {
+        match listener.accept() {
+            Ok((stream, _peer)) => {
+                let layout = layout.clone();
+                let ledger = ledger.clone();
+                let holder = holder.to_owned();
+                let upstream = upstream.clone();
+                let on_session = Arc::clone(&on_session);
+                std::thread::spawn(move || {
+                    if let Ok(forwarded) =
+                        carrier_session(stream, &layout, &ledger, &holder, bound, &upstream)
+                    {
+                        on_session(forwarded);
+                    }
+                });
+            }
+            Err(e) => return e,
+        }
+    }
+}

@@ -31,6 +31,8 @@ cargo test               # the whole suite; touches nothing outside this directo
 cargo run -p plumb-sdk --example join
 scripts/proofnet.sh      # the whole economy on one machine: genesis, signed
                          # claims, a registered domain, federation, kill/resume
+scripts/simnet.sh start  # a STANDING local network on 9xxx ports: three
+                         # federating courts, a carrier, looping signed clients
 ```
 
 ## The protocols

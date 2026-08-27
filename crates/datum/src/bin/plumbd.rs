@@ -42,6 +42,10 @@ struct Config {
     require_signatures: bool,
     seed: Option<String>,
     demo: String,
+    upstream: Option<String>,
+    every: u64,
+    start_n: u32,
+    step: u32,
     out: Option<String>,
     grants: Vec<String>,
     binds: Vec<(String, String)>,
@@ -64,6 +68,10 @@ fn parse(text: &str) -> Config {
         require_signatures: false,
         seed: None,
         demo: "triangle".into(),
+        upstream: None,
+        every: 5,
+        start_n: 3,
+        step: 1,
         out: None,
         grants: Vec::new(),
         binds: Vec::new(),
@@ -94,6 +102,22 @@ fn parse(text: &str) -> Config {
             }
             "require_signatures" => config.require_signatures = value == "true",
             "demo" => config.demo = value,
+            "upstream" => config.upstream = Some(value),
+            "every" => {
+                if let Ok(n) = value.parse() {
+                    config.every = n;
+                }
+            }
+            "start_n" => {
+                if let Ok(n) = value.parse() {
+                    config.start_n = n;
+                }
+            }
+            "step" => {
+                if let Ok(n) = value.parse() {
+                    config.step = n;
+                }
+            }
             "out" => config.out = Some(value),
             "grant" => config.grants.push(value),
             "bind" => {
@@ -315,6 +339,78 @@ fn main() {
                 }
             }
         }
+        "carrier" => {
+            let Some(upstream) = config.upstream.clone() else {
+                eprintln!("plumbd: carrier needs `upstream = host:port`");
+                std::process::exit(2);
+            };
+            let listener = match TcpListener::bind(&config.listen) {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("plumbd: cannot listen on {}: {e}", config.listen);
+                    std::process::exit(1);
+                }
+            };
+            println!(
+                "plumbd: carrier '{}' on {} -> {} (forwards unread)",
+                config.holder, config.listen, upstream
+            );
+            let err = plumbd::carry(
+                &listener,
+                &layout,
+                &ledger,
+                &config.holder,
+                config.bound,
+                upstream,
+                |forwarded| println!("plumbd: carried session — {forwarded} frame(s) forwarded, none read"),
+            );
+            eprintln!("plumbd: carrier failed: {err}");
+            std::process::exit(1);
+        }
+        "client" => {
+            let Some(seed_hex) = config.seed.as_deref() else {
+                eprintln!("plumbd: client needs `seed = <64 hex>` — the simnet is signed");
+                std::process::exit(2);
+            };
+            let Some(seed) = seed_from_hex(seed_hex) else {
+                eprintln!("plumbd: seed must be 64 hex chars");
+                std::process::exit(2);
+            };
+            if config.peers.is_empty() {
+                eprintln!("plumbd: client needs at least one `peer =` line");
+                std::process::exit(2);
+            }
+            let key = sig::Keypair::from_seed(seed);
+            let mut n = config.start_n.max(3);
+            println!(
+                "plumbd: client '{}' — fresh {}-cycle work every {}s, step {}",
+                config.holder, n, config.every, config.step
+            );
+            loop {
+                let body = datum::domains::demo_cycle_claim(n, u64::from(n)).encode();
+                let mut envelope = Vec::new();
+                if isthmus::work::put_shape_claim(&body, &mut envelope).is_err() {
+                    eprintln!("plumbd: could not frame the {n}-cycle");
+                    std::process::exit(1);
+                }
+                for peer in &config.peers {
+                    match plumbd::produce_signed(
+                        peer.as_str(),
+                        &layout,
+                        &ledger,
+                        &config.holder,
+                        config.bound,
+                        std::slice::from_ref(&envelope),
+                        &key,
+                    ) {
+                        Ok(_) => println!("plumbd: {n}-cycle claim -> {peer}"),
+                        Err(e) => println!("plumbd: {peer} unreachable ({e:?}); next round"),
+                    }
+                }
+                n = n.saturating_add(config.step.max(1));
+                std::thread::sleep(std::time::Duration::from_secs(config.every.max(1)));
+            }
+        }
         "genesis" => {
             let Some(out) = &config.out else {
                 eprintln!("plumbd: genesis needs `out = <path>`");
@@ -374,7 +470,7 @@ fn main() {
             );
         }
         other => {
-            eprintln!("plumbd: unknown role '{other}' (court | producer | genesis)");
+            eprintln!("plumbd: unknown role '{other}' (court | producer | carrier | client | genesis)");
             std::process::exit(2);
         }
     }

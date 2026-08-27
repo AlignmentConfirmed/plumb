@@ -77,12 +77,13 @@ pub fn fuel_budget(price: &Extent, axis: usize) -> u64 {
         .unwrap_or(0)
 }
 
-/// The demo universe: six vertices, six edges in a cycle. A fixture
-/// for the proofnet script and the tests — the first universe a beta
-/// court registers, and small enough to read.
+/// The n-cycle universe: n vertices, n edges in a ring. The demo
+/// family for proofnet and simnet — every n is a DIFFERENT structure,
+/// so a client that walks n produces fresh work each round while a
+/// repeated n refuses as replay.
 #[must_use]
-pub fn demo_hexagon_universe() -> DeclaredComplex {
-    let n = 6u32;
+pub fn demo_cycle_universe(n: u32) -> DeclaredComplex {
+    let n = n.max(3);
     let mut op = Vec::new();
     for i in 0..n {
         let (source, target) = (i, (i + 1) % n);
@@ -107,13 +108,26 @@ pub fn demo_hexagon_universe() -> DeclaredComplex {
     }
 }
 
-/// The demo claim: the full hexagon cycle, which closes.
+/// The full n-cycle claim, which closes.
 #[must_use]
-pub fn demo_hexagon_claim(transport: u64) -> DeclaredClaim {
+pub fn demo_cycle_claim(n: u32, transport: u64) -> DeclaredClaim {
+    let n = n.max(3);
     DeclaredClaim {
         transport,
-        complex: demo_hexagon_universe(),
+        complex: demo_cycle_universe(n),
         dim: 1,
-        witness: (0..6).map(|i| (i, assay::whole(1))).collect(),
+        witness: (0..n).map(|i| (i, assay::whole(1))).collect(),
     }
+}
+
+/// The hexagon: the 6-cycle, kept by name for the tests and docs.
+#[must_use]
+pub fn demo_hexagon_universe() -> DeclaredComplex {
+    demo_cycle_universe(6)
+}
+
+/// The hexagon claim.
+#[must_use]
+pub fn demo_hexagon_claim(transport: u64) -> DeclaredClaim {
+    demo_cycle_claim(6, transport)
 }

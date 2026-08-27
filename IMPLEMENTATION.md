@@ -125,6 +125,7 @@ Ruled shape: freshness is layered, not invented per transport.
 | ID | task | done when |
 |---|---|---|
 | **B0** | **Local proofnet** — the whole economy on one machine | **DONE** — `scripts/proofnet.sh`: genesis (issue + bind + declare) → enforcing court federating to a second → signed declared-domain claim credits once, its copy refuses → `kill -9` → resume → still refuses. 9/9 checks, PASS |
+| **B0+** | **simnet** — a standing local network until alpha/beta goes global: three courts in a federation ring (9501–9503/9601–9603), a payload-blind carrier (9701), two signed clients producing fresh n-cycle work on timers. `scripts/simnet.sh start\|stop\|status\|logs\|reset`; state under `~/.plumb/simnet` | **RUNNING** |
 | **B1** | Testnet genesis: public founding chain, seed nodes, grant flow (request → `Issue` + `Bind` on chain → tester's plumbd attaches). Resets allowed and stated | a stranger's plumbd holds a granted range |
 | **B2** | Onboarding kit: QUICKSTART, Docker image, per-role configs, BETA.md, issue templates (bug / spec-gap / independent-reader finding), CONTRIBUTING.md | tester online in 15 minutes, measured with a real tester |
 | **B3** | CI (test + clippy + clean-clone); beta consumers depend by **pinned git tag** (OQ2: no crates.io until public launch) | a kernel builds against a tag with no local checkout |
