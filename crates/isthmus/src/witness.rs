@@ -103,10 +103,11 @@ impl Witness {
     pub fn decode(value: &[u8]) -> Result<Self, Malformed> {
         let mut at = 0usize;
         let take = |at: &mut usize, n: usize| -> Result<&[u8], Malformed> {
+            let end = at.saturating_add(n);
             let piece = value
-                .get(*at..*at + n)
+                .get(*at..end)
                 .ok_or(Malformed::TrailingBytes { left: n })?;
-            *at += n;
+            *at = end;
             Ok(piece)
         };
         let arm = match take(&mut at, 1)?.first().copied() {
