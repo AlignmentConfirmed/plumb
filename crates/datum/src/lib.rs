@@ -48,6 +48,7 @@ pub mod ledger;
 pub mod merge;
 pub mod negotiation;
 pub mod onramp;
+pub mod plumbd;
 pub mod registry;
 pub mod reward;
 pub mod sample;
