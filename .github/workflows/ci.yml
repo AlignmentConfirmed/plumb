@@ -1,0 +1,64 @@
+# CI — the same two commands a contributor runs, on a machine that
+# holds nothing else. The empty runner IS the clean-clone proof: this
+# workspace claims to reach nothing outside its own directory, and a
+# checkout with no siblings makes the claim fail loudly if it lies.
+#
+# No fmt gate, decided: the house style is hand-set (inherited from
+# the lab) and the lints that matter are `deny` in the manifests —
+# clippy enforces them here with warnings promoted.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: test (edge-free by construction, no siblings on this runner)
+        run: cargo test --workspace
+      - name: clippy (the manifests' denies, with warnings promoted)
+        run: cargo clippy --all-targets -- -D warnings
+
+  tag-consumption:
+    # B3's law: a kernel depends by pinned git ref with NO local
+    # checkout — cargo fetches the workspace itself. No crates.io
+    # until public launch (OQ2).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dtolnay/rust-toolchain@stable
+      - name: a stranger's kernel builds against this exact commit
+        run: |
+          cargo new tagcheck --bin
+          cd tagcheck
+          cat >> Cargo.toml <<EOF
+          plumb-sdk = { git = "https://github.com/${{ github.repository }}", rev = "${{ github.sha }}" }
+          EOF
+          cat > src/main.rs <<'EOF'
+          use plumb_sdk as sdk;
+          fn main() {
+              // The one-line integration claim, exercised: declare and
+              // agree with no tree on disk beyond what cargo fetched.
+              let ledger = isthmus::deed::Ledger::new(isthmus::layout::Layout::founding());
+              let ours = sdk::attach::declare(&ledger, "tagcheck", 1 << 12);
+              let pact = sdk::attach::agree(&ours, &ours).expect("same build");
+              println!("attached: {} shared revisions", pact.revisions.len());
+          }
+          EOF
+          # sdk re-exposes nothing of isthmus by design; the kernel
+          # names both, like a real integrator.
+          cat >> Cargo.toml <<EOF
+          isthmus = { git = "https://github.com/${{ github.repository }}", rev = "${{ github.sha }}", package = "plumb-isthmus" }
+          EOF
+          cargo run
