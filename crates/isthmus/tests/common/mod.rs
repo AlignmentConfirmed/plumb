@@ -12,6 +12,9 @@ pub fn founding() -> isthmus::layout::Layout {
 
 /// Parse lowercase hex with no separators.
 #[allow(dead_code)] // not every test file needs both helpers
+// chunks_exact keeps this helper on stable back to the MSRV; the
+// as_chunks form is newer than the code, not better than it.
+#[allow(clippy::chunks_exact_to_as_chunks)]
 pub fn hex(text: &str) -> Vec<u8> {
     let chars: Vec<char> = text.chars().collect();
     let pairs = chars.chunks_exact(2);

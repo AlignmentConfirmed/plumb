@@ -43,10 +43,10 @@ jobs:
           cargo new tagcheck --bin
           cd tagcheck
           cat >> Cargo.toml <<EOF
-          plumb-sdk = { git = "https://github.com/${{ github.repository }}", rev = "${{ github.sha }}" }
+          sdk = { git = "https://github.com/${{ github.repository }}", rev = "${{ github.sha }}", package = "plumb-sdk" }
+          isthmus = { git = "https://github.com/${{ github.repository }}", rev = "${{ github.sha }}", package = "plumb-isthmus" }
           EOF
           cat > src/main.rs <<'EOF'
-          use plumb_sdk as sdk;
           fn main() {
               // The one-line integration claim, exercised: declare and
               // agree with no tree on disk beyond what cargo fetched.
@@ -55,10 +55,5 @@ jobs:
               let pact = sdk::attach::agree(&ours, &ours).expect("same build");
               println!("attached: {} shared revisions", pact.revisions.len());
           }
-          EOF
-          # sdk re-exposes nothing of isthmus by design; the kernel
-          # names both, like a real integrator.
-          cat >> Cargo.toml <<EOF
-          isthmus = { git = "https://github.com/${{ github.repository }}", rev = "${{ github.sha }}", package = "plumb-isthmus" }
           EOF
           cargo run
