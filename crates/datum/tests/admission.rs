@@ -196,9 +196,12 @@ fn an_enforcing_court_credits_signed_and_refuses_unsigned() {
     {
         let (layout, ledger, book) = (layout.clone(), court_ledger.clone(), Arc::clone(&book));
         std::thread::spawn(move || {
-            let _ = plumbd::serve(
-                &listener, &layout, &ledger, "test-court", &book, BOUND, true, |_| {},
-            );
+            let rules = plumbd::SessionRules {
+                holder: "test-court".into(),
+                bound: BOUND,
+                enforce: true,
+            };
+            let _ = plumbd::serve(&listener, &layout, &ledger, &rules, &book, |_| {});
         });
     }
 

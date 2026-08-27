@@ -142,6 +142,19 @@ pub fn read_hello(
     Ok(theirs)
 }
 
+/// How a court runs its sessions: one struct, so the daemon, the
+/// tests, and future roles pass the same rules the same way.
+#[derive(Debug, Clone)]
+pub struct SessionRules {
+    /// What the chain calls this court.
+    pub holder: String,
+    /// Largest record value this deployment accepts — measured.
+    pub bound: usize,
+    /// S4: hold every work envelope for its attestation and refuse
+    /// forged / stale / unbound / orphaned presentations.
+    pub enforce: bool,
+}
+
 /// What one court session did.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct SessionReport {
@@ -163,11 +176,10 @@ pub fn court_session(
     mut stream: TcpStream,
     layout: &Layout,
     ledger: &Ledger,
-    holder: &str,
+    rules: &SessionRules,
     book: &Arc<Mutex<RewardBook>>,
-    bound: usize,
-    enforce: bool,
 ) -> Result<SessionReport, NodeBroken> {
+    let (holder, bound, enforce) = (rules.holder.as_str(), rules.bound, rules.enforce);
     let ours = Hello::of(ledger, holder, u32::try_from(bound).unwrap_or(u32::MAX));
     let mut buffer = Vec::new();
     let _theirs = read_hello(&mut stream, &mut buffer, layout, &ours, bound)?;
@@ -229,10 +241,8 @@ pub fn serve(
     listener: &TcpListener,
     layout: &Layout,
     ledger: &Ledger,
-    holder: &str,
+    rules: &SessionRules,
     book: &Arc<Mutex<RewardBook>>,
-    bound: usize,
-    enforce: bool,
     on_session: impl Fn(&SessionReport) + Send + Sync + 'static,
 ) -> std::io::Error {
     let on_session = Arc::new(on_session);
@@ -241,12 +251,11 @@ pub fn serve(
             Ok((stream, _peer)) => {
                 let layout = layout.clone();
                 let ledger = ledger.clone();
-                let holder = holder.to_owned();
+                let rules = rules.clone();
                 let book = Arc::clone(book);
                 let on_session = Arc::clone(&on_session);
                 std::thread::spawn(move || {
-                    if let Ok(report) =
-                        court_session(stream, &layout, &ledger, &holder, &book, bound, enforce)
+                    if let Ok(report) = court_session(stream, &layout, &ledger, &rules, &book)
                     {
                         on_session(&report);
                     }

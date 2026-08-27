@@ -211,14 +211,17 @@ fn main() {
             if config.require_signatures {
                 println!("plumbd: signature enforcement ON (S4)");
             }
+            let rules = plumbd::SessionRules {
+                holder: config.holder.clone(),
+                bound: config.bound,
+                enforce: config.require_signatures,
+            };
             let err = plumbd::serve(
                 &listener,
                 &layout,
                 &ledger,
-                &config.holder,
+                &rules,
                 &book,
-                config.bound,
-                config.require_signatures,
                 |report| {
                     println!(
                         "plumbd: session closed — credited {}, refused {}, skipped {}",
