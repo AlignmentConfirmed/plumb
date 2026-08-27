@@ -143,7 +143,7 @@ and the authorization is *on the ledger*, not in a config file:
    edge into a portable claim the court can verify. The substrate never
    learns the dialect; the court never learns the kernel.
 
-The SDK surface a kernel needs (see `decide/consolidation.md` for the
+The SDK surface a kernel needs (see `IMPLEMENTATION.md` for the
 crate plan):
 
 | operation | what it does |

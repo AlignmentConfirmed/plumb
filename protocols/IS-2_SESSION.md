@@ -3,13 +3,13 @@
 **Status:** §7 (**never vs not yet**) is **ENFORCED** in
 `isthmus::session` / `datum::session`. §6 freshness / transport replay
 is **OPEN** — and is **not** the primary identity key for useful work
-(see `FOUNDATION.md` §5 Wave B / `decide/powpp-alignment.md`).
+(see `FOUNDATION.md` §5 Wave B / the lab's `decide/powpp-alignment.md`).
 
 ## 1. What a session is
 
 A sequence of records in one direction, and the same in the other.
 Nothing in the sequence marks which side is which — refusals 4 and 19,
-and `decide/siblings.md`. There is no coordinator, no server, and no
+and the lab's `decide/siblings.md`. There is no coordinator, no server, and no
 distinguished linking mesh.
 
 A session is not a connection. A file carrier and a socket carrier run
@@ -49,7 +49,7 @@ pub fn feed(&mut self, arrived: &[u8]) -> Vec<u8> {
 ```
 
 The partial tail is held. The adapter parses nothing. Per
-`decide/wire-framing.md`, the session **sequences** records and never
+the lab's `decide/wire-framing.md`, the session **sequences** records and never
 reframes them: a record read from a socket and the same record read from
 a file are the same bytes.
 
@@ -88,7 +88,7 @@ it:
 A mesh linking into `isthmus` runs an ordinary session. It demonstrates
 a position or it does not, exactly as a kernel does, and it forwards
 frames it does not own by length. Nothing in this document treats it
-differently, which is `decide/node-identity.md` holding.
+differently, which is the lab's `decide/node-identity.md` holding.
 
 ## 6. Freshness — ruled, and split by frame kind (H7)
 
@@ -108,7 +108,7 @@ grep -rniE 'replay|freshness|nonce|seen before|duplicate' strand/src/*.rs
 returns only unrelated `RELATION_DUPLICATED` and `MISMATCH_DUPLICATED`
 constants. There is no sequence number, no window, no seen-set.
 
-`decide/transport-security.md` and `decide/node-identity.md` both
+the lab's `decide/transport-security.md` and the lab's `decide/node-identity.md` both
 concluded that replay is not answered where it was being looked for:
 
 - Tampering degrades to refusal because nothing above believes an

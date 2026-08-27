@@ -8,7 +8,7 @@ kernels, connectivity without payload inspection.
 **Dimensionality:** deed space is **n-axial polytopal** (`Act::Open`),
 not 2-D. Multi-chain structure is a **sphere of frontiers**
 (`sphere` module) — hypersphere envelope of observations. Master
-equation: datum `decide/linkage-estates.md`.
+equation: datum the lab's `decide/linkage-estates.md`.
 
 Independent nodes import this crate as **producer**, **verifier**, or
 **carrier** (`node`); POW++ claim envelopes are opaque frames (`work`).

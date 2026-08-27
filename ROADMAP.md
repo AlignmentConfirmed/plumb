@@ -8,8 +8,8 @@ you can leave running, an identity a grant can be held to, and the
 onboarding path for someone who is not us.
 
 Each item ends in a test or a shipped artifact, per this repository's
-discipline. IDs continue the `decide/` task lists (S = signatures,
-X = x402).
+discipline. IDs are defined in `IMPLEMENTATION.md` (S = signatures,
+UC = universal checker, X = x402).
 
 ## Phase A — trust (the unpoured floor)
 
@@ -43,7 +43,7 @@ The engine becomes the invariant: domains circulate as data, the
 binary never recompiles to learn a discipline. Ruled ahead of the
 beta so testers onboard onto the declared-domain engine, not the
 legacy compiled path. Full decision + ladder:
-[`decide/universal-checker.md`](decide/universal-checker.md).
+`IMPLEMENTATION.md`.
 
 | ID | task | done when |
 |---|---|---|
@@ -66,10 +66,10 @@ Testnet resets are allowed and will be announced — it is a beta.
 
 ## Phase E — after the network stands
 
-- **X1–X5** — x402 payment rails (`decide/x402-integration.md`),
+- **X1–X5** — x402 payment rails (`IMPLEMENTATION.md`),
   gated behind the settlement receipts S1–S7 make possible.
 - **Topological signatures** — held at PROSPECTIVE
-  (`decide/topological-cryptography.md`) until the cryptanalytic bar
+  (`IMPLEMENTATION.md`) until the cryptanalytic bar
   is met; enters as scheme ≥ `0x02` through the agility seam, no wire
   break.
 - **Kernel repoints** — external kernels move onto the published

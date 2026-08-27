@@ -1,6 +1,6 @@
 //! # SIG — the identity physics (scheme `0x01`).
 //!
-//! Ed25519 over a BLAKE3 **envelope hash**, per `decide/signatures.md`.
+//! Ed25519 over a BLAKE3 **envelope hash**, per `IMPLEMENTATION.md`.
 //! The hash covers the whole opaque frame — `tag ‖ LE32(len) ‖ value` —
 //! so a checker binds a presenter to bytes it already owns **without
 //! reading the payload**. Signature checking is not claim inspection:
@@ -15,7 +15,7 @@
 //!
 //! Every attestation opens with a scheme byte. `0x01` is
 //! Ed25519/BLAKE3; an unknown scheme is a named refusal, never a
-//! guess — a successor scheme (see `decide/topological-cryptography.md`)
+//! guess — a successor scheme (see `IMPLEMENTATION.md`)
 //! enters by chain act, not by wire break.
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};

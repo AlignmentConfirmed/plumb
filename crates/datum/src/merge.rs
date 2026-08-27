@@ -1,6 +1,6 @@
 //! Sphere merge: bulk S*, residual carry, PoUW/PoWC admit, payout.
 //!
-//! Product law: `decide/sphere-merge.md` (SM1–SM11).
+//! Product law: the lab's `decide/sphere-merge.md` (SM1–SM11).
 //!
 //! ```text
 //! M  = A ∧ B          componentwise min

@@ -4,7 +4,7 @@
 //! deed for this holder covering the tag it writes. There is no
 //! allowlist in source and no certificate — the registry deed **is**
 //! the authorization. (Binding the presenter to the holder is the
-//! signature layer, `decide/signatures.md`, designed and not built.)
+//! signature layer, `IMPLEMENTATION.md` §1 — S1–S3 built, S4–S7 pending.)
 
 use isthmus::deed::{Deed, Ledger};
 use isthmus::layout::Tag;

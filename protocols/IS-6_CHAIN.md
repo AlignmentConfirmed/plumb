@@ -8,7 +8,7 @@ is **n-axial** via `Open` (not capped at 2-D; 11-D board path exists).
 **Vertical** `Anchor` is observation only — grants no ground and opens
 no axes. Causal multi-chain structure is a **frontier sphere**, not a
 single total order. Product law:
-[`../decide/linkage-estates.md`](../decide/linkage-estates.md).
+the lab's `decide/linkage-estates.md`.
 
 The authority's record, as stored bytes.
 
@@ -357,7 +357,7 @@ someone holding both chains.
   is entitled to write one. On a substrate with no lock, that is not a
   question the encoding can answer.
 - **Retraction.** There is none, by construction. A dispute is settled
-  by further acts — see `decide/arbitration.md` — and never by removing
+  by further acts — see the lab's `decide/arbitration.md` — and never by removing
   one.
 - **Compaction.** A fold is over the whole history, every time. Whether
   a chain may publish a checkpoint that a reader can start from, and
@@ -372,5 +372,5 @@ someone holding both chains.
 |---|---|
 | `IS-6/1` | the chain: framing, primitives, acts 1–8, the refusal rule, well-formedness, and the eight vectors |
 | `IS-6/2` | §8.1 replay — a repeated `Open` folds to nothing, and one axis name with two extents is a flaw. **A behaviour change**, not a clarification: an `IS-6/1` reader opens a second axis where this one opens none, so the two disagree about the shape of the space |
-| `IS-6/4` | tag 10 `Bind` — a holder's presenting key on the record: `holder ‖ scheme(u8) ‖ blob(key) ‖ LE64(from_epoch) ‖ LE64(until_epoch)`. Binds key × the holder's grants × an epoch window as a chain fact (S3, `decide/signatures.md`). The last bind for a holder supersedes earlier ones — rotation is an append. A bind covers no ground (like `Anchor`) so it collides with nothing horizontal. Additive on the wire: an older reader refuses tag 10 per §5. A holder with no bind is **legacy/unbound** — visible, and refusable by courts that demand keys |
+| `IS-6/4` | tag 10 `Bind` — a holder's presenting key on the record: `holder ‖ scheme(u8) ‖ blob(key) ‖ LE64(from_epoch) ‖ LE64(until_epoch)`. Binds key × the holder's grants × an epoch window as a chain fact (S3, `IMPLEMENTATION.md`). The last bind for a holder supersedes earlier ones — rotation is an append. A bind covers no ground (like `Anchor`) so it collides with nothing horizontal. Additive on the wire: an older reader refuses tag 10 per §5. A holder with no bind is **legacy/unbound** — visible, and refusable by courts that demand keys |
 | `IS-6/3` | tag 9 `Sublet` — estates within estates. §4.3 separates it from `Cede`, §8.2 restates `H2` as `H2′`, and C9 is its vector. Additive on the wire (an older reader refuses tag 9 per §5), and a **restatement** of the theorems rather than a weakening: `H2′` reduces to `H2` where nothing is sublet |

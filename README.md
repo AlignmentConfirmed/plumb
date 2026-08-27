@@ -45,10 +45,9 @@ implementation in any language can be checked against:
   Python reference reader
 - [`INTEGRATING.md`](INTEGRATING.md) — the entry point for implementers
 - [`ROADMAP.md`](ROADMAP.md) — from tested model to live beta network
-- [`decide/`](decide/) — design decisions and research tracks:
-  the signature layer (ratified; S1–S3 built), the universal checker
-  (decided, blocks beta), topological cryptography (prospective),
-  x402 payment rails (prospective)
+- [`IMPLEMENTATION.md`](IMPLEMENTATION.md) — the program of record:
+  every ruling (signatures, universal checker, freshness, x402,
+  topological track) with its task ladder and open operator questions
 
 ## What this is, honestly
 
@@ -73,7 +72,7 @@ what is verified versus pending builds more trust than delay. The gaps:
    (`sig`: Ed25519 over BLAKE3 envelopes, scheme 0x01) and the chain
    can bind a holder's key to its grants (`Act::Bind`, IS-6/4) — but
    the court and carriers do not yet *enforce* signatures (S4–S7 of
-   `decide/signatures.md`). Until they do, "independent parties"
+   `IMPLEMENTATION.md`). Until they do, "independent parties"
    remains structural in transit and unenforced at the edges.
 2. **Transport is young.** `plumbd` runs sessions over TCP and the
    court federates durably, but IS-2 §6 session freshness is still

@@ -34,7 +34,7 @@
 //! [`deed::Act::Open`] (not 2-D-capped; spheres/hyperspheres of estate
 //! capacity). Multi-chain structure is [`sphere`] — frontiers and
 //! vertical anchors on a sphere of chains.
-//! Product law: datum `decide/linkage-estates.md`.
+//! Product law: datum the lab's `decide/linkage-estates.md`.
 //!
 //! ## What this crate is
 //!

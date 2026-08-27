@@ -5,7 +5,7 @@
 //! or linear total orders. Each chain's observation horizon is a
 //! [`Frontier`]; joining horizons is the envelope of what has been seen.
 //! Estate geometry is separately **n-D polytopal** via `Act::Open`
-//! (boxes, moons, 5–11D). See datum `decide/linkage-estates.md`
+//! (boxes, moons, 5–11D). See datum the lab's `decide/linkage-estates.md`
 //! master equation **(S)** vs **(E)**.
 //!
 //! ## What was wrong with a total order of chains

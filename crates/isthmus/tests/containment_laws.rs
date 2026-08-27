@@ -338,7 +338,7 @@ fn c3_a_cession_from_a_moon_stays_inside_the_planet() {
 /// in it, and what is owed is owed *through* each level.
 ///
 /// This builds the structure and asserts its shape. It prices nothing —
-/// pricing is the board's, and `decide/arbitration.md` rules it must
+/// pricing is the board's, and the lab's `decide/arbitration.md` rules it must
 /// not be a scalar.
 #[test]
 fn c4_the_cascade_is_walkable_level_by_level() {

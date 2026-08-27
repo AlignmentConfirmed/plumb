@@ -1,7 +1,7 @@
 # IS-1 — WIRE
 
 **Revision: `IS-1/2`.** Compared for equality, never ordered — see
-`decide/publishing.md`. §12 records what moved.
+the lab's `decide/publishing.md`. §12 records what moved.
 
 **Status: BUILT.** `crates/isthmus` implements §1 through §4, and §9's
 frame and rational vectors, as a crate with **no path dependencies**. An
@@ -60,7 +60,7 @@ Measured identical in shape on both sides. See
 
 **`isthmus` does not implement this.** A ratio inside a frame value is
 written and read by whoever owns the tag. The mesh reads tag and length
-only. See `decide/siblings.md` for why this is forced rather than
+only. See the lab's `decide/siblings.md` for why this is forced rather than
 chosen.
 
 It is recorded here because it is the shared rule both grantees must
@@ -159,9 +159,9 @@ still parses nothing. An envelope was refused for this — refusal 1.
 - **Transport security.** The protocol carries none; the adapter may. A
   `Carrier` moving TLS bytes is still a `Carrier`, and encryption below
   the frame keeps socket bytes identical to file bytes.
-  `decide/transport-security.md`.
+  the lab's `decide/transport-security.md`.
 - **Node identity.** None. A peer is what it can demonstrate.
-  `decide/node-identity.md`.
+  the lab's `decide/node-identity.md`.
 
 Neither of the last two answers **freshness**: a replayed frame is
 valid and re-derives correctly. That is `IS-2` §6.

@@ -9,7 +9,7 @@ peers to say what they speak. `IS-2` had none.
 
 ## 1. It is a declaration, not a negotiation
 
-**Ruled, and it follows from `decide/node-identity.md`.** A negotiation
+**Ruled, and it follows from the lab's `decide/node-identity.md`.** A negotiation
 settles on terms both accept, which needs a party to hold the settled
 terms and a way to be bound by them. There is no issuer here and no
 authority to ask.
@@ -31,7 +31,7 @@ exchange refers to who it is.
 
 ## 2. A peer that speaks less is limited, never refused
 
-`decide/node-identity.md` and `IS-2` §5 both rule that a linking mesh is
+the lab's `decide/node-identity.md` and `IS-2` §5 both rule that a linking mesh is
 not a distinguished peer. It forwards frames it does not own, by length,
 and needs no version for them at all.
 

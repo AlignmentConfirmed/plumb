@@ -1,6 +1,6 @@
 //! Master equation of multi-chain linkage estates — ENFORCED clauses.
 //!
-//! Canonical statement: `decide/linkage-estates.md`
+//! Canonical statement: the lab's `decide/linkage-estates.md`
 //!
 //! ```text
 //! (S)  F ⊔ G = max per chain; concurrent when incomparable
