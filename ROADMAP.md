@@ -67,6 +67,12 @@ Testnet resets are allowed and will be announced — it is a beta.
 
 ## Phase E — after the network stands
 
+- **SQ1–SQ6** — Domain 4, the homological proof calculus
+  (`IMPLEMENTATION.md` §2b): scientific proofs as boundary
+  annihilation over polygraphs; the sublet lemma market; the
+  self-building corpus. SQ1–SQ3 need only the engine; SQ4–SQ5 join
+  the X track.
+
 - **X1–X5** — x402 payment rails (`IMPLEMENTATION.md`),
   gated behind the settlement receipts S1–S7 make possible.
 - **Topological signatures** — held at PROSPECTIVE

@@ -91,6 +91,56 @@ surface as everything else, no new gatekeeper.
 
 ---
 
+## 2b · Domain 4 — homological proof calculus (SQ, the Squier track)
+
+**Docketed 2026-08-27.** Logical deduction as boundary annihilation:
+Squier showed string-rewriting systems carry inherent homology
+(critical branchings generate the module of 3-syzygies), so the
+network needs no bespoke proof checker per discipline — only a domain
+where statements are cells and the SAME fixed evaluator computes
+$\partial c$ over the wire.
+
+**The dimension table:**
+
+| dim | homological meaning | logical meaning |
+|---|---|---|
+| 0-cells | generators | base constants, variables, atomic types |
+| 1-cells | strings / paths | well-formed formulas, propositions |
+| 2-cells | rewriting rules | directed inference steps ($A \wedge (A \to B) \Rightarrow B$) |
+| 3-cells | confluences / homotopies | proof equivalences — two derivations of one lemma commute |
+
+A conjecture posts to the board as an **open 1-boundary**: a target
+proposition lacking a path from the axioms. A proof is a chain $c$
+with $\partial c = \text{target} - \text{axioms}$ — watertight
+means no missing premises and no dangling conclusions. Settled lemmas
+are cited by `work_id` (the T2 memoization cache): the verifier
+trusts them as fixed infrastructure because the ledger already
+guarantees they closed, and never re-pays their compute. Oversized
+proofs fragment through the **sublet lemma market**: a midway
+proposition posts as a nested conjecture space funded from the parent
+bounty via the moon cascade. The infinite corpus emerges here — every
+settled lemma is a permanent content-addressed word future proofs
+cite, and the economy recursively builds its own axiomatic base by
+decentralized matrix multiplication.
+
+**Corrections applied to the docket, per ratified rulings:**
+1. Digests are **BLAKE3**, not SHA3 (the ruled digest family, §1).
+2. The calculus registers as an **IS-3 tag grant + `Act::Declare`
+   definition** (u64 tag, IS-6/5), not a bespoke 4-byte tag field.
+3. Bounty escrow is **X-track work** (settlement receipts, §6) — SQ
+   verification must not block on payment rails.
+
+| ID | task | done when |
+|---|---|---|
+| **SQ1** | Prescribed-boundary evaluation: verify $\partial c = z$ for a declared target chain $z$ (relative closure), fuel-metered | a proof-shaped chain closes onto target − axioms; wrong boundary refuses naming the mismatch |
+| **SQ2** | Dependency citation: claim bodies reference settled `work_id`s; the court expands them from its book as trusted-closed | citing an unsettled id refuses; a cited lemma costs no re-derivation fuel |
+| **SQ3** | Polygraph encoding: 0/1/2/3-cells as a declared-complex family; a small calculus (a rewriting presentation) registered via `Act::Declare` with vectors | a machine-checkable derivation in the registered calculus settles end to end |
+| **SQ4** | Conjecture space: open 1-boundary posted as priced space (with X1 `query_id` when it lands) | an unproven target is visibly open, funded space |
+| **SQ5** | Sublet lemma market: nested conjecture spaces funded from the parent bounty through the moon cascade | a two-solver proof settles from two independently-paid lemmas |
+| **SQ6** | Confluence 3-cells: critical-pair closure (the Squier syzygies) verified as $\partial\partial = 0$ one dimension up | two derivations of one lemma verifiably commute |
+
+---
+
 ## 3 · Session freshness (N2) — IS-2 §6, the one OPEN protocol section
 
 Ruled shape: freshness is layered, not invented per transport.
