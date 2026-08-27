@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "The convergence engine. Exact rational boundary flux over unfolded manifolds; mints Upsilon when the divergence cancels on every axis."
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/AlignmentConfirmed/plumb"
 keywords = ["geometry", "exact", "convergence", "flux"]
 categories = ["mathematics"]
 

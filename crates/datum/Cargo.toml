@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "The court of the proof economy: priced space, work-identity rewards, funded settlement, the founding chain."
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/AlignmentConfirmed/plumb"
 keywords = ["settlement", "ledger", "proof", "pouw"]
 
 # The package is namespaced for the registry; the library keeps its

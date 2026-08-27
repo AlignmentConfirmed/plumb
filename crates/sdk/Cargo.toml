@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "The kernel attach surface for plumb: declare, check a grant, wrap portable claims in highway envelopes."
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/AlignmentConfirmed/plumb"
 keywords = ["sdk", "protocol", "settlement"]
 
 # The SDK imports the substrate and nothing else. It builds envelopes

@@ -37,7 +37,24 @@ dependency-free.
 | **P1** | Tag-51 revision: the relation frame carries its polytopal shape (IS-1/3) | shaped-relation vectors; Known Gap #4 closed |
 | **P2** | IS-4 witness: observer / witness / watcher productized, fourth `plumbd` role | vectors; Known Gap #3 closed |
 
-## Phase D — beta network
+## Phase C+ — the universal checker (DECIDED 2026-08-27, blocks beta)
+
+The engine becomes the invariant: domains circulate as data, the
+binary never recompiles to learn a discipline. Ruled ahead of the
+beta so testers onboard onto the declared-domain engine, not the
+legacy compiled path. Full decision + ladder:
+[`decide/universal-checker.md`](decide/universal-checker.md).
+
+| ID | task | done when |
+|---|---|---|
+| **UC1** | declared-complex codec (incidence + boundary + exact weights as data) | a hexagon and a five-simplex are distinct bytes |
+| **UC2** | fixed evaluator: closure against a declared complex, fuel-bounded | closure accepts; non-closure and fuel exhaustion refuse, named |
+| **UC3** | domain-3 claim body, content-addressed work_id | replay refuses across transports |
+| **UC4** | domain registration on chain; court resolves tag → definition | a node learns a discipline from the chain alone |
+| **UC5** | Shape re-expressed as declared complex; verdict equivalence | equivalence suite green; tag-51 defect class closed |
+| **UC6** | fuel/size bounds priced on the board | over-budget refuses with the price named |
+
+## Phase D — beta network (blocked on UC1–UC4)
 
 | ID | task | done when |
 |---|---|---|

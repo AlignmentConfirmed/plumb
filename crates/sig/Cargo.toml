@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "The signature leaf: Ed25519 over BLAKE3 envelope hashes, scheme 0x01. Binds a presenter to a grant without reading a payload."
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/AlignmentConfirmed/plumb"
 keywords = ["signature", "ed25519", "blake3"]
 
 # ===================================================================

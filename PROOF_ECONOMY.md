@@ -169,10 +169,10 @@ Built and enforced by tests today:
 
 Not built, and required before any public deployment:
 
-- **Cryptographic identity.** No signatures exist. "Independent
-  parties" is structural in transit but unenforceable at the edges:
-  without keys, one party can be a thousand. The chain's digest field
-  is deliberately opaque; a digest family must be chosen at an edge.
+- **Cryptographic identity, enforcement half.** Primitives exist
+  (Ed25519 over BLAKE3 envelopes) and the chain binds keys to grants
+  (`Act::Bind`); courts and carriers do not yet refuse unsigned or
+  mis-signed envelopes. Until they do, one party can present as many.
 - **Transport.** The substrate is a library, not a daemon. Sessions,
   freshness, and anti-replay at the transport level are specified as
   open, not implemented.

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "The Isthmus wire protocol: the record, the exact rational, the session rule, the registry, the declaration. Implements IS-1, IS-2 §7, IS-3, IS-5."
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/AlignmentConfirmed/plumb"
 keywords = ["protocol", "wire", "mesh", "tlv"]
 categories = ["encoding", "network-programming"]
 

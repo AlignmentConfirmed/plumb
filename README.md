@@ -46,13 +46,14 @@ implementation in any language can be checked against:
 - [`INTEGRATING.md`](INTEGRATING.md) — the entry point for implementers
 - [`ROADMAP.md`](ROADMAP.md) — from tested model to live beta network
 - [`decide/`](decide/) — design decisions and research tracks:
-  the signature layer (ratified design), topological cryptography
-  (prospective), x402 payment rails (prospective)
+  the signature layer (ratified; S1–S3 built), the universal checker
+  (decided, blocks beta), topological cryptography (prospective),
+  x402 payment rails (prospective)
 
 ## What this is, honestly
 
 A complete, tested **model** of a settlement layer: the wire, the
-court, the economics, ~270 tests. It is not yet a deployable network.
+court, the economics, ~300 tests. It is not yet a deployable network.
 The status discipline lives in `PROOF_ECONOMY.md` §5: nothing here
 claims to be built unless a test can fail over it.
 
@@ -68,13 +69,16 @@ policy held release until they closed; that hold was **waived by a
 recorded decision (2026-08-27)** on the grounds that transparency about
 what is verified versus pending builds more trust than delay. The gaps:
 
-1. **No cryptographic identity.** No signatures exist; the chain's
-   digest field is opaque and no digest family is wired in.
-   "Independent parties" is structural in transit but unenforceable at
-   the edges — one party can present as many. The signature layer is
-   designed (`decide/signatures.md`), not built.
-2. **No transport.** The substrate is a library, not a daemon. IS-2 §6
-   session freshness is specified open.
+1. **Cryptographic identity is half-poured.** The primitives exist
+   (`sig`: Ed25519 over BLAKE3 envelopes, scheme 0x01) and the chain
+   can bind a holder's key to its grants (`Act::Bind`, IS-6/4) — but
+   the court and carriers do not yet *enforce* signatures (S4–S7 of
+   `decide/signatures.md`). Until they do, "independent parties"
+   remains structural in transit and unenforced at the edges.
+2. **Transport is young.** `plumbd` runs sessions over TCP and the
+   court federates durably, but IS-2 §6 session freshness is still
+   specified open, and sessions are unauthenticated until gap #1
+   closes.
 3. **IS-4 witness role** is specified, not built.
 4. **Tag-51 relation frame carries no shape.** A hexagon crosses as a
    five-simplex. Known wrong; owed as a frame revision. Do not build
