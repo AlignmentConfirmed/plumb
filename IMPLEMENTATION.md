@@ -141,7 +141,7 @@ decentralized matrix multiplication.
 
 ---
 
-## 3 · Session freshness (N2) — IS-2 §6, the one OPEN protocol section
+## 3 · Session freshness (N2) — CLOSED (IS-2/2, 2026-08-27)
 
 Ruled shape: freshness is layered, not invented per transport.
 
@@ -157,7 +157,7 @@ Ruled shape: freshness is layered, not invented per transport.
 
 | ID | task | done when |
 |---|---|---|
-| **N2** | IS-2/2: session token + epoch acceptance; plumbd implements | vectors; replayed session refused |
+| **N2** | IS-2/2: the session challenge | **DONE** — entropy token after the declaration; first attestation answers its exact frame bytes or the session never goes live; replayed session measured dead; carriers relay the challenge verbatim (freshness survives carriage like the signature does) |
 
 ---
 

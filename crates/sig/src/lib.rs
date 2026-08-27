@@ -36,6 +36,15 @@ pub fn envelope_hash(frame: &[u8]) -> [u8; 32] {
     *blake3::hash(frame).as_bytes()
 }
 
+/// A fresh session token from operating-system entropy (IS-2/2):
+/// eight bytes a court challenges with, once per session. What makes
+/// a replayed session die is that this value never repeats.
+pub fn session_token() -> Result<[u8; 8], KeyBroken> {
+    let mut token = [0u8; 8];
+    getrandom::getrandom(&mut token).map_err(|_| KeyBroken::NoEntropy)?;
+    Ok(token)
+}
+
 /// Why a signing key could not be made.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeyBroken {

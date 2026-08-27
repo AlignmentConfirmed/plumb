@@ -195,7 +195,12 @@ pub fn revisions() -> Vec<String> {
     // with its deed). The bytes are opaque to the chain — a court's
     // evaluator interprets them, which is how a node learns a new
     // discipline from the chain alone, with no rebuild.
-    ["IS-1/4", "IS-2/1", "IS-3/2", "IS-5/2", "IS-6/5"]
+    // IS-2/2: §6.0 — the session challenge. One entropy record after
+    // the court's declaration; under enforcement the first attestation
+    // must answer it over exact frame bytes, or the session never goes
+    // live. A replayed session's answer covers a dead token. A
+    // BEHAVIOUR change at enforcing courts, so the revision moves.
+    ["IS-1/4", "IS-2/2", "IS-3/2", "IS-5/2", "IS-6/5"]
         .iter()
         .map(|s| (*s).to_string())
         .collect()

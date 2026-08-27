@@ -12,9 +12,11 @@
 //! is the seam the wider network runs on: nothing in a session names a
 //! kernel type, and the court decodes only what it owns.
 //!
-//! **What this is not yet:** unsigned (S4 lands attestation checking
-//! here), unfresh (IS-2 §6 is N2), and unfederated (N3 wires
-//! `court_live` peering into the serve loop).
+//! Sessions are signed (S4: attestations beside envelopes), **fresh**
+//! (IS-2/2: an entropy challenge after the declaration, answered by a
+//! signature over its exact frame bytes — a replayed session's answer
+//! covers a token this court never issued again), and federated
+//! (`court_service` wires `court_live` peering around the serve loop).
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
@@ -185,7 +187,18 @@ pub fn court_session(
     let _theirs = read_hello(&mut stream, &mut buffer, layout, &ours, bound)?;
     send_hello(&mut stream, layout, hello_tag(ledger, holder), &ours)?;
 
+    // IS-2/2 — the session challenge: eight bytes of entropy, framed,
+    // sent once per session right after the declaration. A replayed
+    // session dies here: its recorded answer covers a token this court
+    // never issued again.
+    let token = sig::session_token().map_err(|_| NodeBroken::CannotFrame)?;
+    let mut challenge_frame = Vec::new();
+    isthmus::frame::put_frame(layout, hello_tag(ledger, holder), &token, &mut challenge_frame)
+        .map_err(|_| NodeBroken::CannotFrame)?;
+    stream.write_all(&challenge_frame)?;
+
     let mut report = SessionReport::default();
+    let mut session_live = !enforce; // enforcement holds the session until the challenge is answered
     // Under enforcement a work envelope is held until its attestation
     // arrives (the next record); an envelope displaced or orphaned
     // without one is refused, not credited.
@@ -199,6 +212,8 @@ pub fn court_session(
                     Ok(_) => report.credited += 1,
                     Err(_) => report.refused += 1,
                 }
+            } else if !session_live {
+                report.refused += 1; // work before the challenge was answered
             } else {
                 if pending.take().is_some() {
                     report.refused += 1; // unattested envelope displaced
@@ -206,6 +221,21 @@ pub fn court_session(
                 pending = Some(frame);
             }
         } else if enforce && tag == admission::ATTESTATION_TAG {
+            if !session_live {
+                // The first attestation must answer THIS session's
+                // challenge. A stale answer — a replayed session —
+                // refuses, and the session never goes live.
+                let attestation = frame.get(layout.header()..).unwrap_or(&[]);
+                let epoch = {
+                    let guard = book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
+                    guard.open_epoch().unwrap_or(0)
+                };
+                match admission::admit(ledger, epoch, &challenge_frame, attestation) {
+                    Ok(_holder) => session_live = true,
+                    Err(_) => report.refused += 1,
+                }
+                continue;
+            }
             let Some(envelope) = pending.take() else {
                 report.skipped += 1; // attestation with nothing to attest
                 continue;
@@ -309,6 +339,23 @@ fn produce_inner(
     send_hello(&mut stream, layout, hello_tag(ledger, holder), &ours)?;
     let mut buffer = Vec::new();
     let _court = read_hello(&mut stream, &mut buffer, layout, &ours, bound)?;
+    // IS-2/2: the court's challenge follows its declaration. A signing
+    // producer answers it — an attestation over the challenge's exact
+    // frame bytes — before any work; an unsigned producer reads past it.
+    let (_ctag, challenge_frame) = read_record(&mut stream, &mut buffer, layout, bound)?
+        .ok_or(NodeBroken::NoDeclaration)?;
+    if let Some(key) = key {
+        let answer = key.attest(&challenge_frame);
+        let mut wire = Vec::new();
+        isthmus::frame::put_frame(
+            layout,
+            admission::ATTESTATION_TAG,
+            &answer.encode(),
+            &mut wire,
+        )
+        .map_err(|_| NodeBroken::CannotFrame)?;
+        stream.write_all(&wire)?;
+    }
     let mut sent = 0usize;
     for envelope in envelopes {
         stream.write_all(envelope)?;
@@ -355,6 +402,14 @@ pub fn carrier_session(
     send_hello(&mut court, layout, hello_tag(ledger, holder), &ours)?;
     let mut court_buf = Vec::new();
     let _court_hello = read_hello(&mut court, &mut court_buf, layout, &ours, bound)?;
+
+    // IS-2/2: the court's session challenge follows its declaration.
+    // Relay it to the client VERBATIM — the client's answer signs the
+    // exact frame bytes, so carriage costs the freshness nothing,
+    // for the same reason it costs the signature nothing.
+    if let Some((_tag, challenge)) = read_record(&mut court, &mut court_buf, layout, bound)? {
+        client.write_all(&challenge)?;
+    }
 
     // Forward whole frames, unread, in order.
     let mut forwarded = 0usize;

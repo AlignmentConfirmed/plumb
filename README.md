@@ -81,10 +81,11 @@ what is verified versus pending builds more trust than delay. The gaps:
    presentations (S1–S7 complete). Remaining honesty: enforcement is
    a config flag until the testnet genesis turns it on by default,
    and transport sessions are still unauthenticated pending IS-2 §6.
-2. **Transport is young.** `plumbd` runs sessions over TCP and the
-   court federates durably, but IS-2 §6 session freshness is still
-   specified open, and sessions are unauthenticated until gap #1
-   closes.
+2. **Transport stands.** `plumbd` runs signed, fresh sessions over
+   TCP (IS-2/2 session challenge — a replayed session's answer covers
+   a dead token) and the court federates durably. Remaining honesty:
+   TCP is the only transport, and there is no NAT traversal or peer
+   discovery — peers are configured, not found.
 3. **IS-4 witness role** is specified, not built.
 4. **Tag-51 relation frame carries no shape.** A hexagon crosses as a
    five-simplex. Known wrong; owed as a frame revision. Do not build

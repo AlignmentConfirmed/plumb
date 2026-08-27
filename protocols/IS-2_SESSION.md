@@ -1,7 +1,7 @@
 # IS-2 — SESSION
 
 **Status:** §7 (**never vs not yet**) is **ENFORCED** in
-`isthmus::session` / `datum::session`. §6 freshness / transport replay
+`isthmus::session` / `datum::session`. §6 freshness: §6.0 session challenge
 is **OPEN** — and is **not** the primary identity key for useful work
 (see `FOUNDATION.md` §5 Wave B / the lab's `decide/powpp-alignment.md`).
 
@@ -91,6 +91,30 @@ frames it does not own by length. Nothing in this document treats it
 differently, which is the lab's `decide/node-identity.md` holding.
 
 ## 6. Freshness — ruled, and split by frame kind (H7)
+
+### 6.0 IS-2/2 — the session challenge (CLOSED 2026-08-27)
+
+The one OPEN hole is closed, at the layer it belonged to. After its
+declaration, a court emits a **session challenge**: one record whose
+value is eight bytes of operating-system entropy, framed under the
+court's own tag. Under signature enforcement, the FIRST attestation on
+the session must verify over the challenge's **exact frame bytes** by
+a chain-bound key; until it does, the session is not live and every
+work record refuses.
+
+What this buys, precisely: a **replayed session dies**. The recorded
+answer an attacker captures covers a token the court never issues
+again — the token never repeats, so the old signature binds dead
+bytes. What it deliberately does not buy: work replay protection
+(that was never the session's job — §6.1 stands; `work_id` is the
+primary identity) or payload inspection (a carrier relays the
+challenge verbatim, and the freshness survives carriage for the same
+reason the signature does: the answer binds bytes, not routes).
+
+Lenient courts emit the challenge and do not demand the answer; an
+unsigned peer reads past it. Enforced by `datum::plumbd`
+(`tests/session_freshness.rs`, including the replayed-session and
+through-carrier measurements).
 
 **Session still detects no replay.** That is deliberate (§6.1).
 
