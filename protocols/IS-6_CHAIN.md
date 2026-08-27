@@ -132,6 +132,18 @@ chains are unordered — that is what having no shared instant means —
 height `k` orders every act of `c` below `k` before every act of this
 chain at or above `h`. See §6.
 
+### 4.x `Bind` (tag 10) — the presenting key
+
+`text(holder) ‖ u8(scheme) ‖ blob(key) ‖ LE64(from_epoch) ‖
+LE64(until_epoch)`
+
+Identity, not ground. The key bytes are opaque here for the same
+reason an anchor's digest is: which scheme signs is an edge's
+decision, named by the scheme byte (`0x01` = Ed25519/BLAKE3, the
+signature leaf) and never interpreted by the chain. The last bind for
+a holder wins; the superseded key stays in the acts, because rotation
+is history, not revision.
+
 ## 5. An unknown act REFUSES. It does not skip.
 
 On a mesh, an unknown tag is stepped over whole and forwarded (`IS-1`
@@ -360,4 +372,5 @@ someone holding both chains.
 |---|---|
 | `IS-6/1` | the chain: framing, primitives, acts 1–8, the refusal rule, well-formedness, and the eight vectors |
 | `IS-6/2` | §8.1 replay — a repeated `Open` folds to nothing, and one axis name with two extents is a flaw. **A behaviour change**, not a clarification: an `IS-6/1` reader opens a second axis where this one opens none, so the two disagree about the shape of the space |
+| `IS-6/4` | tag 10 `Bind` — a holder's presenting key on the record: `holder ‖ scheme(u8) ‖ blob(key) ‖ LE64(from_epoch) ‖ LE64(until_epoch)`. Binds key × the holder's grants × an epoch window as a chain fact (S3, `decide/signatures.md`). The last bind for a holder supersedes earlier ones — rotation is an append. A bind covers no ground (like `Anchor`) so it collides with nothing horizontal. Additive on the wire: an older reader refuses tag 10 per §5. A holder with no bind is **legacy/unbound** — visible, and refusable by courts that demand keys |
 | `IS-6/3` | tag 9 `Sublet` — estates within estates. §4.3 separates it from `Cede`, §8.2 restates `H2` as `H2′`, and C9 is its vector. Additive on the wire (an older reader refuses tag 9 per §5), and a **restatement** of the theorems rather than a weakening: `H2′` reduces to `H2` where nothing is sublet |

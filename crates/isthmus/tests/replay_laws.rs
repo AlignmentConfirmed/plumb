@@ -108,6 +108,16 @@ fn every_act() -> Vec<(u64, Act)> {
                 witnessed: "these laws".to_owned(),
             },
         ),
+        (
+            chain::BIND,
+            Act::Bind {
+                holder: "beta".to_owned(),
+                scheme: 0x01,
+                key: vec![7; 32],
+                from_epoch: 0,
+                until_epoch: 9,
+            },
+        ),
     ]
 }
 
@@ -126,6 +136,7 @@ fn tag_of(act: &Act) -> u64 {
         Act::Cede { .. } => chain::CEDE,
         Act::Sublet { .. } => chain::SUBLET,
         Act::Anchor { .. } => chain::ANCHOR,
+        Act::Bind { .. } => chain::BIND,
     }
 }
 

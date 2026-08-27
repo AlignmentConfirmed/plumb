@@ -121,7 +121,7 @@ pub mod work;
 // the protocol's. `datum` builds them by reading both ancestors'
 // registries, which is where a fact about the ancestors belongs.
 
-pub use deed::{Deed, Ledger, Standing};
+pub use deed::{Binding, Deed, Ledger, Standing};
 pub use frame::{Malformed, Reader};
 pub use ratio::Exact;
 pub use session::Step;
@@ -183,7 +183,13 @@ pub fn revisions() -> Vec<String> {
     // theorems are RESTATED, not weakened: H2 (live deeds disjoint)
     // becomes H2′ (disjoint at the same depth, and inside the parent),
     // which reduces to H2 where nothing is sublet.
-    ["IS-1/4", "IS-2/1", "IS-3/2", "IS-5/2", "IS-6/3"]
+    // IS-6/4: tag 10 `Bind` — a holder's presenting key on the record
+    // (S3 of the signature layer): key x grants x epoch window, as a
+    // chain fact rather than an allowlist. Additive on the wire; an
+    // older reader refuses tag 10 rather than misfolding. A holder
+    // with no bind is legacy/unbound — visible, and refusable by
+    // courts that demand keys.
+    ["IS-1/4", "IS-2/1", "IS-3/2", "IS-5/2", "IS-6/4"]
         .iter()
         .map(|s| (*s).to_string())
         .collect()

@@ -289,6 +289,51 @@ pub enum Act {
         /// check the observation rather than trust it.
         witnessed: String,
     },
+
+    /// A holder's presenting key, bound **on the record** (`IS-6/4`).
+    ///
+    /// This is S3 of the signature layer: `key x the holder's grants x
+    /// an epoch window`, as a chain fact rather than an allowlist. The
+    /// key bytes are opaque here for the same reason an anchor's digest
+    /// is — which scheme signs is an edge's decision, named by the
+    /// scheme byte and interpreted by the signature leaf, never by
+    /// this crate.
+    ///
+    /// A later bind for the same holder **supersedes** the earlier:
+    /// rotation is an append, and the history of keys is the history —
+    /// nothing is rewritten. A holder with no bind is **legacy /
+    /// unbound**: readable, refusable by courts that demand keys, and
+    /// visibly different from a holder whose key was recorded.
+    ///
+    /// Like an anchor, a bind covers no ground: it can never collide
+    /// with a deed, which is what makes it safe to append to a live
+    /// chain.
+    Bind {
+        /// Whose key this is, as the holder names itself.
+        holder: String,
+        /// The signature scheme byte (`0x01` = Ed25519/BLAKE3).
+        scheme: u8,
+        /// The public identity, uninterpreted here.
+        key: Vec<u8>,
+        /// First epoch this binding presents in, inclusive.
+        from_epoch: u64,
+        /// Last epoch this binding presents in, inclusive.
+        until_epoch: u64,
+    },
+}
+
+/// What [`Ledger::binding_of`] answers: the key a holder presents
+/// under, and the window it presents in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Binding {
+    /// The signature scheme byte.
+    pub scheme: u8,
+    /// The public identity bytes, opaque to this crate.
+    pub key: Vec<u8>,
+    /// First epoch, inclusive.
+    pub from_epoch: u64,
+    /// Last epoch, inclusive.
+    pub until_epoch: u64,
 }
 
 /// If `region` is a slab of `parent`, the remainder box — `None` inside
@@ -357,7 +402,10 @@ impl Act {
             // fact about another chain, not a claim on this one. That
             // is what makes a vertical safe to append: it can never
             // collide with a horizontal.
-            Act::Retire { .. } | Act::Open { .. } | Act::Anchor { .. } => return None,
+            Act::Retire { .. }
+            | Act::Open { .. }
+            | Act::Anchor { .. }
+            | Act::Bind { .. } => return None,
         };
         if region.len() > axes {
             return None;
@@ -1526,6 +1574,32 @@ impl Ledger {
             .collect()
     }
 
+    /// The key `holder` presents under, if one was ever bound.
+    ///
+    /// The **last** bind wins: rotation is an append, and the answer
+    /// is derived from the acts on demand like every other property of
+    /// this ledger — a cached key would be a second place identity
+    /// lives. `None` is legacy/unbound, which a court may refuse and a
+    /// reader must be able to see.
+    #[must_use]
+    pub fn binding_of(&self, holder: &str) -> Option<Binding> {
+        self.acts.iter().rev().find_map(|act| match act {
+            Act::Bind {
+                holder: bound,
+                scheme,
+                key,
+                from_epoch,
+                until_epoch,
+            } if bound == holder => Some(Binding {
+                scheme: *scheme,
+                key: key.clone(),
+                from_epoch: *from_epoch,
+                until_epoch: *until_epoch,
+            }),
+            _ => None,
+        })
+    }
+
     /// Which deed holds a tag on the zero slice, if a live one does.
     pub fn holder_of(&self, tag: Tag) -> Option<Deed> {
         self.deepest(|d| d.covers(tag))
@@ -1647,6 +1721,9 @@ impl Ledger {
                 // stranger would enlarge my estate, and every party
                 // could grow by looking at things.
                 Act::Anchor { .. } => {}
+                // A key issues nothing either: binding is identity,
+                // not ground.
+                Act::Bind { .. } => {}
                 Act::Issue { holder, .. } | Act::IssueBox { holder, .. } => {
                     let Some(mut region) = act.region(axes_now) else {
                         continue;
@@ -1880,6 +1957,10 @@ impl Ledger {
                 // history is internally consistent, and answerable
                 // only by someone holding both.
                 Act::Anchor { .. } => {}
+                // A bind covers no ground and names no ground, so no
+                // horizontal rule can trip on it. Whether its window is
+                // honored is the court's enforcement, not chain shape.
+                Act::Bind { .. } => {}
                 Act::Retire { holder } => {
                     live.remove(holder);
                 }
@@ -2108,6 +2189,10 @@ pub mod chain {
     pub const CEDE: u64 = 7;
     /// Chain-record tag for an [`Act::Sublet`] — the moon.
     pub const SUBLET: u64 = 9;
+    /// Chain-record tag for an [`Act::Bind`] — the presenting key
+    /// (`IS-6/4`). Additive: an older reader refuses tag 10 rather
+    /// than misfolding, as with every act added since the founding.
+    pub const BIND: u64 = 10;
     /// Chain-record tag for an [`Act::Anchor`] — **the vertical**.
     ///
     /// Tags 1–7 all move this chain's own fold. This one names another
@@ -2238,6 +2323,20 @@ pub mod chain {
                     put_text(witnessed, &mut value);
                     ANCHOR
                 }
+                Act::Bind {
+                    holder,
+                    scheme,
+                    key,
+                    from_epoch,
+                    until_epoch,
+                } => {
+                    put_text(holder, &mut value);
+                    value.push(*scheme);
+                    put_blob(key, &mut value);
+                    value.extend_from_slice(&from_epoch.to_le_bytes());
+                    value.extend_from_slice(&until_epoch.to_le_bytes());
+                    BIND
+                }
             };
             // The founding layout holds tags 1..=3 and every value here
             // fits its length field; ignoring the Ok is the total path.
@@ -2325,6 +2424,23 @@ pub mod chain {
                         height,
                         digest,
                         witnessed,
+                    }
+                }
+                BIND => {
+                    let holder = take_text(&mut reader)?;
+                    let scheme = *reader
+                        .take(1)?
+                        .first()
+                        .ok_or(Malformed::TrailingBytes { left: 0 })?;
+                    let key = take_blob(&mut reader)?;
+                    let from_epoch = reader.u64()?;
+                    let until_epoch = reader.u64()?;
+                    Act::Bind {
+                        holder,
+                        scheme,
+                        key,
+                        from_epoch,
+                        until_epoch,
                     }
                 }
                 found => {

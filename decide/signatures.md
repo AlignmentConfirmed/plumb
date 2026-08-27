@@ -91,7 +91,7 @@ flow (PROSPECTIVE; depends on S1–S7).
 |---|---|---|
 | **S1** | `sig` module (Ed25519 keys, BLAKE3 envelope hash) in the SDK or its own crate | sign/verify round-trip test |
 | **S2** | Signature + pubkey as tagged records; skip-unknown proven | old reader forwards signed traffic whole |
-| **S3** | Grant deed carries `holder_key`; chain codec revision | IS-3/IS-6 revision bump; vectors |
+| **S3** | Grant deed carries `holder_key`; chain codec revision | **DONE 2026-08-27** — `Act::Bind` (IS-6/4), `Ledger::binding_of`, `sdk::grant::authorizes_presenter`, `tests/bind_laws.rs` |
 | **S4** | Court refuses claims whose envelope signature fails or whose grant is outside its epoch window | refusal tests: forged, stale, unbound |
 | **S5** | Carrier admission check (envelope-only) shown payload-blind | test: carrier verifies without decoding |
 | **S6** | Anchor digests written as BLAKE3 at the court edge | cross-chain anchor round-trip |

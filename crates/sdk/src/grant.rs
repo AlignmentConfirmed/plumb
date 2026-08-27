@@ -33,6 +33,44 @@ pub fn authorizes(ledger: &Ledger, holder: &str, tag: Tag) -> bool {
         .unwrap_or(false)
 }
 
+/// The key `holder` presents under, if the chain bound one (IS-6/4).
+///
+/// `None` is legacy/unbound — a court may refuse it, and a caller
+/// must be able to tell it from a key.
+pub fn binding(ledger: &Ledger, holder: &str) -> Option<isthmus::Binding> {
+    ledger.binding_of(holder)
+}
+
+/// Whether a presenter is who the chain says holds `tag`, in `epoch`.
+///
+/// The full S3 predicate: a live deed covering the tag names the
+/// holder, the chain bound a key for the holder, the presenter's
+/// scheme and key match it, and the epoch falls inside the binding's
+/// window. An unbound holder answers **false** here — this is the
+/// strict check; a court that admits legacy grants calls
+/// [`authorizes`] and says so.
+pub fn authorizes_presenter(
+    ledger: &Ledger,
+    holder: &str,
+    tag: Tag,
+    scheme: u8,
+    key: &[u8],
+    epoch: u64,
+) -> bool {
+    if !authorizes(ledger, holder, tag) {
+        return false;
+    }
+    match ledger.binding_of(holder) {
+        Some(bound) => {
+            bound.scheme == scheme
+                && bound.key == key
+                && bound.from_epoch <= epoch
+                && epoch <= bound.until_epoch
+        }
+        None => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used)]
@@ -71,5 +109,41 @@ mod tests {
         let ledger = edge_with("kernel-a", 16);
         assert_eq!(holdings(&ledger, "kernel-a").len(), 1);
         assert!(holdings(&ledger, "kernel-b").is_empty());
+    }
+
+    #[test]
+    fn a_presenter_is_held_to_key_scheme_and_window() {
+        let mut ledger = edge_with("kernel-a", 16);
+        let deed = holdings(&ledger, "kernel-a")
+            .into_iter()
+            .next()
+            .expect("issued");
+        let tag = deed.low();
+        let key = [7u8; 32];
+
+        // Unbound: the strict check refuses even the right holder.
+        assert!(!authorizes_presenter(&ledger, "kernel-a", tag, 0x01, &key, 5));
+
+        ledger.record(isthmus::deed::Act::Bind {
+            holder: "kernel-a".into(),
+            scheme: 0x01,
+            key: key.to_vec(),
+            from_epoch: 3,
+            until_epoch: 9,
+        });
+
+        assert!(authorizes_presenter(&ledger, "kernel-a", tag, 0x01, &key, 5));
+        assert!(
+            !authorizes_presenter(&ledger, "kernel-a", tag, 0x01, &key, 10),
+            "outside the window is stale"
+        );
+        assert!(
+            !authorizes_presenter(&ledger, "kernel-a", tag, 0x01, &[8u8; 32], 5),
+            "another key is another party"
+        );
+        assert!(
+            !authorizes_presenter(&ledger, "kernel-a", tag, 0x02, &key, 5),
+            "another scheme is another statement"
+        );
     }
 }
