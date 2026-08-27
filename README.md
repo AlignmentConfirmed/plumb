@@ -86,7 +86,11 @@ what is verified versus pending builds more trust than delay. The gaps:
    a dead token) and the court federates durably. Remaining honesty:
    TCP is the only transport, and there is no NAT traversal or peer
    discovery — peers are configured, not found.
-3. **IS-4 witness role** is specified, not built.
+3. **IS-4 witness built (IS-4/1).** The frame (arm ‖ observer ‖
+   subject ‖ derivation), the court's witness log, and a watcher held
+   to all four prohibitions — may not observe, repair, canonicalize,
+   or answer bare. The verdict *frame* remains unsettled (§8), by
+   design: reports live above the substrate.
 4. **Tag-51 closed (IS-1/5).** The closure now carries its shape as
    a declared-complex definition — a hexagon and a five-simplex over
    the same six orbs are distinct bytes (vectors V17/V18), and the

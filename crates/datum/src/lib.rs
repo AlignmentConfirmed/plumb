@@ -57,4 +57,5 @@ pub mod reward;
 pub mod sample;
 pub mod session;
 pub mod settle;
+pub mod witnessing;
 

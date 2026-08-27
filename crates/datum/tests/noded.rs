@@ -54,7 +54,7 @@ fn a_claim_crosses_tcp_and_credits_once() {
                 bound: BOUND,
                 enforce: false,
             };
-            let _ = plumbd::serve(&listener, &layout, &ledger, &rules, &book, |_| {});
+            let _ = plumbd::serve(&listener, &layout, &ledger, &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
         });
     }
 

@@ -29,6 +29,10 @@ use isthmus::session::{self, Step};
 
 use crate::admission;
 use crate::reward::RewardBook;
+use crate::witnessing;
+
+/// Where a court keeps what witnesses put on the record.
+pub type WitnessLog = Arc<Mutex<Vec<isthmus::witness::Witness>>>;
 
 /// Why a node session ended or refused.
 #[derive(Debug)]
@@ -167,6 +171,8 @@ pub struct SessionReport {
     /// Records skipped — tags this court does not own, forwarded in a
     /// mesh and merely counted here.
     pub skipped: usize,
+    /// Witness frames put on the record (IS-4).
+    pub witnessed: usize,
 }
 
 /// Serve one inbound session as the court.
@@ -180,6 +186,7 @@ pub fn court_session(
     ledger: &Ledger,
     rules: &SessionRules,
     book: &Arc<Mutex<RewardBook>>,
+    witnesses: &WitnessLog,
 ) -> Result<SessionReport, NodeBroken> {
     let (holder, bound, enforce) = (rules.holder.as_str(), rules.bound, rules.enforce);
     let ours = Hello::of(ledger, holder, u32::try_from(bound).unwrap_or(u32::MAX));
@@ -253,6 +260,22 @@ pub fn court_session(
                 }
                 Err(_) => report.refused += 1,
             }
+        } else if tag == witnessing::WITNESS_TAG {
+            // IS-4: a witness put something on the record. The court
+            // KEEPS it — decoded (refuse-not-repair), never judged
+            // here; judging is a watcher's act, and a watcher is
+            // handed its subject elsewhere.
+            let value = frame.get(layout.header()..).unwrap_or(&[]);
+            match isthmus::witness::Witness::decode(value) {
+                Ok(witness) => {
+                    let mut log = witnesses
+                        .lock()
+                        .map_err(|_| NodeBroken::CourtUnreachable)?;
+                    log.push(witness);
+                    report.witnessed += 1;
+                }
+                Err(_) => report.refused += 1,
+            }
         } else {
             report.skipped += 1;
         }
@@ -273,6 +296,7 @@ pub fn serve(
     ledger: &Ledger,
     rules: &SessionRules,
     book: &Arc<Mutex<RewardBook>>,
+    witnesses: &WitnessLog,
     on_session: impl Fn(&SessionReport) + Send + Sync + 'static,
 ) -> std::io::Error {
     let on_session = Arc::new(on_session);
@@ -283,9 +307,11 @@ pub fn serve(
                 let ledger = ledger.clone();
                 let rules = rules.clone();
                 let book = Arc::clone(book);
+                let witnesses = Arc::clone(witnesses);
                 let on_session = Arc::clone(&on_session);
                 std::thread::spawn(move || {
-                    if let Ok(report) = court_session(stream, &layout, &ledger, &rules, &book)
+                    if let Ok(report) =
+                        court_session(stream, &layout, &ledger, &rules, &book, &witnesses)
                     {
                         on_session(&report);
                     }
@@ -450,4 +476,46 @@ pub fn carry(
             Err(e) => return e,
         }
     }
+}
+
+/// Attach and put witness frames on a court's record (IS-4). The
+/// fourth role: a peer that produces nothing and verifies nothing
+/// still attests to what crossed.
+pub fn witness_to(
+    addr: impl ToSocketAddrs,
+    layout: &Layout,
+    ledger: &Ledger,
+    holder: &str,
+    bound: usize,
+    witnesses: &[isthmus::witness::Witness],
+    key: Option<&sig::Keypair>,
+) -> Result<usize, NodeBroken> {
+    let mut stream = TcpStream::connect(addr)?;
+    let ours = Hello::of(ledger, holder, u32::try_from(bound).unwrap_or(u32::MAX));
+    send_hello(&mut stream, layout, hello_tag(ledger, holder), &ours)?;
+    let mut buffer = Vec::new();
+    let _court = read_hello(&mut stream, &mut buffer, layout, &ours, bound)?;
+    let (_ctag, challenge_frame) = read_record(&mut stream, &mut buffer, layout, bound)?
+        .ok_or(NodeBroken::NoDeclaration)?;
+    if let Some(key) = key {
+        let answer = key.attest(&challenge_frame);
+        let mut wire = Vec::new();
+        isthmus::frame::put_frame(
+            layout,
+            admission::ATTESTATION_TAG,
+            &answer.encode(),
+            &mut wire,
+        )
+        .map_err(|_| NodeBroken::CannotFrame)?;
+        stream.write_all(&wire)?;
+    }
+    let mut sent = 0usize;
+    for witness in witnesses {
+        let mut wire = Vec::new();
+        isthmus::frame::put_frame(layout, witnessing::WITNESS_TAG, &witness.encode(), &mut wire)
+            .map_err(|_| NodeBroken::CannotFrame)?;
+        stream.write_all(&wire)?;
+        sent += 1;
+    }
+    Ok(sent)
 }

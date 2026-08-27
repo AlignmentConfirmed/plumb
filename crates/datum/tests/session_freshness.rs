@@ -44,7 +44,7 @@ fn court(key: &sig::Keypair) -> (std::net::SocketAddr, Arc<Mutex<RewardBook>>) {
             bound: BOUND,
             enforce: true,
         };
-        let _ = plumbd::serve(&listener, &layout, &ledger, &rules, &book2, |_| {});
+        let _ = plumbd::serve(&listener, &layout, &ledger, &rules, &book2, &Arc::new(Mutex::new(Vec::new())), |_| {});
     });
     (addr, book)
 }
@@ -149,7 +149,7 @@ fn an_unsigned_producer_still_talks_to_a_lenient_court() {
                 bound: BOUND,
                 enforce: false,
             };
-            let _ = plumbd::serve(&listener, &layout, &ledger, &rules, &book, |_| {});
+            let _ = plumbd::serve(&listener, &layout, &ledger, &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
         });
     }
     plumbd::produce(

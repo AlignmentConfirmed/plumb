@@ -105,6 +105,7 @@ pub mod layout;
 pub mod node;
 pub mod ratio;
 pub mod session;
+pub mod witness;
 pub mod work;
 
 // There is no `registry` module. It held a `Band` enum of ten variants
@@ -205,7 +206,11 @@ pub fn revisions() -> Vec<String> {
     // def_len = 0 the EXPLICIT legacy "shape unknown". Closes the
     // tag-51 defect class: a hexagon and a five-simplex over the same
     // six orbs are distinct bytes.
-    ["IS-1/5", "IS-2/2", "IS-3/2", "IS-5/2", "IS-6/5"]
+    // IS-4/1: §5 — the witness frame (arm, observer, subject,
+    // derivation), with the observer's revision required and the arm
+    // refused rather than guessed. The verdict frame stays unsettled
+    // (§8); watchers live above the substrate.
+    ["IS-1/5", "IS-2/2", "IS-3/2", "IS-4/1", "IS-5/2", "IS-6/5"]
         .iter()
         .map(|s| (*s).to_string())
         .collect()

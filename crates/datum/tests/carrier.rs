@@ -47,7 +47,7 @@ fn a_signed_claim_credits_through_an_unreading_carrier() {
                 bound: BOUND,
                 enforce: true,
             };
-            let _ = plumbd::serve(&court_listener, &layout, &ledger, &rules, &book, |_| {});
+            let _ = plumbd::serve(&court_listener, &layout, &ledger, &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
         });
     }
 

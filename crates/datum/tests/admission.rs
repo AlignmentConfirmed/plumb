@@ -201,7 +201,7 @@ fn an_enforcing_court_credits_signed_and_refuses_unsigned() {
                 bound: BOUND,
                 enforce: true,
             };
-            let _ = plumbd::serve(&listener, &layout, &ledger, &rules, &book, |_| {});
+            let _ = plumbd::serve(&listener, &layout, &ledger, &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
         });
     }
 

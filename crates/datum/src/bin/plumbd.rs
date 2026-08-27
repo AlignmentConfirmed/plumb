@@ -276,16 +276,19 @@ fn main() {
                 bound: config.bound,
                 enforce: config.require_signatures,
             };
+            let witnesses: plumbd::WitnessLog =
+                Arc::new(Mutex::new(Vec::new()));
             let err = plumbd::serve(
                 &listener,
                 &layout,
                 &ledger,
                 &rules,
                 &book,
+                &witnesses,
                 |report| {
                     println!(
-                        "plumbd: session closed — credited {}, refused {}, skipped {}",
-                        report.credited, report.refused, report.skipped
+                        "plumbd: session closed — credited {}, refused {}, skipped {}, witnessed {}",
+                        report.credited, report.refused, report.skipped, report.witnessed
                     );
                 },
             );
@@ -411,6 +414,48 @@ fn main() {
                 std::thread::sleep(std::time::Duration::from_secs(config.every.max(1)));
             }
         }
+        "witness" => {
+            if config.peers.is_empty() {
+                eprintln!("plumbd: witness needs at least one `peer =` line");
+                std::process::exit(2);
+            }
+            // The demo witness: attest that the demo claim's envelope
+            // crossed, against this node's chain as the observer.
+            let Some(envelope) = demo_envelope(&config.demo) else {
+                eprintln!("plumbd: could not build the demo subject");
+                std::process::exit(1);
+            };
+            let chain_bytes = isthmus::deed::chain::encode(ledger.acts());
+            let witness = isthmus::witness::Witness {
+                arm: isthmus::witness::Arm::Replay,
+                observer: isthmus::witness::Observer {
+                    kind: 1, // a chain
+                    identity: sig::envelope_hash(&chain_bytes),
+                    revision: "IS-6/5".into(),
+                    depth: 0,
+                },
+                subject: datum::witnessing::subject_of(&envelope),
+                derivation: Vec::new(),
+            };
+            let key = config.seed.as_deref().and_then(seed_from_hex).map(sig::Keypair::from_seed);
+            for peer in &config.peers {
+                match plumbd::witness_to(
+                    peer.as_str(),
+                    &layout,
+                    &ledger,
+                    &config.holder,
+                    config.bound,
+                    std::slice::from_ref(&witness),
+                    key.as_ref(),
+                ) {
+                    Ok(sent) => println!("plumbd: {sent} witness(es) on the record at {peer}"),
+                    Err(e) => {
+                        eprintln!("plumbd: witnessing to {peer} failed: {e:?}");
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
         "genesis" => {
             let Some(out) = &config.out else {
                 eprintln!("plumbd: genesis needs `out = <path>`");
@@ -470,7 +515,7 @@ fn main() {
             );
         }
         other => {
-            eprintln!("plumbd: unknown role '{other}' (court | producer | carrier | client | genesis)");
+            eprintln!("plumbd: unknown role '{other}' (court | producer | carrier | client | witness | genesis)");
             std::process::exit(2);
         }
     }

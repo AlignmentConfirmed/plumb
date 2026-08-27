@@ -1,7 +1,14 @@
 # IS-4 — THE WITNESS
 
-**Status:** specified, not built. Grounded in `measure/witnesses.md`,
-which surveyed every witness-shaped type across the three trees.
+**Status:** §5 frame + roles **ENFORCED** (`IS-4/1`, 2026-08-28) —
+`isthmus::witness` (the frame, refuse-not-repair on arm and revision),
+`datum::witnessing` (the watcher, held to all four §6 prohibitions;
+the court's witness log; tag 84 in the court's own grant), the fourth
+`plumbd` role, `tests/witness_frame.rs` + `tests/witnessing.rs`.
+§8 stands: the verdict frame remains unsettled — watchers return
+reports above the substrate, not on the wire. Grounded in the lab's
+`measure/witnesses.md`, which surveyed every witness-shaped type
+across the three trees.
 
 ## 1. Three roles, and none of them is optional
 
