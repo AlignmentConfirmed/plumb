@@ -44,6 +44,8 @@ implementation in any language can be checked against:
 
 - [`PLUMBLINE.md`](PLUMBLINE.md) — the language, and how it is
   multi-dimensional
+- [`POWPP.md`](POWPP.md) — the physics, the proofs, and the
+  economics: what the engine verifies and why credit is honest
 - [`protocols/`](protocols/) — IS-1 (wire) through IS-6 (chain)
 - [`conformance/`](conformance/) — the vectors, the manifest, and a
   Python reference reader
