@@ -1,0 +1,57 @@
+[package]
+name = "assay"
+version = "0.1.0"
+edition = "2021"
+description = "The convergence engine. Exact rational boundary flux over unfolded manifolds; mints Upsilon when the divergence cancels on every axis."
+license = "MIT OR Apache-2.0"
+keywords = ["geometry", "exact", "convergence", "flux"]
+categories = ["mathematics"]
+
+# ===================================================================
+# ASSAY IS A LEAF. THERE ARE NO PATH DEPENDENCIES AND THERE NEVER WILL
+# BE.
+#
+#     isthmus  ->  nothing          the substrate
+#     kernels  ->  assay            the exits, which QUERY this
+#     assay    ->  nothing          the physical laws
+#     datum    ->  isthmus + edges  the measurement bench
+#
+# The direction is the whole design. A kernel asks assay whether a
+# manifold closes; assay does not know that kernels exist, cannot read
+# a framing tag, and cannot execute a state transition. An engine that
+# could reach the network could be told what to conclude.
+#
+# `tests/isolation.rs` reads this file and fails if `isthmus`, `lith`,
+# `chitin` or any `path = ` ever appears in a dependency table.
+# ===================================================================
+[dependencies]
+
+# Exact rational arithmetic. `Ratio<BigInt>` is unbounded on both
+# numerator and denominator, so a boundary flux is never rounded and
+# never saturates -- which is the point of the crate.
+#
+# These are arithmetic, not architecture. The ban is on the mesh and
+# the kernels, and a rational number is neither.
+num-bigint = "0.4"
+num-rational = "0.4"
+num-traits = "0.2"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"
+
+[lints.rustdoc]
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "deny"
+
+# The engine is total: every path returns a value or a named refusal.
+# A convergence engine that panics on a hostile manifold is one that
+# can be stopped by a hostile manifold.
+[lints.clippy]
+panic = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+# NO float lints listed, because there are no floats to lint. Section 2
+# of the ruling is enforced by `tests/isolation.rs` reading the source
+# for float types rather than by a lint that could be allowed away.

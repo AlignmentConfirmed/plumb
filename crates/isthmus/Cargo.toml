@@ -1,0 +1,57 @@
+[package]
+name = "isthmus"
+version = "0.1.0"
+edition = "2021"
+description = "The Isthmus wire protocol: the record, the exact rational, the session rule, the registry, the declaration. Implements IS-1, IS-2 §7, IS-3, IS-5."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/xylarium/isthmus"
+keywords = ["protocol", "wire", "mesh", "tlv"]
+categories = ["encoding", "network-programming"]
+
+# ===================================================================
+# THERE ARE NO PATH DEPENDENCIES HERE, AND THAT IS THE POINT.
+#
+# An outside title adds this line to its manifest and is done. It does
+# not clone netstratum, it does not clone xylarium, and it does not
+# need either tree on disk.
+#
+# `datum` -- the measurement repository -- depends on this crate AND on
+# both kernels, and asserts they agree. That direction is deliberate:
+#
+#     isthmus  ->  nothing
+#     kernels  ->  nothing
+#     datum    ->  isthmus + both kernels
+#
+# The comparison lives in the place that is allowed to know about
+# everything, and the thing an integrator imports knows about nothing.
+# Reverse it and every integrator inherits both kernels.
+#
+# `tests/no_path_dependencies.rs` reads this file and fails if a
+# `path = ` ever appears in a dependency table.
+# ===================================================================
+[dependencies]
+
+# num-rational's `Ratio<BigInt>` is the type BOTH kernels already use
+# for an exact rational. Naming it here rather than wrapping it is what
+# lets a value cross without a conversion -- and a conversion is a place
+# a canonical form can be lost silently.
+num-bigint = "0.4"
+num-rational = "0.4"
+num-traits = "0.2"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"
+
+[lints.rustdoc]
+broken_intra_doc_links = "deny"
+
+# This crate is total: every path returns a value or a named refusal.
+# A protocol reader that panics on hostile bytes is a protocol reader
+# that can be stopped by hostile bytes.
+[lints.clippy]
+panic = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
