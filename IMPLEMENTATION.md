@@ -119,16 +119,17 @@ Ruled shape: freshness is layered, not invented per transport.
 
 | ID | task | done when |
 |---|---|---|
+| **B0** | **Local proofnet** — the whole economy on one machine: federated courts with snapshots, signed claims enforced (S4–S7), declared-domain verification (UC), producer → carrier → court → settle, kill/resume | one script stands the net up and the full loop settles, locally |
 | **B1** | Testnet genesis: public founding chain, seed nodes, grant flow (request → `Issue` + `Bind` on chain → tester's plumbd attaches). Resets allowed and stated | a stranger's plumbd holds a granted range |
 | **B2** | Onboarding kit: QUICKSTART, Docker image, per-role configs, BETA.md, issue templates (bug / spec-gap / independent-reader finding), CONTRIBUTING.md | tester online in 15 minutes, measured with a real tester |
-| **B3** | CI (test + clippy + clean-clone) and crates.io publication in dependency order | kernels depend by version, not checkout |
+| **B3** | CI (test + clippy + clean-clone); beta consumers depend by **pinned git tag** (OQ2: no crates.io until public launch) | a kernel builds against a tag with no local checkout |
 
 ---
 
 ## 6 · x402 payment rails (X) — prospective, behind S4–S7
 
 **The division of labor:** x402 carries fiat-pegged liquidity (USDC
-over HTTP, EIP-3009 escrow); plumb carries the truth (money moves only
+on **Base** — OQ3 — over HTTP, EIP-3009 escrow); plumb carries the truth (money moves only
 when the claim settles); the signature layer binds payout to the
 granted solver.
 
@@ -185,14 +186,15 @@ exposition in git history):
 
 ---
 
-## 8 · Open questions — operator decisions, not implementable
+## 8 · Operator rulings (all questions closed 2026-08-27)
 
-These four cannot be ruled from inside the repository. Everything
-else in this document is decided.
+| OQ | ruling |
+|---|---|
+| **OQ1** | **Deferred behind local proof.** Genesis custody and seed hosting are decided only after the full loop is proven on the operator's own machine (B0, §5). Nothing network-public before that |
+| **OQ2** | **No crates.io for the beta.** Not needed: beta kernels and testers depend by **pinned git tag** (`git = "https://github.com/AlignmentConfirmed/plumb", tag = "v0.x"`), which cargo supports natively. crates.io is discoverability, not capability — revisit at public launch, last |
+| **OQ3** | **Base.** The gateway targets USDC on Base via EIP-3009; facilitator selection happens when X3 starts. No Solana work until Base settles claims end-to-end |
+| **OQ4** | **Twitter + website, operator-run** (with agentic amplification). Repo carries the artifacts (BETA.md, templates); the call itself is the operator's channel. Sequenced after B0 like everything public |
 
-| OQ | question | blocks |
-|---|---|---|
-| **OQ1** | Genesis custody & seed hosting: who holds the testnet genesis signing seed, and on what infrastructure do the first seed courts run (host, domain, who pays)? | B1 |
-| **OQ2** | crates.io publication: which crates.io account owns the `plumb-*` names, and who holds its token? Publication is irreversible name-claiming | B3 |
-| **OQ3** | x402 counterparties: which payment chain (Base vs Solana vs both) and which escrow facilitator does the gateway target first? | X3 |
-| **OQ4** | Beta recruitment: where do the first testers come from (public call, invited cohort, existing community), and who runs comms? | B2 |
+**Sequencing law these rulings share: prove locally first.** B0 — the
+local proofnet — precedes every public step (genesis, recruitment,
+any registry publication).

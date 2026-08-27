@@ -58,9 +58,10 @@ legacy compiled path. Full decision + ladder:
 
 | ID | task | done when |
 |---|---|---|
+| **B0** | Local proofnet: the whole economy on one machine — signed, declared-domain, federated, kill/resume | one script stands it up; the full loop settles locally |
 | **B1** | Testnet genesis: public founding chain, seed nodes, grant issuance flow (request → deed on chain → attach) | a stranger's `plumbd` holds a granted range |
 | **B2** | Onboarding kit: QUICKSTART, Docker image, per-role configs, `BETA.md`, issue templates (bug / spec-gap / independent-reader finding) | tester online in 15 minutes, measured with a real tester |
-| **B3** | CI (test + clippy + clean-clone job) and crates.io publication of the four crates | kernels depend by version, not by checkout |
+| **B3** | CI (test + clippy + clean-clone job); consumers depend by pinned git tag — no crates.io until public launch (OQ2) | a kernel builds against a tag with no local checkout |
 
 Testnet resets are allowed and will be announced — it is a beta.
 
