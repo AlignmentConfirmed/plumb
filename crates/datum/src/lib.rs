@@ -40,6 +40,7 @@
 pub mod admission;
 pub mod block;
 pub mod board;
+pub mod bounty;
 pub mod court_store;
 /// Wave 4 V16 / D-L3c live multi-host court federation (TCP XDCT).
 pub mod court_live;

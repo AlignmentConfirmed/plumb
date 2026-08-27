@@ -269,7 +269,7 @@ hat.
 
 | ID | task | done when |
 |---|---|---|
-| **O1** | Yield rebate on demand-posed spaces; fuel/byte units; bounded escrow | leaner witness measurably captures more of the same bounty |
+| **O1** | Yield rebate | **DONE** — `datum::bounty`: payout = base + saved-fuel·rate + saved-bytes·rate, escrow-bounded; the poser's-universe gate refuses self-posed answers however well they close; over-budget refuses with the price named (fuel AND bytes); measured on the theta universe: the lean cycle out-earns the fat one on the same bounty; T2 untouched |
 | **O2** | Refinement bounty + improvement threshold | an equal-or-worse resubmission earns nothing; a ≥N% tighter chain settles |
 | **O3** | Equivalence act; dependency checks accept either id | old citations unbroken; new work resolves to the cheaper id |
 | **O4** | Homology certificate via filling chain | claimed-homologous refuses without its $h$; verifies with it |
