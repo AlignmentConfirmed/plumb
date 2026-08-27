@@ -1,0 +1,67 @@
+# ROADMAP — from tested model to live beta network
+
+Where v0.1.0 stands: the wire, the physics, the court, and the SDK are
+built and tested (280 tests), and court-to-court TCP federation
+already exists in-process (`datum::court_live` — XDCT snapshot
+exchange with replay-safe merge). What does not exist yet is a node
+you can leave running, an identity a grant can be held to, and the
+onboarding path for someone who is not us.
+
+Each item ends in a test or a shipped artifact, per this repository's
+discipline. IDs continue the `decide/` task lists (S = signatures,
+X = x402).
+
+## Phase A — trust (the unpoured floor)
+
+| ID | task | done when |
+|---|---|---|
+| **S1–S2** | Signature leaf crate: Ed25519 + BLAKE3 envelope hash, scheme byte `0x01`; signature/pubkey as tagged records | round-trip test; unsigned-era reader forwards signed traffic whole |
+| **S3** | Grant deeds carry `holder_key` (IS-3/3, IS-6/4) | vectors; unbound grants read as legacy |
+| **S4–S7** | Court refuses forged / stale / unbound; carrier admission proven payload-blind; BLAKE3 anchors; unknown scheme refused | refusal tests; Known Gap #1 closed |
+
+Crypto dependencies enter here as a sibling leaf — `isthmus` stays
+dependency-free.
+
+## Phase B — the node
+
+| ID | task | done when |
+|---|---|---|
+| **N1** | `plumbd`: node daemon speaking the isthmus wire over TCP — declaration first, then the four verdicts drive the loop; roles (producer / verifier / carrier) by config | two processes attach, a shape claim crosses, the verifier credits it |
+| **N2** | IS-2 §6 session freshness (the one OPEN section) as IS-2/2 | vectors; replayed session refused |
+| **N3** | Durable court service: periodic snapshots (`court_store`), federation peering (`court_live`) with reconnect | replay refusal holds across real hosts; a killed node resumes from snapshot |
+
+## Phase C — protocol completion
+
+| ID | task | done when |
+|---|---|---|
+| **P1** | Tag-51 revision: the relation frame carries its polytopal shape (IS-1/3) | shaped-relation vectors; Known Gap #4 closed |
+| **P2** | IS-4 witness: observer / witness / watcher productized, fourth `plumbd` role | vectors; Known Gap #3 closed |
+
+## Phase D — beta network
+
+| ID | task | done when |
+|---|---|---|
+| **B1** | Testnet genesis: public founding chain, seed nodes, grant issuance flow (request → deed on chain → attach) | a stranger's `plumbd` holds a granted range |
+| **B2** | Onboarding kit: QUICKSTART, Docker image, per-role configs, `BETA.md`, issue templates (bug / spec-gap / independent-reader finding) | tester online in 15 minutes, measured with a real tester |
+| **B3** | CI (test + clippy + clean-clone job) and crates.io publication of the four crates | kernels depend by version, not by checkout |
+
+Testnet resets are allowed and will be announced — it is a beta.
+
+## Phase E — after the network stands
+
+- **X1–X5** — x402 payment rails (`decide/x402-integration.md`),
+  gated behind the settlement receipts S1–S7 make possible.
+- **Topological signatures** — held at PROSPECTIVE
+  (`decide/topological-cryptography.md`) until the cryptanalytic bar
+  is met; enters as scheme ≥ `0x02` through the agility seam, no wire
+  break.
+- **Kernel repoints** — external kernels move onto the published
+  crates; the crossing suites reopen in the lab.
+
+## How to help right now
+
+The highest-leverage contribution needs no Rust: **implement IS-1 from
+`protocols/` and `conformance/` alone** and file every ambiguity you
+hit. Four gaps were found by the author re-reading; the first
+independent reading closes Known Gap #5 and will find things we
+cannot.
