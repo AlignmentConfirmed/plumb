@@ -27,8 +27,10 @@ them. A party that could do both would be an arbiter, and this design
 refuses arbiters.
 
 ```bash
-cargo test            # the whole suite; touches nothing outside this directory
+cargo test               # the whole suite; touches nothing outside this directory
 cargo run -p plumb-sdk --example join
+scripts/proofnet.sh      # the whole economy on one machine: genesis, signed
+                         # claims, a registered domain, federation, kill/resume
 ```
 
 ## The protocols

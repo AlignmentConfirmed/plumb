@@ -76,3 +76,44 @@ pub fn fuel_budget(price: &Extent, axis: usize) -> u64 {
         .map(|c| u64::try_from(c).unwrap_or(u64::MAX))
         .unwrap_or(0)
 }
+
+/// The demo universe: six vertices, six edges in a cycle. A fixture
+/// for the proofnet script and the tests — the first universe a beta
+/// court registers, and small enough to read.
+#[must_use]
+pub fn demo_hexagon_universe() -> DeclaredComplex {
+    let n = 6u32;
+    let mut op = Vec::new();
+    for i in 0..n {
+        let (source, target) = (i, (i + 1) % n);
+        let mut pair = vec![
+            assay::complex::Entry {
+                row: target,
+                col: i,
+                coeff: assay::whole(1),
+            },
+            assay::complex::Entry {
+                row: source,
+                col: i,
+                coeff: assay::whole(-1),
+            },
+        ];
+        pair.sort_by_key(|e| (e.col, e.row));
+        op.extend(pair);
+    }
+    DeclaredComplex {
+        cells: vec![n, n],
+        ops: vec![op],
+    }
+}
+
+/// The demo claim: the full hexagon cycle, which closes.
+#[must_use]
+pub fn demo_hexagon_claim(transport: u64) -> DeclaredClaim {
+    DeclaredClaim {
+        transport,
+        complex: demo_hexagon_universe(),
+        dim: 1,
+        witness: (0..6).map(|i| (i, assay::whole(1))).collect(),
+    }
+}

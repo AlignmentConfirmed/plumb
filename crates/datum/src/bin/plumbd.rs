@@ -41,6 +41,11 @@ struct Config {
     fed_secs: u64,
     require_signatures: bool,
     seed: Option<String>,
+    demo: String,
+    out: Option<String>,
+    grants: Vec<String>,
+    binds: Vec<(String, String)>,
+    declares: Vec<String>,
 }
 
 fn parse(text: &str) -> Config {
@@ -58,6 +63,11 @@ fn parse(text: &str) -> Config {
         fed_secs: 10,
         require_signatures: false,
         seed: None,
+        demo: "triangle".into(),
+        out: None,
+        grants: Vec::new(),
+        binds: Vec::new(),
+        declares: Vec::new(),
     };
     for line in text.lines() {
         let line = line.split('#').next().unwrap_or("").trim();
@@ -83,6 +93,17 @@ fn parse(text: &str) -> Config {
                 }
             }
             "require_signatures" => config.require_signatures = value == "true",
+            "demo" => config.demo = value,
+            "out" => config.out = Some(value),
+            "grant" => config.grants.push(value),
+            "bind" => {
+                if let Some((who, seed)) = value.split_once(':') {
+                    config.binds.push((who.trim().into(), seed.trim().into()));
+                } else {
+                    eprintln!("plumbd: bind wants `holder:seedhex`, got: {value}");
+                }
+            }
+            "declare" => config.declares.push(value),
             "seed" => config.seed = Some(value),
             "fed_listen" => config.fed_listen = Some(value),
             "fed_peer" => config.fed_peers.push(value),
@@ -123,18 +144,25 @@ fn ledger_for(config: &Config) -> Ledger {
     ledger
 }
 
-/// The demo claim a producer sends: the 3-orb triangle, enveloped.
-fn demo_envelope() -> Option<Vec<u8>> {
-    let shape = datum::onramp::shape_from_edges(
-        3,
-        [
-            (0, 1, assay::whole(1)),
-            (1, 2, assay::whole(1)),
-            (0, 2, assay::whole(1)),
-        ],
-    )
-    .ok()?;
-    let body = datum::onramp::shape_body(0, shape).ok()?;
+/// The demo claim a producer sends, enveloped: `triangle` (compiled
+/// shape domain) or `hexagon` (declared domain — the universe rides
+/// in the claim as data).
+fn demo_envelope(which: &str) -> Option<Vec<u8>> {
+    let body = match which {
+        "hexagon" => datum::domains::demo_hexagon_claim(0).encode(),
+        _ => {
+            let shape = datum::onramp::shape_from_edges(
+                3,
+                [
+                    (0, 1, assay::whole(1)),
+                    (1, 2, assay::whole(1)),
+                    (0, 2, assay::whole(1)),
+                ],
+            )
+            .ok()?;
+            datum::onramp::shape_body(0, shape).ok()?
+        }
+    };
     let mut wire = Vec::new();
     isthmus::work::put_shape_claim(&body, &mut wire).ok()?;
     Some(wire)
@@ -204,6 +232,14 @@ fn main() {
                     std::process::exit(1);
                 }
             };
+            let registered = (0u64..256)
+                .filter(|t| ledger.declaration_of(*t).is_some())
+                .count();
+            if registered > 0 {
+                println!(
+                    "plumbd: {registered} registered domain(s) resolved from chain state"
+                );
+            }
             println!(
                 "plumbd: court '{}' listening on {}",
                 config.holder, config.listen
@@ -233,7 +269,7 @@ fn main() {
             std::process::exit(1);
         }
         "producer" => {
-            let Some(envelope) = demo_envelope() else {
+            let Some(envelope) = demo_envelope(&config.demo) else {
                 eprintln!("plumbd: could not build the demo claim");
                 std::process::exit(1);
             };
@@ -279,8 +315,66 @@ fn main() {
                 }
             }
         }
+        "genesis" => {
+            let Some(out) = &config.out else {
+                eprintln!("plumbd: genesis needs `out = <path>`");
+                std::process::exit(2);
+            };
+            let mut genesis = Ledger::new(Layout::founding());
+            genesis.encumber(1, 31, "ancestral", "founding registries");
+            let mut issued = vec![config.holder.clone()];
+            issued.extend(config.grants.iter().cloned());
+            for holder in &issued {
+                if genesis.issue(holder, 16).is_err() {
+                    eprintln!("plumbd: no room to issue {holder}");
+                    std::process::exit(1);
+                }
+            }
+            for (holder, seed_hex) in &config.binds {
+                let Some(seed) = seed_from_hex(seed_hex) else {
+                    eprintln!("plumbd: bind seed for {holder} must be 64 hex chars");
+                    std::process::exit(2);
+                };
+                let key = sig::Keypair::from_seed(seed);
+                genesis.record(isthmus::deed::Act::Bind {
+                    holder: holder.clone(),
+                    scheme: sig::SCHEME_ED25519_BLAKE3,
+                    key: key.public().to_vec(),
+                    from_epoch: 0,
+                    until_epoch: u64::MAX,
+                });
+            }
+            for holder in &config.declares {
+                let Some(tag) = genesis
+                    .deeds()
+                    .into_iter()
+                    .find(|d| d.live && &d.holder == holder)
+                    .map(|d| d.low())
+                else {
+                    eprintln!("plumbd: declare names unknown holder {holder}");
+                    std::process::exit(2);
+                };
+                genesis.record(isthmus::deed::Act::Declare {
+                    holder: holder.clone(),
+                    tag,
+                    definition: datum::domains::demo_hexagon_universe().encode(),
+                });
+            }
+            let bytes = isthmus::deed::chain::encode(genesis.acts());
+            if let Err(e) = std::fs::write(out, &bytes) {
+                eprintln!("plumbd: cannot write {out}: {e}");
+                std::process::exit(1);
+            }
+            println!(
+                "plumbd: genesis written to {out} — {} act(s), {} holder(s), {} bind(s), {} declaration(s)",
+                genesis.acts().len(),
+                issued.len(),
+                config.binds.len(),
+                config.declares.len()
+            );
+        }
         other => {
-            eprintln!("plumbd: unknown role '{other}' (court | producer)");
+            eprintln!("plumbd: unknown role '{other}' (court | producer | genesis)");
             std::process::exit(2);
         }
     }

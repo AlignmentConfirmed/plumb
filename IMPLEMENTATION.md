@@ -120,11 +120,11 @@ Ruled shape: freshness is layered, not invented per transport.
 
 ---
 
-## 5 · Beta network (B) — blocked on UC1–UC4
+## 5 · Beta network (B) — B0 PASSED; the gate to public is open
 
 | ID | task | done when |
 |---|---|---|
-| **B0** | **Local proofnet** — the whole economy on one machine: federated courts with snapshots, signed claims enforced (S4–S7), declared-domain verification (UC), producer → carrier → court → settle, kill/resume | one script stands the net up and the full loop settles, locally |
+| **B0** | **Local proofnet** — the whole economy on one machine | **DONE** — `scripts/proofnet.sh`: genesis (issue + bind + declare) → enforcing court federating to a second → signed declared-domain claim credits once, its copy refuses → `kill -9` → resume → still refuses. 9/9 checks, PASS |
 | **B1** | Testnet genesis: public founding chain, seed nodes, grant flow (request → `Issue` + `Bind` on chain → tester's plumbd attaches). Resets allowed and stated | a stranger's plumbd holds a granted range |
 | **B2** | Onboarding kit: QUICKSTART, Docker image, per-role configs, BETA.md, issue templates (bug / spec-gap / independent-reader finding), CONTRIBUTING.md | tester online in 15 minutes, measured with a real tester |
 | **B3** | CI (test + clippy + clean-clone); beta consumers depend by **pinned git tag** (OQ2: no crates.io until public launch) | a kernel builds against a tag with no local checkout |
