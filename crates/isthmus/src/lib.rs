@@ -200,7 +200,12 @@ pub fn revisions() -> Vec<String> {
     // must answer it over exact frame bytes, or the session never goes
     // live. A replayed session's answer covers a dead token. A
     // BEHAVIOUR change at enforcing courts, so the revision moves.
-    ["IS-1/4", "IS-2/2", "IS-3/2", "IS-5/2", "IS-6/5"]
+    // IS-1/5: §7.1.1 — the closure carries its shape as a declared-
+    // complex definition (one shape codec in the whole system), with
+    // def_len = 0 the EXPLICIT legacy "shape unknown". Closes the
+    // tag-51 defect class: a hexagon and a five-simplex over the same
+    // six orbs are distinct bytes.
+    ["IS-1/5", "IS-2/2", "IS-3/2", "IS-5/2", "IS-6/5"]
         .iter()
         .map(|s| (*s).to_string())
         .collect()

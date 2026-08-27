@@ -87,9 +87,11 @@ what is verified versus pending builds more trust than delay. The gaps:
    TCP is the only transport, and there is no NAT traversal or peer
    discovery — peers are configured, not found.
 3. **IS-4 witness role** is specified, not built.
-4. **Tag-51 relation frame carries no shape.** A hexagon crosses as a
-   five-simplex. Known wrong; owed as a frame revision. Do not build
-   on tag 51 as published.
+4. **Tag-51 closed (IS-1/5).** The closure now carries its shape as
+   a declared-complex definition — a hexagon and a five-simplex over
+   the same six orbs are distinct bytes (vectors V17/V18), and the
+   legacy grain is explicit "shape unknown," never an inferred
+   simplex.
 5. **No independent reader yet.** Every specification gap found so far
    (four) was found by the author re-reading. If you implement IS-1
    from the documents and the conformance vectors alone, what you trip
