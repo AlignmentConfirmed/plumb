@@ -34,6 +34,11 @@ struct Config {
     peers: Vec<String>,
     bound: usize,
     chain: Option<String>,
+    snapshot: Option<String>,
+    snapshot_secs: u64,
+    fed_listen: Option<String>,
+    fed_peers: Vec<String>,
+    fed_secs: u64,
 }
 
 fn parse(text: &str) -> Config {
@@ -44,6 +49,11 @@ fn parse(text: &str) -> Config {
         peers: Vec::new(),
         bound: 1 << 16,
         chain: None,
+        snapshot: None,
+        snapshot_secs: 10,
+        fed_listen: None,
+        fed_peers: Vec::new(),
+        fed_secs: 10,
     };
     for line in text.lines() {
         let line = line.split('#').next().unwrap_or("").trim();
@@ -62,6 +72,19 @@ fn parse(text: &str) -> Config {
                 }
             }
             "chain" => config.chain = Some(value),
+            "snapshot" => config.snapshot = Some(value),
+            "snapshot_secs" => {
+                if let Ok(n) = value.parse() {
+                    config.snapshot_secs = n;
+                }
+            }
+            "fed_listen" => config.fed_listen = Some(value),
+            "fed_peer" => config.fed_peers.push(value),
+            "fed_secs" => {
+                if let Ok(n) = value.parse() {
+                    config.fed_secs = n;
+                }
+            }
             _ => eprintln!("plumbd: unknown config key ignored: {key}"),
         }
     }
@@ -140,6 +163,27 @@ fn main() {
                 }
             };
             let book = Arc::new(Mutex::new(RewardBook::new()));
+            let service = datum::court_service::ServiceConfig {
+                snapshot: config.snapshot.clone().map(std::path::PathBuf::from),
+                snapshot_secs: config.snapshot_secs,
+                fed_listen: config.fed_listen.clone(),
+                fed_peers: config.fed_peers.clone(),
+                fed_secs: config.fed_secs,
+            };
+            let _service = match datum::court_service::start(&service, &book) {
+                Ok((handle, restored)) => {
+                    if restored > 0 {
+                        println!("plumbd: resumed {restored} act(s) from snapshot");
+                    }
+                    Some(handle)
+                }
+                Err(e) => {
+                    eprintln!(
+                        "plumbd: snapshot is corrupt ({e:?}); refusing to start with a forgotten book"
+                    );
+                    std::process::exit(1);
+                }
+            };
             println!(
                 "plumbd: court '{}' listening on {}",
                 config.holder, config.listen
