@@ -9,7 +9,7 @@
 # the same way any outsider would.
 [workspace]
 resolver = "2"
-members = ["crates/isthmus", "crates/assay", "crates/datum", "crates/sdk"]
+members = ["crates/isthmus", "crates/assay", "crates/datum", "crates/sdk", "crates/sig"]
 
 [workspace.package]
 license = "MIT OR Apache-2.0"

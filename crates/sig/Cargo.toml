@@ -1,0 +1,50 @@
+[package]
+name = "plumb-sig"
+version = "0.1.0"
+edition = "2021"
+description = "The signature leaf: Ed25519 over BLAKE3 envelope hashes, scheme 0x01. Binds a presenter to a grant without reading a payload."
+license = "MIT OR Apache-2.0"
+keywords = ["signature", "ed25519", "blake3"]
+
+# ===================================================================
+# SIG IS A LEAF, LIKE ASSAY. It imports cryptography and nothing of
+# ours: not the substrate, not the court. The substrate stays
+# dependency-free (its whole integration claim), and the court calls
+# this leaf the same way it calls the physics.
+#
+#     isthmus  ->  nothing              the substrate
+#     assay    ->  nothing              the physics
+#     sig      ->  crypto only          the identity physics
+#     datum    ->  isthmus+assay+sig    the court
+#
+# The dev-dependency on isthmus exists for ONE measurement: that an
+# unsigned-era reader forwards an attestation record whole. A test
+# that cannot reach the substrate cannot measure skip-unknown.
+# ===================================================================
+[lib]
+name = "sig"
+
+[dependencies]
+blake3 = { version = "1", default-features = false }
+ed25519-dalek = { version = "2", default-features = false, features = ["fast"] }
+getrandom = "0.2"
+
+[dev-dependencies]
+isthmus = { path = "../isthmus", package = "plumb-isthmus" }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"
+
+[lints.rustdoc]
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "deny"
+
+# The leaf is total: every path returns a value or a named refusal. A
+# verifier that panics on hostile bytes is a verifier that can be
+# stopped by hostile bytes.
+[lints.clippy]
+panic = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
