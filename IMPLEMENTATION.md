@@ -217,6 +217,69 @@ learns USDC.
 
 ---
 
+## 6b · The optimization market (OPT) — docketed 2026-08-27
+
+**Compression priced as a commodity distinct from discovery.** The
+board settles the FIRST valid closure to unblock the network (finding
+the shortest homologous chain is NP-hard; nobody waits for perfect),
+and keeps an economic door open for every subsequent improvement —
+without touching T2, because a tighter chain is different structure
+and therefore new work by content address.
+
+**O1 — the yield rebate (at discovery).** On a demand-posed space the
+payout is a function of measured efficiency:
+
+$$
+\text{payout} = \text{base}
++ (\text{max\_fuel} - \text{spent\_fuel}) \cdot r_f
++ (\text{max\_bytes} - \text{spent\_bytes}) \cdot r_b
+$$
+
+Sound because both quantities are **consensus facts**: metered fuel is
+a deterministic function of witness structure (every court re-derives
+the identical number) and canonical byte length is canonical. Escrow
+is bounded at `base + max·rates`; the residue refunds the poser.
+
+Two hard rules: **units are fuel and bytes, never cpu cycles or
+memory** (machine facts are unverifiable by a federation), and
+**rebates bind only to demand-posed spaces** — on self-posed work a
+rebate is free money; the strand corpus already recorded why: *a node
+authoring its own task solves it for free*.
+
+**O2 — the refinement bounty.** A standing bounty targets a settled
+`work_id`: exhibit a chain closing the SAME boundary (SQ1
+`closes_to`) at a strict improvement threshold (≥ N% less fuel/bytes
+— the anti-dust rule). Because the network cites lemmas by content
+address, making a heavily-cited lemma cheaper is a public good worth
+a standing price.
+
+**O3 — equivalence by append, never rewrite.** Settlement of a
+refinement APPENDS an equivalence act (`old ≈ new`, with measured
+savings) to the record. Old proofs keep citing the old id — their
+meaning is frozen, as history must be; new work selects the cheap id
+because the chain advertises it; courts accept either id in
+dependency checks by reading the equivalence fold. The cheap path
+wins by selection, not decree.
+
+**O4 — the homology certificate (quality tier).** A refinement
+claiming genuine homology — not just same boundary — exhibits the
+filling chain $h$ with $\partial h = c - c'$, verified like
+everything else. This is SQ6's confluence cell wearing its economic
+hat.
+
+| ID | task | done when |
+|---|---|---|
+| **O1** | Yield rebate on demand-posed spaces; fuel/byte units; bounded escrow | leaner witness measurably captures more of the same bounty |
+| **O2** | Refinement bounty + improvement threshold | an equal-or-worse resubmission earns nothing; a ≥N% tighter chain settles |
+| **O3** | Equivalence act; dependency checks accept either id | old citations unbroken; new work resolves to the cheaper id |
+| **O4** | Homology certificate via filling chain | claimed-homologous refuses without its $h$; verifies with it |
+
+Sequenced behind **X2** (receipts) for payout; O1's mechanics and all
+verification pieces can start now. Tracked with SQ and X on the
+working board.
+
+---
+
 ## 7 · Topological signatures — research track, scheme ≥ 0x02
 
 Held at research until the cryptanalytic bar is met; enters through

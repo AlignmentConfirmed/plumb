@@ -70,8 +70,14 @@ Testnet resets are allowed and will be announced — it is a beta.
 - **SQ1–SQ6** — Domain 4, the homological proof calculus
   (`IMPLEMENTATION.md` §2b): scientific proofs as boundary
   annihilation over polygraphs; the sublet lemma market; the
-  self-building corpus. SQ1–SQ3 need only the engine; SQ4–SQ5 join
-  the X track.
+  self-building corpus. SQ1–SQ2 built; SQ3 is the research
+  centerpiece; SQ4–SQ5 join the X track.
+- **O1–O4** — the optimization market (`IMPLEMENTATION.md` §6b):
+  compression priced as a commodity distinct from discovery — yield
+  rebates on unspent fuel/bytes at discovery, standing refinement
+  bounties on settled work, equivalence by append (never rewrite),
+  and the homology certificate as the quality tier. T2 untouched:
+  a tighter chain is new work by content address.
 
 - **X1–X5** — x402 payment rails (`IMPLEMENTATION.md`),
   gated behind the settlement receipts S1–S7 make possible.

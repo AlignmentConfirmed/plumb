@@ -224,6 +224,13 @@ be the real cost. Here the asymmetry is structural, not tuned:
   in general dimension. The market chooses instances by pricing
   space; the engine only ever pays for found-and-closed.
 
+The asymmetry also prices **elegance**: verification fuel is a
+deterministic function of witness structure, so "more efficient" is a
+measured consensus fact, and the optimization market
+(`IMPLEMENTATION.md` §6b) pays it — yield rebates on unspent budget at
+discovery, standing refinement bounties on settled work, with
+improvements appended as equivalences rather than rewrites.
+
 Two consequences distinguish this from hash-grinding PoW:
 
 1. **Zero-variance reward.** $\kappa(w)$ is a deterministic function
