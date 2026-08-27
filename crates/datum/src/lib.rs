@@ -37,6 +37,7 @@
 
 // Edge-free: these measure nothing that needs a kernel, so they stand
 // whatever is mid-edit anywhere.
+pub mod admission;
 pub mod block;
 pub mod board;
 pub mod court_store;

@@ -49,7 +49,7 @@ fn a_claim_crosses_tcp_and_credits_once() {
     {
         let (layout, ledger, book) = (layout.clone(), court_ledger.clone(), Arc::clone(&book));
         std::thread::spawn(move || {
-            let _ = plumbd::serve(&listener, &layout, &ledger, "test-court", &book, BOUND, |_| {});
+            let _ = plumbd::serve(&listener, &layout, &ledger, "test-court", &book, BOUND, false, |_| {});
         });
     }
 

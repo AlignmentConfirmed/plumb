@@ -25,6 +25,7 @@ use isthmus::hello::Hello;
 use isthmus::layout::{Layout, Tag};
 use isthmus::session::{self, Step};
 
+use crate::admission;
 use crate::reward::RewardBook;
 
 /// Why a node session ended or refused.
@@ -165,6 +166,7 @@ pub fn court_session(
     holder: &str,
     book: &Arc<Mutex<RewardBook>>,
     bound: usize,
+    enforce: bool,
 ) -> Result<SessionReport, NodeBroken> {
     let ours = Hello::of(ledger, holder, u32::try_from(bound).unwrap_or(u32::MAX));
     let mut buffer = Vec::new();
@@ -172,17 +174,49 @@ pub fn court_session(
     send_hello(&mut stream, layout, hello_tag(ledger, holder), &ours)?;
 
     let mut report = SessionReport::default();
+    // Under enforcement a work envelope is held until its attestation
+    // arrives (the next record); an envelope displaced or orphaned
+    // without one is refused, not credited.
+    let mut pending: Option<Vec<u8>> = None;
     while let Some((tag, frame)) = read_record(&mut stream, &mut buffer, layout, bound)? {
         if isthmus::work::is_work_tag(tag) && tag != isthmus::work::RECEIPT_TAG {
-            let value = frame.get(layout.header()..).unwrap_or(&[]);
+            if !enforce {
+                let value = frame.get(layout.header()..).unwrap_or(&[]);
+                let mut guard = book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
+                match guard.credit_claim(value) {
+                    Ok(_) => report.credited += 1,
+                    Err(_) => report.refused += 1,
+                }
+            } else {
+                if pending.take().is_some() {
+                    report.refused += 1; // unattested envelope displaced
+                }
+                pending = Some(frame);
+            }
+        } else if enforce && tag == admission::ATTESTATION_TAG {
+            let Some(envelope) = pending.take() else {
+                report.skipped += 1; // attestation with nothing to attest
+                continue;
+            };
+            let attestation = frame.get(layout.header()..).unwrap_or(&[]);
             let mut guard = book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
-            match guard.credit_claim(value) {
-                Ok(_) => report.credited += 1,
+            let epoch = guard.open_epoch().unwrap_or(0);
+            match admission::admit(ledger, epoch, &envelope, attestation) {
+                Ok(_holder) => {
+                    let value = envelope.get(layout.header()..).unwrap_or(&[]);
+                    match guard.credit_claim(value) {
+                        Ok(_) => report.credited += 1,
+                        Err(_) => report.refused += 1,
+                    }
+                }
                 Err(_) => report.refused += 1,
             }
         } else {
             report.skipped += 1;
         }
+    }
+    if pending.is_some() {
+        report.refused += 1; // session closed on an unattested envelope
     }
     Ok(report)
 }
@@ -198,6 +232,7 @@ pub fn serve(
     holder: &str,
     book: &Arc<Mutex<RewardBook>>,
     bound: usize,
+    enforce: bool,
     on_session: impl Fn(&SessionReport) + Send + Sync + 'static,
 ) -> std::io::Error {
     let on_session = Arc::new(on_session);
@@ -211,7 +246,7 @@ pub fn serve(
                 let on_session = Arc::clone(&on_session);
                 std::thread::spawn(move || {
                     if let Ok(report) =
-                        court_session(stream, &layout, &ledger, &holder, &book, bound)
+                        court_session(stream, &layout, &ledger, &holder, &book, bound, enforce)
                     {
                         on_session(&report);
                     }
@@ -234,6 +269,32 @@ pub fn produce(
     bound: usize,
     envelopes: &[Vec<u8>],
 ) -> Result<usize, NodeBroken> {
+    produce_inner(addr, layout, ledger, holder, bound, envelopes, None)
+}
+
+/// [`produce`], signing: each envelope is followed by its attestation
+/// record (tag 83), built over the envelope's exact frame bytes.
+pub fn produce_signed(
+    addr: impl ToSocketAddrs,
+    layout: &Layout,
+    ledger: &Ledger,
+    holder: &str,
+    bound: usize,
+    envelopes: &[Vec<u8>],
+    key: &sig::Keypair,
+) -> Result<usize, NodeBroken> {
+    produce_inner(addr, layout, ledger, holder, bound, envelopes, Some(key))
+}
+
+fn produce_inner(
+    addr: impl ToSocketAddrs,
+    layout: &Layout,
+    ledger: &Ledger,
+    holder: &str,
+    bound: usize,
+    envelopes: &[Vec<u8>],
+    key: Option<&sig::Keypair>,
+) -> Result<usize, NodeBroken> {
     let mut stream = TcpStream::connect(addr)?;
     let ours = Hello::of(ledger, holder, u32::try_from(bound).unwrap_or(u32::MAX));
     send_hello(&mut stream, layout, hello_tag(ledger, holder), &ours)?;
@@ -242,6 +303,18 @@ pub fn produce(
     let mut sent = 0usize;
     for envelope in envelopes {
         stream.write_all(envelope)?;
+        if let Some(key) = key {
+            let attestation = key.attest(envelope);
+            let mut wire = Vec::new();
+            isthmus::frame::put_frame(
+                layout,
+                admission::ATTESTATION_TAG,
+                &attestation.encode(),
+                &mut wire,
+            )
+            .map_err(|_| NodeBroken::CannotFrame)?;
+            stream.write_all(&wire)?;
+        }
         sent += 1;
     }
     Ok(sent)

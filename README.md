@@ -68,12 +68,13 @@ policy held release until they closed; that hold was **waived by a
 recorded decision (2026-08-27)** on the grounds that transparency about
 what is verified versus pending builds more trust than delay. The gaps:
 
-1. **Cryptographic identity is half-poured.** The primitives exist
-   (`sig`: Ed25519 over BLAKE3 envelopes, scheme 0x01) and the chain
-   can bind a holder's key to its grants (`Act::Bind`, IS-6/4) — but
-   the court and carriers do not yet *enforce* signatures (S4–S7 of
-   `IMPLEMENTATION.md`). Until they do, "independent parties"
-   remains structural in transit and unenforced at the edges.
+1. **Cryptographic identity is enforced at the court, opt-in per
+   deployment.** Ed25519 over BLAKE3 envelopes (scheme 0x01), keys
+   bound to grants on the chain (`Act::Bind`, IS-6/4), and courts
+   with `require_signatures = true` refuse forged, stale, and unbound
+   presentations (S1–S7 complete). Remaining honesty: enforcement is
+   a config flag until the testnet genesis turns it on by default,
+   and transport sessions are still unauthenticated pending IS-2 §6.
 2. **Transport is young.** `plumbd` runs sessions over TCP and the
    court federates durably, but IS-2 §6 session freshness is still
    specified open, and sessions are unauthenticated until gap #1

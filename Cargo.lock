@@ -239,6 +239,7 @@ dependencies = [
  "num-traits",
  "plumb-assay",
  "plumb-isthmus",
+ "plumb-sig",
 ]
 
 [[package]]

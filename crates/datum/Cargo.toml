@@ -22,6 +22,7 @@ name = "datum"
 [dependencies]
 isthmus = { path = "../isthmus", package = "plumb-isthmus" }
 assay = { path = "../assay", package = "plumb-assay" }
+sig = { path = "../sig", package = "plumb-sig" }
 num-rational = "0.4"
 num-bigint = "0.4"
 num-traits = "0.2"

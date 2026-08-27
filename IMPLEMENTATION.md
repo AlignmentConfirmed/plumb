@@ -11,7 +11,7 @@ mirrored in [`ROADMAP.md`](ROADMAP.md).
 
 ---
 
-## 1 · The signature layer (S) — ruled, S1–S3 built
+## 1 · The signature layer (S) — COMPLETE (S1–S7, 2026-08-27)
 
 **Rulings:** Ed25519 keys; BLAKE3 digests; grants bind
 `key × tag-range × epoch window` as a chain fact. Crypto lives in the
@@ -31,14 +31,19 @@ mirrored in [`ROADMAP.md`](ROADMAP.md).
   rotation is an append; a bind covers no ground; unbound holders
   read as legacy. Strict predicate: `sdk::grant::authorizes_presenter`.
 
-**Remaining:**
+**Enforcement (built — `datum::admission`, `tests/admission.rs`):**
 
-| ID | task | done when |
+| ID | task | status |
 |---|---|---|
-| **S4** | Court refuses claims whose envelope attestation fails, whose holder is unbound, or whose presentation epoch falls outside the bind window | refusal tests: forged, stale, unbound |
-| **S5** | Carrier admission check, envelope-only — verify without decoding the payload (a carrier that checks signatures is still a carrier) | payload-blind test |
-| **S6** | Anchor digests written as BLAKE3 at the court edge (the wire stays digest-agnostic) | cross-chain anchor round-trip |
-| **S7** | Unknown scheme refused end-to-end at the court seam | unknown-scheme refusal test |
+| **S4** | Court refuses forged / stale / unbound; identity resolved key→holder from chain bindings (rotation respected: a superseded key is history, not authority) | **DONE** |
+| **S5** | Admission is payload-blind — it hashes envelope bytes and reads chain state, never the value — so a carrier may run it and remain a carrier | **DONE** |
+| **S6** | `admission::anchor_digest` — BLAKE3 at the court edge; the wire stays digest-agnostic | **DONE** |
+| **S7** | Unknown scheme is a named refusal at the court seam | **DONE** |
+
+On the wire: an attestation record (tag 83) follows its envelope; an
+enforcing court (`require_signatures = true`) holds each envelope for
+its attestation and refuses orphans. `plumbd::produce_signed` is the
+producer half; the daemon takes a 64-hex-char `seed`.
 
 Epoch source of truth: the reward book's `EpochOpened`/`EpochClosed`
 acts. Freshness thereby becomes a chain fact, not a transport secret —

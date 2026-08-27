@@ -39,6 +39,8 @@ struct Config {
     fed_listen: Option<String>,
     fed_peers: Vec<String>,
     fed_secs: u64,
+    require_signatures: bool,
+    seed: Option<String>,
 }
 
 fn parse(text: &str) -> Config {
@@ -54,6 +56,8 @@ fn parse(text: &str) -> Config {
         fed_listen: None,
         fed_peers: Vec::new(),
         fed_secs: 10,
+        require_signatures: false,
+        seed: None,
     };
     for line in text.lines() {
         let line = line.split('#').next().unwrap_or("").trim();
@@ -78,6 +82,8 @@ fn parse(text: &str) -> Config {
                     config.snapshot_secs = n;
                 }
             }
+            "require_signatures" => config.require_signatures = value == "true",
+            "seed" => config.seed = Some(value),
             "fed_listen" => config.fed_listen = Some(value),
             "fed_peer" => config.fed_peers.push(value),
             "fed_secs" => {
@@ -134,6 +140,20 @@ fn demo_envelope() -> Option<Vec<u8>> {
     Some(wire)
 }
 
+/// 64 hex chars -> 32 bytes; anything else is None.
+fn seed_from_hex(hex: &str) -> Option<[u8; 32]> {
+    let hex = hex.trim();
+    if hex.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (i, byte) in out.iter_mut().enumerate() {
+        let pair = hex.get(i * 2..i * 2 + 2)?;
+        *byte = u8::from_str_radix(pair, 16).ok()?;
+    }
+    Some(out)
+}
+
 fn main() {
     let path = match std::env::args().nth(1) {
         Some(p) => p,
@@ -188,6 +208,9 @@ fn main() {
                 "plumbd: court '{}' listening on {}",
                 config.holder, config.listen
             );
+            if config.require_signatures {
+                println!("plumbd: signature enforcement ON (S4)");
+            }
             let err = plumbd::serve(
                 &listener,
                 &layout,
@@ -195,6 +218,7 @@ fn main() {
                 &config.holder,
                 &book,
                 config.bound,
+                config.require_signatures,
                 |report| {
                     println!(
                         "plumbd: session closed — credited {}, refused {}, skipped {}",
@@ -214,15 +238,36 @@ fn main() {
                 eprintln!("plumbd: producer needs at least one `peer =` line");
                 std::process::exit(2);
             }
+            let key = config.seed.as_deref().map(|hex| {
+                match seed_from_hex(hex) {
+                    Some(seed) => sig::Keypair::from_seed(seed),
+                    None => {
+                        eprintln!("plumbd: seed must be 64 hex chars");
+                        std::process::exit(2);
+                    }
+                }
+            });
             for peer in &config.peers {
-                match plumbd::produce(
-                    peer.as_str(),
-                    &layout,
-                    &ledger,
-                    &config.holder,
-                    config.bound,
-                    std::slice::from_ref(&envelope),
-                ) {
+                let result = match &key {
+                    Some(key) => plumbd::produce_signed(
+                        peer.as_str(),
+                        &layout,
+                        &ledger,
+                        &config.holder,
+                        config.bound,
+                        std::slice::from_ref(&envelope),
+                        key,
+                    ),
+                    None => plumbd::produce(
+                        peer.as_str(),
+                        &layout,
+                        &ledger,
+                        &config.holder,
+                        config.bound,
+                        std::slice::from_ref(&envelope),
+                    ),
+                };
+                match result {
                     Ok(sent) => println!("plumbd: sent {sent} envelope(s) to {peer}"),
                     Err(e) => {
                         eprintln!("plumbd: producing to {peer} failed: {e:?}");
