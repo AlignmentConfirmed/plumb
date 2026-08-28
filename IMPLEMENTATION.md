@@ -319,6 +319,27 @@ running on one machine.
 
 ---
 
+## 6d · Production readiness (PR) — closing every fixture gap between the simnet and a public net
+
+**The audit that opened this section (2026-08-28):** genesis, chain
+bootstrap, and signature-based admission were already real — no
+theatre there. But five things were fixture-only and would have to be
+genuinely built before a stranger could download a binary, generate
+their own key, and earn: key generation, live (post-genesis)
+registration, network admission bounds, transport confidentiality,
+and real (non-`demo_*`) corpus content. Tracked as tasks #18, #29–33.
+
+| ID | task | done when |
+|---|---|---|
+| **PR1** (#29) | Real key generation: `plumbd keygen <path>` draws from OS entropy (`sig::Keypair::generate`), writes only the seed at mode 0600, refuses to overwrite. `seed_file =` added to `plumbd`'s and `gateway`'s config parsers (`resolve_seed`) so every signing role can be pointed at a keygen-made file instead of pasting a private seed inline. `scripts/simnet.sh` now calls `plumbd keygen` for every signing party (`client-1`, `client-2`, `court-a`, `solver-1`, `witness-1`) and reads genesis `bind =` lines back out of the generated files — **zero hardcoded seeds remain anywhere in the live path.** | DONE 2026-08-28 — `crates/sig/src/lib.rs::generate_draws_fresh_entropy_and_seed_restores_it`; `crates/datum/src/bin/plumbd.rs (mod tests)::keygen_draws_real_entropy_and_the_saved_seed_restores_the_same_identity`, `::keygen_refuses_to_overwrite_an_existing_identity`, `::resolve_seed_prefers_a_keygen_file_over_inline_hex`; verified live — a clean `simnet.sh reset && simnet.sh start` generates 5 real identities, binds them into genesis, and the solver/witness one-shots succeed on first boot |
+| **PR2** (#18) | Live registration + one-command `join`: a running court accepts a register request from an unbound key and appends `Act::Bind`+`Act::Issue` to its OWN live ledger — no restart, no re-genesis. Folds with keygen into `plumbd join <court-address>`. | pending |
+| **PR3** (#30) | Admission walls: per-IP + total connection caps, handshake deadline, so an unbound/hostile connection cannot hold a thread/socket indefinitely on a public IP | pending |
+| **PR4** (#31) | Transport encryption: TLS (rustls) under the wire framing — attestations authenticate content, nothing today encrypts the channel | pending |
+| **PR5** (#32) | Real corpus: at least one genuinely sourced problem live-posted, `demo_*` fixtures confined to `#[cfg(test)]` only | pending |
+| **PR6** (#33) | CI builds and attaches prebuilt `plumbd`/`gateway` binaries to the GitHub Release — "download and run" becomes literal | pending |
+
+---
+
 ## 7 · Topological signatures — research track, scheme ≥ 0x02
 
 Held at research until the cryptanalytic bar is met; enters through

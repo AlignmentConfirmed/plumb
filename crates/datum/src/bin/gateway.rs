@@ -5,7 +5,8 @@
 //!   listen      = 127.0.0.1:9801
 //!   chain       = path/to/founding.tlv   # receipts verify against this
 //!   court       = court-a                # the issuing court's name
-//!   seed        = <64 hex>               # the court's signing key
+//!   seed_file   = ident/court-a.seed     # from `plumbd keygen` — never inline
+//!   seed        = <64 hex>               # fixtures/tests only
 //!   facilitator = 0x...                  # OQ3: the Base escrow party
 //! ```
 //!
@@ -56,6 +57,7 @@ fn main() {
     let mut chain_path = None;
     let mut court = "court-a".to_owned();
     let mut seed_hex = None;
+    let mut seed_file = None;
     let mut facilitator = "0xUNSET".to_owned();
     for line in text.lines() {
         let line = line.split('#').next().unwrap_or("").trim();
@@ -68,13 +70,26 @@ fn main() {
             "chain" => chain_path = Some(value),
             "court" => court = value,
             "seed" => seed_hex = Some(value),
+            "seed_file" => seed_file = Some(value),
             "facilitator" => facilitator = value,
             other => eprintln!("gateway: unknown config key ignored: {other}"),
         }
     }
-    let Some(seed) = seed_hex.as_deref().and_then(seed_from_hex) else {
-        eprintln!("gateway: needs `seed = <64 hex>` — receipts are signed");
-        std::process::exit(2);
+    let seed = if let Some(path) = &seed_file {
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("gateway: seed_file {path} unreadable: {e}");
+            std::process::exit(2);
+        });
+        seed_from_hex(text.trim()).unwrap_or_else(|| {
+            eprintln!("gateway: seed_file {path} does not hold 64 hex chars");
+            std::process::exit(2);
+        })
+    } else {
+        let Some(seed) = seed_hex.as_deref().and_then(seed_from_hex) else {
+            eprintln!("gateway: needs `seed_file =` or `seed =` — receipts are signed");
+            std::process::exit(2);
+        };
+        seed
     };
     let chain = match chain_path {
         Some(p) => match std::fs::read(&p).ok().and_then(|b| isthmus::deed::chain::decode(&b).ok()) {

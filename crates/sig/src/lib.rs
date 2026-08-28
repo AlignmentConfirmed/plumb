@@ -82,6 +82,15 @@ impl Keypair {
         self.signing.verifying_key().to_bytes()
     }
 
+    /// The seed this identity was made from — the whole of what
+    /// [`Keypair::from_seed`] needs to restore it. The only reason to
+    /// call this is to persist an identity `generate`d fresh; nothing
+    /// else in this crate reads it back out.
+    #[must_use]
+    pub fn seed(&self) -> [u8; 32] {
+        self.signing.to_bytes()
+    }
+
     /// Sign an envelope: the attestation for one frame.
     #[must_use]
     pub fn attest(&self, frame: &[u8]) -> Attestation {
@@ -222,6 +231,19 @@ mod tests {
             wrong_scheme.verify(&envelope),
             Err(SigRefused::UnknownScheme(0x02))
         );
+    }
+
+    #[test]
+    fn generate_draws_fresh_entropy_and_seed_restores_it() {
+        let a = Keypair::generate().expect("os entropy");
+        let b = Keypair::generate().expect("os entropy");
+        assert_ne!(
+            a.public(),
+            b.public(),
+            "two generated identities must not collide — this is not a fixture seed"
+        );
+        let restored = Keypair::from_seed(a.seed());
+        assert_eq!(restored.public(), a.public(), "seed() round-trips through from_seed");
     }
 
     #[test]

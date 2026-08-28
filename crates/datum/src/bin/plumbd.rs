@@ -2,17 +2,26 @@
 //!
 //! ```text
 //! plumbd <config>
+//! plumbd keygen <path>
 //! ```
+//!
+//! `keygen` draws a fresh identity from OS entropy and writes ONLY the
+//! seed to `<path>` (mode 0600, refuses to overwrite). Nothing in this
+//! binary's participant-facing path accepts a hand-chosen or
+//! repeated-digit seed as a substitute — a role that needs a key reads
+//! it from a file made this way (`seed_file =`), never pastes it into
+//! a config that might be shared or committed.
 //!
 //! Config is plain `key = value` lines, no dependency spent on it:
 //!
 //! ```text
-//! role   = court            # court | producer
-//! holder = my-node          # what the chain calls you
-//! listen = 127.0.0.1:9401   # court: where to accept
-//! peer   = 127.0.0.1:9401   # producer: where the court is (repeatable)
-//! bound  = 65536            # largest record value this deployment accepts
-//! chain  = ledger/founding.tlv   # optional: replay this founding chain
+//! role      = court            # court | producer
+//! holder    = my-node          # what the chain calls you
+//! listen    = 127.0.0.1:9401   # court: where to accept
+//! peer      = 127.0.0.1:9401   # producer: where the court is (repeatable)
+//! bound     = 65536            # largest record value this deployment accepts
+//! chain     = ledger/founding.tlv   # optional: replay this founding chain
+//! seed_file = ident/my-node.seed    # from `plumbd keygen` — never inline
 //! ```
 //!
 //! The producer role sends the demo triangle claim and exits — it
@@ -41,6 +50,7 @@ struct Config {
     fed_secs: u64,
     require_signatures: bool,
     seed: Option<String>,
+    seed_file: Option<String>,
     market: Option<String>,
     epoch_label: Option<String>,
     demo: String,
@@ -69,6 +79,7 @@ fn parse(text: &str) -> Config {
         fed_secs: 10,
         require_signatures: false,
         seed: None,
+        seed_file: None,
         market: None,
         epoch_label: None,
         demo: "triangle".into(),
@@ -133,6 +144,7 @@ fn parse(text: &str) -> Config {
             }
             "declare" => config.declares.push(value),
             "seed" => config.seed = Some(value),
+            "seed_file" => config.seed_file = Some(value),
             "market" => config.market = Some(value),
             "epoch_label" => config.epoch_label = Some(value),
             "fed_listen" => config.fed_listen = Some(value),
@@ -212,11 +224,115 @@ fn seed_from_hex(hex: &str) -> Option<[u8; 32]> {
     Some(out)
 }
 
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len().saturating_mul(2));
+    for byte in bytes {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
+/// The seed feeding this role's key: a `plumbd keygen`-made FILE
+/// (never round-tripped through a config a person might commit or
+/// paste), or — for tests and fixtures only — inline hex. Either
+/// source, once named, is validated here: a malformed value is a
+/// refusal, never a silent fall-through to keyless. `None` means
+/// neither was configured at all.
+fn resolve_seed(config: &Config) -> Option<[u8; 32]> {
+    if let Some(path) = &config.seed_file {
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("plumbd: seed_file {path} unreadable: {e}");
+            std::process::exit(2);
+        });
+        return Some(seed_from_hex(text.trim()).unwrap_or_else(|| {
+            eprintln!("plumbd: seed_file {path} does not hold 64 hex chars");
+            std::process::exit(2);
+        }));
+    }
+    config.seed.as_deref().map(|hex| {
+        seed_from_hex(hex).unwrap_or_else(|| {
+            eprintln!("plumbd: seed must be 64 hex chars");
+            std::process::exit(2);
+        })
+    })
+}
+
+/// Why `keygen` could not produce or persist an identity.
+#[derive(Debug)]
+enum KeygenBroken {
+    NoEntropy,
+    AlreadyExists(String),
+    Io(String),
+}
+
+impl std::fmt::Display for KeygenBroken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            KeygenBroken::NoEntropy => write!(f, "the operating system's entropy source refused"),
+            KeygenBroken::AlreadyExists(path) => write!(
+                f,
+                "{path} already holds an identity — refusing to overwrite it"
+            ),
+            KeygenBroken::Io(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
+/// Draw a fresh identity from OS entropy and persist ONLY the seed —
+/// no static/hardcoded/repeated-digit seed is ever an acceptable
+/// substitute for this path. Refuses outright rather than clobbering
+/// an existing identity file.
+fn run_keygen(path: &std::path::Path) -> Result<[u8; 32], KeygenBroken> {
+    let key = sig::Keypair::generate().map_err(|_| KeygenBroken::NoEntropy)?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::AlreadyExists => {
+                KeygenBroken::AlreadyExists(path.display().to_string())
+            }
+            _ => KeygenBroken::Io(format!("{}: {e}", path.display())),
+        })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = file
+            .metadata()
+            .map_err(|e| KeygenBroken::Io(e.to_string()))?
+            .permissions();
+        perms.set_mode(0o600);
+        file.set_permissions(perms)
+            .map_err(|e| KeygenBroken::Io(e.to_string()))?;
+    }
+    use std::io::Write;
+    writeln!(file, "{}", hex_encode(&key.seed())).map_err(|e| KeygenBroken::Io(e.to_string()))?;
+    Ok(key.public())
+}
+
 fn main() {
-    let path = match std::env::args().nth(1) {
+    let first = std::env::args().nth(1);
+    if first.as_deref() == Some("keygen") {
+        let Some(out) = std::env::args().nth(2) else {
+            eprintln!("usage: plumbd keygen <path>");
+            std::process::exit(2);
+        };
+        match run_keygen(std::path::Path::new(&out)) {
+            Ok(public) => {
+                println!("plumbd: identity written to {out} (mode 0600) — do not share this file");
+                println!("plumbd: public identity {}", hex_encode(&public));
+            }
+            Err(e) => {
+                eprintln!("plumbd: keygen failed: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    let path = match first {
         Some(p) => p,
         None => {
-            eprintln!("usage: plumbd <config>");
+            eprintln!("usage: plumbd <config> | plumbd keygen <path>");
             std::process::exit(2);
         }
     };
@@ -294,48 +410,42 @@ fn main() {
             // R1 — the native market: `market = theta` posts the demo
             // theta bounty, served on the wire (tag 85 out, receipts
             // back on 81). Needs the court's seed to sign receipts.
-            let market = match (config.market.as_deref(), config.seed.as_deref()) {
-                (Some("theta"), Some(seed_hex)) => match seed_from_hex(seed_hex) {
-                    Some(seed) => {
-                        let query = datum::query::Query {
-                            poser: config.holder.clone(),
-                            shape: vec![2, 3],
-                            domain_tag: 82,
-                            guarantee: datum::query::Guarantee::Rederivation,
-                            statement: datum::domains::demo_theta_universe().encode(),
-                        };
-                        println!("plumbd: native market open — theta, query {}", {
-                            let id = query.query_id();
-                            format!("{:02x}{:02x}{:02x}{:02x}…", id[0], id[1], id[2], id[3])
-                        });
-                        Some(std::sync::Arc::new(plumbd::MarketPost {
-                            bounty: datum::bounty::Bounty {
-                                query_id: query.query_id(),
-                                max_fuel: 200,
-                                max_bytes: 400,
-                                base: 1_000,
-                                per_saved_fuel: 10,
-                                per_saved_byte: 3,
-                            },
-                            query,
-                            court: config.holder.clone(),
-                            key: sig::Keypair::from_seed(seed),
-                        }))
-                    }
-                    None => {
-                        eprintln!("plumbd: market needs a valid 64-hex seed");
+            let market = match config.market.as_deref() {
+                Some("theta") => {
+                    let Some(seed) = resolve_seed(&config) else {
+                        eprintln!("plumbd: market needs `seed_file =` or `seed =` to sign receipts");
                         std::process::exit(2);
-                    }
-                },
-                (Some(_), None) => {
-                    eprintln!("plumbd: market needs `seed =` to sign receipts");
-                    std::process::exit(2);
+                    };
+                    let query = datum::query::Query {
+                        poser: config.holder.clone(),
+                        shape: vec![2, 3],
+                        domain_tag: 82,
+                        guarantee: datum::query::Guarantee::Rederivation,
+                        statement: datum::domains::demo_theta_universe().encode(),
+                    };
+                    println!("plumbd: native market open — theta, query {}", {
+                        let id = query.query_id();
+                        format!("{:02x}{:02x}{:02x}{:02x}…", id[0], id[1], id[2], id[3])
+                    });
+                    Some(std::sync::Arc::new(plumbd::MarketPost {
+                        bounty: datum::bounty::Bounty {
+                            query_id: query.query_id(),
+                            max_fuel: 200,
+                            max_bytes: 400,
+                            base: 1_000,
+                            per_saved_fuel: 10,
+                            per_saved_byte: 3,
+                        },
+                        query,
+                        court: config.holder.clone(),
+                        key: sig::Keypair::from_seed(seed),
+                    }))
                 }
-                (Some(other), _) if other != "theta" => {
+                Some(other) => {
                     eprintln!("plumbd: unknown market '{other}' (theta)");
                     std::process::exit(2);
                 }
-                _ => None,
+                None => None,
             };
             let rules = plumbd::SessionRules {
                 holder: config.holder.clone(),
@@ -371,15 +481,7 @@ fn main() {
                 eprintln!("plumbd: producer needs at least one `peer =` line");
                 std::process::exit(2);
             }
-            let key = config.seed.as_deref().map(|hex| {
-                match seed_from_hex(hex) {
-                    Some(seed) => sig::Keypair::from_seed(seed),
-                    None => {
-                        eprintln!("plumbd: seed must be 64 hex chars");
-                        std::process::exit(2);
-                    }
-                }
-            });
+            let key = resolve_seed(&config).map(sig::Keypair::from_seed);
             for peer in &config.peers {
                 let result = match &key {
                     Some(key) => plumbd::produce_signed(
@@ -438,12 +540,8 @@ fn main() {
             std::process::exit(1);
         }
         "client" => {
-            let Some(seed_hex) = config.seed.as_deref() else {
-                eprintln!("plumbd: client needs `seed = <64 hex>` — the simnet is signed");
-                std::process::exit(2);
-            };
-            let Some(seed) = seed_from_hex(seed_hex) else {
-                eprintln!("plumbd: seed must be 64 hex chars");
+            let Some(seed) = resolve_seed(&config) else {
+                eprintln!("plumbd: client needs `seed_file =` or `seed =` — the network is signed");
                 std::process::exit(2);
             };
             if config.peers.is_empty() {
@@ -494,8 +592,8 @@ fn main() {
             }
         }
         "solver" => {
-            let Some(seed) = config.seed.as_deref().and_then(seed_from_hex) else {
-                eprintln!("plumbd: solver needs `seed = <64 hex>`");
+            let Some(seed) = resolve_seed(&config) else {
+                eprintln!("plumbd: solver needs `seed_file =` or `seed =`");
                 std::process::exit(2);
             };
             let Some(peer) = config.peers.first() else {
@@ -557,7 +655,7 @@ fn main() {
                 subject: datum::witnessing::subject_of(&envelope),
                 derivation: Vec::new(),
             };
-            let key = config.seed.as_deref().and_then(seed_from_hex).map(sig::Keypair::from_seed);
+            let key = resolve_seed(&config).map(sig::Keypair::from_seed);
             for peer in &config.peers {
                 match plumbd::witness_to(
                     peer.as_str(),
@@ -675,5 +773,84 @@ mod tests {
         assert!(seed_from_hex("short").is_none());
         assert!(seed_from_hex(&"zz".repeat(32)).is_none(), "not hex");
         assert!(seed_from_hex(&"07".repeat(33)).is_none(), "too long");
+    }
+
+    fn scratch_dir(label: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "plumbd-test-{label}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&dir).expect("tempdir");
+        dir
+    }
+
+    #[test]
+    fn keygen_draws_real_entropy_and_the_saved_seed_restores_the_same_identity() {
+        let dir = scratch_dir("keygen");
+        let path_a = dir.join("a.seed");
+        let path_b = dir.join("b.seed");
+        let public_a = run_keygen(&path_a).expect("first keygen");
+        let public_b = run_keygen(&path_b).expect("second keygen");
+        assert_ne!(
+            public_a, public_b,
+            "two keygen calls must not produce the same identity — this is entropy, not a fixture"
+        );
+
+        let saved = std::fs::read_to_string(&path_a).expect("seed file readable");
+        let seed = seed_from_hex(saved.trim()).expect("seed file holds 64 hex chars");
+        assert_eq!(
+            sig::Keypair::from_seed(seed).public(),
+            public_a,
+            "the saved seed restores the identity keygen reported"
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path_a)
+                .expect("metadata")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600, "identity file must not be group/world readable");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn keygen_refuses_to_overwrite_an_existing_identity() {
+        let dir = scratch_dir("keygen-clobber");
+        let path = dir.join("node.seed");
+        run_keygen(&path).expect("first keygen");
+        assert!(
+            matches!(run_keygen(&path), Err(KeygenBroken::AlreadyExists(_))),
+            "a second keygen at the same path must refuse, not clobber"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_seed_prefers_a_keygen_file_over_inline_hex() {
+        let dir = scratch_dir("resolve-seed");
+        let path = dir.join("node.seed");
+        let generated_public = run_keygen(&path).expect("keygen");
+
+        let mut config = parse("role = client\n");
+        config.seed = Some("11".repeat(32)); // present, but must lose to seed_file
+        config.seed_file = Some(path.to_string_lossy().into_owned());
+        let seed = resolve_seed(&config).expect("seed_file resolves");
+        assert_eq!(
+            sig::Keypair::from_seed(seed).public(),
+            generated_public,
+            "seed_file must take precedence over an inline seed"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_seed_is_none_when_neither_source_is_configured() {
+        let config = parse("role = client\n");
+        assert_eq!(resolve_seed(&config), None);
     }
 }

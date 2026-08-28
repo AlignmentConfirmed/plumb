@@ -18,12 +18,30 @@ set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOME_DIR="${PLUMB_SIMNET_DIR:-$HOME/.plumb/simnet}"
 BIN="$ROOT/target/debug/plumbd"
-SEED1="0101010101010101010101010101010101010101010101010101010101010101"
-SEED2="0202020202020202020202020202020202020202020202020202020202020202"
-SEED_COURT_A="0303030303030303030303030303030303030303030303030303030303030303"
-SEED_SOLVER="0505050505050505050505050505050505050505050505050505050505050505"
-SEED_WITNESS="0606060606060606060606060606060606060606060606060606060606060606"
+IDENT="$HOME_DIR/ident"
+# Every signing party in this network gets a REAL identity — drawn
+# from OS entropy by `plumbd keygen`, never a repeated-digit fixture
+# seed hand-typed into a config. Only the parties that actually sign
+# something need one.
+SIGNING_NODES="client-1 client-2 court-a solver-1 witness-1"
 NODES="court-a court-b court-c carrier-1 client-1 client-2 gateway-1"
+
+ensure_identities() {
+  mkdir -p "$IDENT"
+  for node in $SIGNING_NODES; do
+    if [ ! -f "$IDENT/$node.seed" ]; then
+      "$BIN" keygen "$IDENT/$node.seed" > /dev/null || { echo "keygen failed for $node"; exit 1; }
+      echo "$node: identity generated ($IDENT/$node.seed)"
+    fi
+  done
+}
+
+seed_hex_of() {
+  # genesis binding needs the RAW seed (it derives the public key
+  # itself) — read it back from the real file keygen wrote, never
+  # from a literal in this script.
+  tail -n 1 "$IDENT/$1.seed" | tr -d '[:space:]'
+}
 
 write_configs() {
   cat > "$HOME_DIR/genesis.conf" <<EOF
@@ -36,11 +54,11 @@ grant   = client-1
 grant   = client-2
 grant   = solver-1
 grant   = witness-1
-bind    = client-1:$SEED1
-bind    = client-2:$SEED2
-bind    = court-a:$SEED_COURT_A
-bind    = solver-1:$SEED_SOLVER
-bind    = witness-1:$SEED_WITNESS
+bind    = client-1:$(seed_hex_of client-1)
+bind    = client-2:$(seed_hex_of client-2)
+bind    = court-a:$(seed_hex_of court-a)
+bind    = solver-1:$(seed_hex_of solver-1)
+bind    = witness-1:$(seed_hex_of witness-1)
 declare = court-a
 out     = $HOME_DIR/chain.tlv
 EOF
@@ -51,7 +69,7 @@ chain = $HOME_DIR/chain.tlv
 listen = 127.0.0.1:9501
 require_signatures = true
 market = theta
-seed = $SEED_COURT_A
+seed_file = $IDENT/court-a.seed
 snapshot = $HOME_DIR/court-a.xdct
 snapshot_secs = 2
 fed_listen = 127.0.0.1:9601
@@ -94,7 +112,7 @@ role = client
 holder = client-1
 chain = $HOME_DIR/chain.tlv
 peer = 127.0.0.1:9701
-seed = $SEED1
+seed_file = $IDENT/client-1.seed
 every = 5
 start_n = 3
 step = 2
@@ -103,7 +121,7 @@ EOF
 listen = 127.0.0.1:9801
 chain = $HOME_DIR/chain.tlv
 court = court-a
-seed = $SEED_COURT_A
+seed_file = $IDENT/court-a.seed
 facilitator = 0xBaseFacilitatorTBD
 EOF
   cat > "$HOME_DIR/solver-1.conf" <<EOF
@@ -111,14 +129,14 @@ role = solver
 holder = solver-1
 chain = $HOME_DIR/chain.tlv
 peer = 127.0.0.1:9501
-seed = $SEED_SOLVER
+seed_file = $IDENT/solver-1.seed
 EOF
   cat > "$HOME_DIR/witness-1.conf" <<EOF
 role = witness
 holder = witness-1
 chain = $HOME_DIR/chain.tlv
 peer = 127.0.0.1:9502
-seed = $SEED_WITNESS
+seed_file = $IDENT/witness-1.seed
 demo = hexagon
 EOF
   cat > "$HOME_DIR/client-2.conf" <<EOF
@@ -126,7 +144,7 @@ role = client
 holder = client-2
 chain = $HOME_DIR/chain.tlv
 peer = 127.0.0.1:9502
-seed = $SEED2
+seed_file = $IDENT/client-2.seed
 every = 7
 start_n = 4
 step = 2
@@ -136,6 +154,7 @@ EOF
 start() {
   mkdir -p "$HOME_DIR"
   (cd "$ROOT" && cargo build -q --bin plumbd) || { echo "build failed"; exit 1; }
+  ensure_identities
   write_configs
   if [ ! -f "$HOME_DIR/chain.tlv" ]; then
     "$BIN" "$HOME_DIR/genesis.conf" || exit 1
