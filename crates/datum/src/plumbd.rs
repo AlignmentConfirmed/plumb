@@ -357,6 +357,7 @@ fn credit_value(
                     market.query.query_id(),
                     answer.credit.work_id.as_bytes(),
                     answer.credit.axes.components(),
+                    answer.payout,
                     &market.key,
                 );
                 let mut body = signed.receipt.encode();

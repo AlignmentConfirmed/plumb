@@ -206,6 +206,55 @@ mod d2_durable_court {
         assert_eq!(loaded.total().components(), book.total().components());
     }
 
+    /// **#41.** An O1 rebate recorded on a priced credit reloads with
+    /// the same value — durable, not the ephemeral in-memory number it
+    /// used to be.
+    #[test]
+    fn payout_survives_the_durable_round_trip() {
+        use datum::reward::RewardAct;
+        let mut book = RewardBook::new();
+        // 20,167 is the O1 payout this session hand-verified for the
+        // dihedral market (base + saved-fuel + saved-byte yield).
+        book.credit_claim_priced(&triangle_claim(5).encode(), 20_167)
+            .expect("priced credit");
+        assert_eq!(book.total_payout(), 20_167);
+
+        let loaded = court_store::decode(&court_store::encode(&book)).expect("decode");
+        assert_eq!(
+            loaded.total_payout(),
+            20_167,
+            "the rebate is durable across a snapshot, not lost"
+        );
+        match loaded.acts().first() {
+            Some(RewardAct::Credited { credit, .. }) => {
+                assert_eq!(credit.payout, 20_167, "the payout rides on the credited act");
+            }
+            other => panic!("expected a Credited act, got {other:?}"),
+        }
+    }
+
+    /// A pre-payout (version 1) snapshot still loads — its records
+    /// simply never recorded a rebate, so payout reads back as zero
+    /// rather than the whole book being rejected.
+    #[test]
+    fn a_version_one_snapshot_still_loads_with_zero_payout() {
+        let mut book = RewardBook::new();
+        book.credit_claim(&triangle_claim(3).encode()).expect("credit");
+        // Forge a v1 blob from the v2 encoding: the single credit's
+        // payout is the final 16 bytes (and it is zero), so dropping it
+        // and setting the version byte (offset 4, after MAGIC) to 1 is
+        // byte-exactly what a v1 court would have written.
+        let mut v1 = court_store::encode(&book);
+        let n = v1.len();
+        v1.truncate(n.saturating_sub(16));
+        if let Some(b) = v1.get_mut(4) {
+            *b = 1;
+        }
+        let loaded = court_store::decode(&v1).expect("a v1 snapshot still loads");
+        assert_eq!(loaded.act_len(), 1);
+        assert_eq!(loaded.total_payout(), 0, "v1 records never carried a rebate");
+    }
+
     /// Corrupt store refuses.
     #[test]
     fn store_refuses_bad_magic_and_trailing() {

@@ -49,6 +49,12 @@ pub struct Receipt {
     pub work_id: Vec<u8>,
     /// The credit the settlement earned, per axis.
     pub axes: Vec<u128>,
+    /// The O1 yield rebate this settlement earned, in the market's
+    /// scrip unit. Part of the signed statement, so the court's
+    /// attestation over these bytes cryptographically binds the payout
+    /// too — a facilitator can check the rebate the same way it checks
+    /// the credit. Zero for an ordinary (non-bounty) settlement.
+    pub payout: u128,
 }
 
 impl Receipt {
@@ -70,6 +76,7 @@ impl Receipt {
         for axis in &self.axes {
             out.extend_from_slice(&axis.to_le_bytes());
         }
+        out.extend_from_slice(&self.payout.to_le_bytes());
         out
     }
 
@@ -121,6 +128,9 @@ impl Receipt {
             a.copy_from_slice(take(&mut at, 16)?);
             axes.push(u128::from_le_bytes(a));
         }
+        let mut p = [0u8; 16];
+        p.copy_from_slice(take(&mut at, 16)?);
+        let payout = u128::from_le_bytes(p);
         Ok((
             Self {
                 court,
@@ -128,6 +138,7 @@ impl Receipt {
                 query_id,
                 work_id,
                 axes,
+                payout,
             },
             at,
         ))
@@ -156,6 +167,7 @@ pub fn issue(
     query_id: [u8; 32],
     work_id: &[u8],
     axes: &[u128],
+    payout: u128,
     key: &sig::Keypair,
 ) -> SignedReceipt {
     let receipt = Receipt {
@@ -164,6 +176,7 @@ pub fn issue(
         query_id,
         work_id: work_id.to_vec(),
         axes: axes.to_vec(),
+        payout,
     };
     let attestation = key.attest(&receipt.encode());
     SignedReceipt {

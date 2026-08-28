@@ -284,6 +284,7 @@ pub fn handle(method: &str, path: &str, body: &[u8], gateway: &Gateway) -> (u16,
                         gateway.query.query_id(),
                         answer.credit.work_id.as_bytes(),
                         answer.credit.axes.components(),
+                        answer.payout,
                         &gateway.key,
                     );
                     (

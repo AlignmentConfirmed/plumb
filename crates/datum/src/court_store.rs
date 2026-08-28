@@ -34,8 +34,14 @@ use crate::reward::{RewardAct, RewardBook};
 /// Magic for xylarium datum court store.
 pub const MAGIC: &[u8; 4] = b"XDCT";
 
-/// Current store version.
-pub const VERSION: u8 = 1;
+/// Current store version. Version 2 added a per-Credited O1 payout
+/// field; version 1 snapshots still load (payout defaults to 0 — an
+/// old record simply never recorded its rebate), so a court does not
+/// have to discard a pre-payout book to upgrade.
+pub const VERSION: u8 = 2;
+
+/// The last version whose Credited records carried no payout field.
+const VERSION_NO_PAYOUT: u8 = 1;
 
 /// Act tag: successful credit.
 const TAG_CREDITED: u8 = 1;
@@ -82,7 +88,7 @@ pub fn encode(book: &RewardBook) -> Vec<u8> {
     put_u32(&mut out, acts.len() as u32);
     for act in acts {
         match act {
-            RewardAct::Credited { event, .. } => {
+            RewardAct::Credited { credit, event } => {
                 out.push(TAG_CREDITED);
                 put_u64(&mut out, event.transport);
                 out.push(classes_byte(event.classes));
@@ -93,6 +99,8 @@ pub fn encode(book: &RewardBook) -> Vec<u8> {
                 for a in &event.axes {
                     put_u128(&mut out, *a);
                 }
+                // version 2: the O1 yield rebate, durable at last.
+                put_u128(&mut out, credit.payout);
             }
             RewardAct::EpochOpened { epoch, label } => {
                 out.push(TAG_EPOCH_OPEN);
@@ -141,9 +149,10 @@ pub fn decode(bytes: &[u8]) -> Result<RewardBook, StoreBroken> {
     let mut i = 4usize;
     let ver = *bytes.get(i).ok_or(StoreBroken::Truncated)?;
     i += 1;
-    if ver != VERSION {
+    if ver != VERSION && ver != VERSION_NO_PAYOUT {
         return Err(StoreBroken::Version(ver));
     }
+    let has_payout = ver >= VERSION;
     let n = take_u32(bytes, &mut i)?;
     let mut book = RewardBook::new();
     for _ in 0..n {
@@ -168,8 +177,13 @@ pub fn decode(bytes: &[u8]) -> Result<RewardBook, StoreBroken> {
                 for _ in 0..n_axes {
                     axes.push(take_u128(bytes, &mut i)?);
                 }
+                let payout = if has_payout {
+                    take_u128(bytes, &mut i)?
+                } else {
+                    0
+                };
                 let event = CreditEvent::with_classes(work_id, transport, axes, classes);
-                book.admit_event(event).map_err(|e| match e {
+                book.admit_event_priced(event, payout).map_err(|e| match e {
                     crate::reward::RewardRefused::Replay { .. } => StoreBroken::DuplicateWork,
                     crate::reward::RewardRefused::OpenWork => StoreBroken::EmptyAxes,
                     _ => StoreBroken::EmptyAxes,

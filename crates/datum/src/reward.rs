@@ -64,6 +64,14 @@ pub struct Credit {
     /// Shape-domain credits leave this `None` — structure admits without
     /// minting [`Upsilon`].
     pub witness: Option<Upsilon>,
+    /// The O1 yield rebate this settlement earned (base + saved-fuel +
+    /// saved-byte yield), in the market's scrip unit. Zero for an
+    /// ordinary (non-bounty) claim, which has no priced budget to save
+    /// against. Distinct from `axes`: that is the multi-axial
+    /// structural credit; this is the scalar optimization emission the
+    /// rebate pays, previously computed in `settle_answer` and thrown
+    /// away — now carried through to the durable book.
+    pub payout: u128,
 }
 
 impl Credit {
@@ -165,6 +173,10 @@ pub struct RewardBook {
     next_epoch: u64,
     /// Credits counted since the open epoch started.
     credits_in_open: u64,
+    /// Cumulative O1 yield rebate emitted across every credited act —
+    /// the durable record of actual optimization emission, rebuilt on
+    /// restore by replaying each act's payout.
+    total_payout: u128,
 }
 
 impl RewardBook {
@@ -181,6 +193,14 @@ impl RewardBook {
     /// Cumulative credit as an [`Extent`].
     pub fn total(&self) -> Extent {
         Extent::new(self.total.clone())
+    }
+
+    /// Cumulative O1 yield rebate emitted across all settlements — the
+    /// durable answer to "what has this court actually paid out in
+    /// optimization emission," which before was computed per-answer
+    /// and discarded.
+    pub fn total_payout(&self) -> u128 {
+        self.total_payout
     }
 
     /// Full act log (append-only).
@@ -291,11 +311,17 @@ impl RewardBook {
     /// call [`Self::admit_arc_domain`] first or use
     /// [`Self::credit_claim_with_domain`].
     pub fn credit_claim(&mut self, body: &[u8]) -> Result<Credit, RewardRefused> {
-        self.credit_claim_inner(body)
+        self.credit_claim_inner(body, 0)
     }
 
+    /// Credit a bounty answer, recording the O1 `payout` it earned on
+    /// the durable act so it is never lost. Same replay/verify law as
+    /// [`RewardBook::credit_claim`]; only the payout differs from zero.
+    pub fn credit_claim_priced(&mut self, body: &[u8], payout: u128) -> Result<Credit, RewardRefused> {
+        self.credit_claim_inner(body, payout)
+    }
 
-    fn credit_claim_inner(&mut self, body: &[u8]) -> Result<Credit, RewardRefused> {
+    fn credit_claim_inner(&mut self, body: &[u8], payout: u128) -> Result<Credit, RewardRefused> {
         let work = WorkBody::parse(body).map_err(|_| RewardRefused::Malformed)?;
         // SQ2 — citations answer to the book, and to nothing else. A
         // settled lemma is trusted as closed (it could not have entered
@@ -338,7 +364,9 @@ impl RewardBook {
             transport: work.transport(),
             axes: Extent::new(axes),
             witness,
+            payout,
         };
+        self.total_payout = self.total_payout.saturating_add(payout);
         let event = credit.to_event();
         self.acts.push(RewardAct::Credited {
             credit: credit.clone(),
@@ -352,7 +380,7 @@ impl RewardBook {
 
     /// Credit and return the portable [`CreditEvent`] (diamond dual-sink).
     pub fn credit_claim_event(&mut self, body: &[u8]) -> Result<CreditEvent, RewardRefused> {
-        let credit = self.credit_claim_inner(body)?;
+        let credit = self.credit_claim_inner(body, 0)?;
         Ok(credit.to_event())
     }
 
@@ -366,6 +394,17 @@ impl RewardBook {
     /// Empty axes refuse as open work. Claim classes are preserved on
     /// the stored act for dual sinks.
     pub fn admit_event(&mut self, event: CreditEvent) -> Result<Credit, RewardRefused> {
+        self.admit_event_priced(event, 0)
+    }
+
+    /// [`RewardBook::admit_event`] carrying a durable `payout` — the
+    /// restore path (`court_store`) uses this so an O1 rebate survives
+    /// a snapshot round-trip instead of resetting to zero.
+    pub fn admit_event_priced(
+        &mut self,
+        event: CreditEvent,
+        payout: u128,
+    ) -> Result<Credit, RewardRefused> {
         if event.axes.is_empty() {
             return Err(RewardRefused::OpenWork);
         }
@@ -388,7 +427,9 @@ impl RewardBook {
             transport: event.transport,
             axes: Extent::new(event.axes.clone()),
             witness: None,
+            payout,
         };
+        self.total_payout = self.total_payout.saturating_add(payout);
         self.acts.push(RewardAct::Credited {
             credit: credit.clone(),
             event,

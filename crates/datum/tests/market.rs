@@ -363,7 +363,7 @@ mod receipts {
         let credit = book.credit_claim(&body).expect("settles");
 
         // …the court signs the statement…
-        let signed = receipt::issue("court-a", 5, sample_query().query_id(), credit.work_id.as_bytes(), credit.axes.components(), &key);
+        let signed = receipt::issue("court-a", 5, sample_query().query_id(), credit.work_id.as_bytes(), credit.axes.components(), credit.payout, &key);
 
         // …and a facilitator holding ONLY the receipt and the public
         // chain verifies it. No court. No book. (The book is not even in
@@ -385,7 +385,7 @@ mod receipts {
         let qid = sample_query().query_id();
 
         // Tampered amount: the signature binds exact bytes.
-        let mut tampered = receipt::issue("court-a", 5, qid, credit.work_id.as_bytes(), credit.axes.components(), &key);
+        let mut tampered = receipt::issue("court-a", 5, qid, credit.work_id.as_bytes(), credit.axes.components(), credit.payout, &key);
         tampered.receipt.axes = vec![600, 600];
         assert_eq!(
             receipt::verify(&tampered, &chain),
@@ -393,25 +393,25 @@ mod receipts {
         );
 
         // A stranger's valid signature: unbound on this chain.
-        let unbound = receipt::issue("court-a", 5, qid, credit.work_id.as_bytes(), credit.axes.components(), &stranger);
+        let unbound = receipt::issue("court-a", 5, qid, credit.work_id.as_bytes(), credit.axes.components(), credit.payout, &stranger);
         assert_eq!(
             receipt::verify(&unbound, &chain),
             Err(ReceiptRefused::Unbound)
         );
 
         // The right key claiming the wrong court's name.
-        let misnamed = receipt::issue("court-b", 5, qid, credit.work_id.as_bytes(), credit.axes.components(), &key);
+        let misnamed = receipt::issue("court-b", 5, qid, credit.work_id.as_bytes(), credit.axes.components(), credit.payout, &key);
         assert_eq!(
             receipt::verify(&misnamed, &chain),
             Err(ReceiptRefused::NotThatCourt)
         );
 
         // Outside the bind window: stale.
-        let stale = receipt::issue("court-a", 10, qid, credit.work_id.as_bytes(), credit.axes.components(), &key);
+        let stale = receipt::issue("court-a", 10, qid, credit.work_id.as_bytes(), credit.axes.components(), credit.payout, &key);
         assert_eq!(receipt::verify(&stale, &chain), Err(ReceiptRefused::Stale));
 
         // The genuine article still stands among the wreckage.
-        let good = receipt::issue("court-a", 5, qid, credit.work_id.as_bytes(), credit.axes.components(), &key);
+        let good = receipt::issue("court-a", 5, qid, credit.work_id.as_bytes(), credit.axes.components(), credit.payout, &key);
         assert!(receipt::verify(&good, &chain).is_ok());
     }
 
@@ -427,7 +427,7 @@ mod receipts {
         let credit = book
             .credit_claim(&datum::domains::demo_hexagon_claim(1).encode())
             .expect("settles");
-        let signed = receipt::issue("court-a", 5, sample_query().query_id(), credit.work_id.as_bytes(), credit.axes.components(), &key);
+        let signed = receipt::issue("court-a", 5, sample_query().query_id(), credit.work_id.as_bytes(), credit.axes.components(), credit.payout, &key);
         let mut vector = signed.receipt.encode();
         vector.extend_from_slice(&signed.attestation.encode());
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -453,7 +453,7 @@ mod receipts {
         let credit = book
             .credit_claim(&datum::domains::demo_hexagon_claim(1).encode())
             .expect("settles");
-        let signed = receipt::issue("court-a", 5, sample_query().query_id(), credit.work_id.as_bytes(), credit.axes.components(), &key);
+        let signed = receipt::issue("court-a", 5, sample_query().query_id(), credit.work_id.as_bytes(), credit.axes.components(), credit.payout, &key);
 
         let mut vector = signed.receipt.encode();
         vector.extend_from_slice(&signed.attestation.encode());

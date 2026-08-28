@@ -167,8 +167,13 @@ pub fn settle_answer(
         }
         claim.verify(bounty.max_fuel).map_err(AnswerRefused::Broken)?
     };
-    let credit = book.credit_claim(body).map_err(AnswerRefused::Book)?;
+    // Compute the payout BEFORE crediting so it lands on the durable
+    // act itself (credit_claim_priced records it), not just in this
+    // ephemeral Answer — the whole point of #41.
     let payout = bounty.payout(spent_fuel, got);
+    let credit = book
+        .credit_claim_priced(body, payout)
+        .map_err(AnswerRefused::Book)?;
     Ok(Answer {
         credit,
         spent_fuel,
