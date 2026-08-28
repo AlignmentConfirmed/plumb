@@ -463,21 +463,42 @@ design:
 
 Tracked as an ordered, dependency-wired graph (#49–#55):
 
-- **#49 P5-Ruling** *(gates everything; operator's call)* — how escrow
-  is backed. **Recommended: Fork A** — a refundable deposit of real
-  external value over the existing x402/USDC rail (#23), Sybil-resistant
-  by construction — over Fork B (an internal debitable balance, which
-  fights the append-only credit ledger) or Fork C (a free-to-declare
-  bond, not Sybil-resistant). Paired ruling: **no slashing** — escrow's
-  only power is scheduling priority while posted; misbehaviour costs
-  admission (refusal), never the deposit, consistent with Plumb's
-  refusal-over-punishment ethos. *These are recommendations pending the
-  operator's ratification; nothing downstream is built until #49 lands.*
-- **#50 P5-A1** — the on-chain escrow fact (`Act::Escrow`/`Release`,
-  `escrow_of(holder) -> u128`), an identity/capability fact like a
-  binding, not a settlement *(needs #49)*.
-- **#51 P5-A2** — x402 deposit/withdraw wiring that emits it *(needs
-  #49, #50)*.
+- **#49 P5-Ruling** — **RULED 2026-08-28 (operator): Fork B + slashable.**
+  Escrow is an **internal debitable balance** staked from a holder's own
+  earned credits — *not* an external x402/USDC deposit (Fork A) — and a
+  stake **is slashable** on misbehaviour. This overrides the scope's
+  original Fork-A / no-slashing recommendation.
+
+  **What Fork B actually requires (and does not).** Append-only is *not*
+  broken by this: the founding chain stays append-only, and a holder's
+  spendable balance is a **fold over acts** —
+  `balance(h) = Σ credits(h) − Σ locked(h) − Σ slashed(h)`. A stake is a
+  new appended `Act::Escrow{holder, amount}` locking part of the holder's
+  *own* earned balance (a signed, voluntary act, federation-agreeable
+  like a self-bind); `Act::Release` unlocks it. The real new work is
+  defining spendable-balance semantics over what was pure credit
+  accounting, plus the slash act and its trigger.
+
+  **The hard constraint slashing imposes (governs #50/#51).** A slash
+  *involuntarily destroys consensus balance*, so its **trigger must be
+  consensus-verifiable** — every court re-checks it and agrees. It may
+  **never** be a scheduling/load judgment (flooding, ignoring BUSY,
+  CPU): those are the machine-local facts `sched.rs` exists to keep out
+  of consensus, and slashing on them would smuggle a load fact into a
+  RewardAct — the exact violation the isolation test guards. So the two
+  mechanisms stay separate: **escrow-weight is local scheduling policy;
+  slash-for-fraud is a consensus act triggered only by a
+  cryptographically checkable offence** (attested-but-false proof, double
+  submission, a broken signed commitment). *Open sub-ruling before #50
+  lands: WHICH verifiable offence(s) are slashable — see #49's revised
+  docket.*
+- **#50 P5-A1** — the on-chain economic facts: `Act::Escrow`/`Release`
+  (voluntary self-lock of earned balance) plus `Act::Slash` (involuntary,
+  consensus-verifiable trigger only), and the balance fold
+  `balance_of(holder)` / `escrow_of(holder) -> u128` over them *(needs
+  #49 + the slashable-offence sub-ruling)*.
+- **#51 P5-A2** — wire the deposit/lock, withdraw/release, and the
+  verifiable-fraud slash path *(needs #49, #50)*.
 - **#52 P5-C1** — the concave, float-free weight
   `base + k·isqrt(escrow)`, capped (diminishing returns → anti-plutocracy;
   `u128::isqrt`, no floats) *(independent)*.
