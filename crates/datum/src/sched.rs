@@ -184,6 +184,70 @@ impl Governor for ResourceGovernor {
     }
 }
 
+/// How much scheduling priority a posted escrow buys (Phase 5, #52).
+///
+/// `weight(escrow) = base + k·√escrow`, hard-capped at `ceiling`. Three
+/// properties, each load-bearing:
+/// - **Concave** (`√`, via `u128::isqrt`): doubling a stake buys *less*
+///   than double the priority — diminishing returns, so a whale cannot
+///   dominate the line in proportion to its capital.
+/// - **Floored** (`base ≥ 1`): a zero-escrow holder still has positive
+///   weight, so the weighted queue never *starves* the unstaked — it
+///   serves them less often, never not at all.
+/// - **Capped** (`ceiling`): priority is bounded above, so no stake, however
+///   large, buys unbounded precedence.
+///
+/// It takes the escrow amount as a plain integer and returns a plain
+/// integer. It reads no [`reward`](crate::reward) book and names no
+/// settlement type on purpose: the *amount* may be a consensus fact, but
+/// the *weight a court derives from it* is local scheduling policy and
+/// must never re-enter consensus — the same boundary the module's
+/// source-scan test holds. The caller reads `escrow_of(holder)` and
+/// hands the number in; this type only does the arithmetic.
+///
+/// Float-free throughout (`assay`'s no-float discipline in spirit,
+/// though only `assay` is scanned for it): `u128::isqrt` is exact and
+/// stable since Rust 1.84.
+#[derive(Debug, Clone, Copy)]
+pub struct EscrowWeight {
+    base: u64,
+    k: u64,
+    ceiling: u64,
+}
+
+impl EscrowWeight {
+    /// A default schedule: floor of 1 (nobody starves), unit slope, and
+    /// a ceiling of 64 (the largest stake is served at most 64× as often
+    /// as an unstaked holder — bounded plutocracy).
+    #[must_use]
+    pub fn tuned() -> Self {
+        Self {
+            base: 1,
+            k: 1,
+            ceiling: 64,
+        }
+    }
+
+    /// A weight schedule with explicit parameters. `ceiling` is the hard
+    /// cap on the returned weight; `base` is the floor at zero escrow.
+    #[must_use]
+    pub fn with(base: u64, k: u64, ceiling: u64) -> Self {
+        Self { base, k, ceiling }
+    }
+
+    /// The scheduling weight for a holder currently staking `escrow`.
+    /// Saturating and capped: never panics, never exceeds `ceiling`.
+    #[must_use]
+    pub fn of(&self, escrow: u128) -> u64 {
+        let bonus = u128::from(self.k).saturating_mul(escrow.isqrt());
+        let raw = u128::from(self.base).saturating_add(bonus);
+        let capped = raw.min(u128::from(self.ceiling));
+        // capped ≤ ceiling ≤ u64::MAX, so this conversion cannot fail;
+        // fall back to the ceiling rather than expect/panic.
+        u64::try_from(capped).unwrap_or(self.ceiling)
+    }
+}
+
 struct Inner<K, T> {
     queues: HashMap<K, VecDeque<T>>,
     order: VecDeque<K>,
@@ -302,6 +366,49 @@ mod tests {
         // Round-robin: B is served SECOND, not stuck behind all of A.
         let order: Vec<(&str, u32)> = std::iter::from_fn(|| q.take()).collect();
         assert_eq!(order, vec![("A", 1), ("B", 9), ("A", 2), ("A", 3)]);
+    }
+
+    #[test]
+    fn escrow_weight_is_concave_diminishing_returns_not_merely_sub_additive() {
+        let w = EscrowWeight::with(1, 1, 1_000_000);
+        // True midpoint concavity: weight(a) + weight(b) < 2·weight(mid)
+        // for the arithmetic midpoint. A LINEAR schedule (base + k·e)
+        // satisfies this only as EQUALITY, so a strict `<` fails the
+        // moment the √ is removed — this is what makes the test
+        // load-bearing, where a plain "doubling buys less than double"
+        // would pass even for a linear function because of the base
+        // floor. Perfect squares keep integer isqrt exact at the ends.
+        for &(a, mid, b) in &[
+            (100_u128, 500, 900),
+            (10_000, 50_000, 90_000),
+            (250_000, 625_000, 1_000_000),
+        ] {
+            let ends = u128::from(w.of(a)) + u128::from(w.of(b));
+            let twice_mid = 2 * u128::from(w.of(mid));
+            assert!(
+                ends < twice_mid,
+                "weight({a})+weight({b}) = {ends} is not < 2·weight({mid}) = {twice_mid}: \
+                 the schedule is not strictly concave"
+            );
+        }
+    }
+
+    #[test]
+    fn escrow_weight_saturates_at_the_ceiling_no_stake_buys_unbounded_priority() {
+        let w = EscrowWeight::with(1, 1, 64);
+        // A stake large enough to blow past the cap, and the largest
+        // representable stake, both clamp to exactly the ceiling.
+        assert_eq!(w.of(10_000), 64, "10_000 → 1 + 100 = 101, must cap at 64");
+        assert_eq!(w.of(u128::MAX), 64, "no stake buys more than the cap");
+    }
+
+    #[test]
+    fn escrow_weight_floors_at_base_so_the_unstaked_are_never_starved() {
+        let w = EscrowWeight::tuned();
+        // Zero escrow still yields positive weight: the weighted queue
+        // serves the unstaked less often, never not at all.
+        assert_eq!(w.of(0), 1);
+        assert!(w.of(0) > 0);
     }
 
     #[test]

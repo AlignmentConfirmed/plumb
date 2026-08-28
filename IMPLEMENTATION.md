@@ -501,7 +501,17 @@ Tracked as an ordered, dependency-wired graph (#49–#55):
   verifiable-fraud slash path *(needs #49, #50)*.
 - **#52 P5-C1** — the concave, float-free weight
   `base + k·isqrt(escrow)`, capped (diminishing returns → anti-plutocracy;
-  `u128::isqrt`, no floats) *(independent)*.
+  `u128::isqrt`, no floats) *(independent)*. **DONE 2026-08-28** —
+  `sched::EscrowWeight` (`tuned()` = floor 1 / slope 1 / ceiling 64;
+  `of(escrow: u128) -> u64`, saturating). Takes the amount as a plain
+  integer and names no settlement type, so the source-scan boundary
+  test still holds. Tests: `sched::tests::
+  escrow_weight_is_concave_diminishing_returns_not_merely_sub_additive`
+  (strict *midpoint* concavity — a linear schedule passes only as
+  equality, so it fails the moment the √ is removed; falsified: replacing
+  `isqrt(e)` with `e` makes exactly this test fail at `1002 = 1002`,
+  the floor and cap tests unaffected), `::escrow_weight_saturates_at_the_ceiling…`,
+  `::escrow_weight_floors_at_base…`.
 - **#53 P5-B1** — split `court_session` into handshake + settle stages;
   the **highest-risk** piece (core session logic), done standalone and
   independently validated (byte-identical when called back-to-back)
