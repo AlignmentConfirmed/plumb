@@ -640,3 +640,40 @@ fn main() {
         }
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_config_parser_reads_what_the_simnet_writes() {
+        let config = parse(
+            "role = court\n\
+             holder = court-a   # trailing comment\n\
+             listen = 127.0.0.1:9501\n\
+             peer = a:1\npeer = b:2\n\
+             bound = 4096\n\
+             require_signatures = true\n\
+             market = theta\n\
+             epoch_label = live\n\
+             unknown_key = ignored\n",
+        );
+        assert_eq!(config.role, "court");
+        assert_eq!(config.holder, "court-a", "comments strip");
+        assert_eq!(config.peers, vec!["a:1", "b:2"], "peers repeat");
+        assert_eq!(config.bound, 4096);
+        assert!(config.require_signatures);
+        assert_eq!(config.market.as_deref(), Some("theta"));
+        assert_eq!(config.epoch_label.as_deref(), Some("live"));
+    }
+
+    #[test]
+    fn seeds_are_sixty_four_hex_chars_or_nothing() {
+        assert!(seed_from_hex(&"07".repeat(32)).is_some());
+        assert_eq!(seed_from_hex(&"07".repeat(32)), Some([7u8; 32]));
+        assert!(seed_from_hex("short").is_none());
+        assert!(seed_from_hex(&"zz".repeat(32)).is_none(), "not hex");
+        assert!(seed_from_hex(&"07".repeat(33)).is_none(), "too long");
+    }
+}
