@@ -81,6 +81,7 @@ pub mod exact_codec;
 pub mod extent;
 pub mod freshness;
 pub mod flux;
+pub mod homology;
 pub mod rewrite;
 pub mod shape;
 pub mod snf;
