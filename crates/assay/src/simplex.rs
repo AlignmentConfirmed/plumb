@@ -255,6 +255,25 @@ fn minimize(a: &[Vec<Exact>], b: &[Exact], c: &[Exact]) -> Option<Vec<Exact>> {
     Some(x)
 }
 
+/// The `L₁`-minimal **non-negative** `x` with `A x = z` — min-cost
+/// flow / forward-only basis pursuit: `min Σx s.t. Ax = z, x ≥ 0`.
+///
+/// The difference from [`minimize_l1`] is the whole point for a
+/// directed rewrite graph: no variable splitting, so `x` can never go
+/// negative. A negative coefficient on a forward-licensed step means
+/// running that rewrite *backward*, which SQ3 forbids ("direction is
+/// the calculus") even though `closes_to` would accept it — this
+/// solver only ever combines forward steps a non-negative number of
+/// times, so every witness it returns is a legitimate forward
+/// derivation, while still minimizing the L1 cost the O1 rebate pays
+/// for. `None` if no non-negative solution exists (the theorem is not
+/// forward-derivable in this calculus).
+pub fn minimize_forward(a: &[Vec<Exact>], z: &[Exact]) -> Option<Vec<Exact>> {
+    let n = a.first().map_or(0, Vec::len);
+    let cost = vec![whole(1); n];
+    minimize(a, z, &cost)
+}
+
 /// The `L₁`-minimal (rational, not necessarily integral) `x` with
 /// `A x = z` — Basis Pursuit via variable splitting (`x = u − v`,
 /// `u, v ≥ 0`, minimize `Σu + Σv`).

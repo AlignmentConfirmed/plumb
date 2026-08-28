@@ -1289,4 +1289,68 @@ mod solve {
             Err(SolveRefused::NoRationalSolution)
         );
     }
+
+    /// #42: `solve_forward` — the kernel's replacement for BFS. On the
+    /// reference dihedral conjecture (dim-1, totally unimodular) it
+    /// returns the same integral forward path BFS found, and the
+    /// witness independently verifies. This is the "aligned physics":
+    /// the producer computes the court's own incidence algebra.
+    #[test]
+    fn solve_forward_matches_the_forward_path_on_the_dihedral_conjecture() {
+        // The dihedral group of order 6 (≅ S3), built inline — assay is
+        // a leaf and cannot reach datum::corpus, so the same
+        // presentation is reconstructed here from assay::rewrite.
+        let compiled = Presentation {
+            alphabet: vec![b'a', b'b'],
+            rules: vec![
+                (b"aaa".to_vec(), Vec::new()),
+                (b"bb".to_vec(), Vec::new()),
+                (b"ba".to_vec(), b"aab".to_vec()),
+            ],
+        }
+        .compile(6)
+        .expect("confluent, compiles");
+        let axiom = compiled.word(b"bab").expect("in universe");
+        let theorem = compiled.word(b"aa").expect("in universe");
+        let target = compiled.target(axiom, theorem).expect("a real instance");
+        let universe = compiled.complex;
+
+        let witness = universe.solve_forward(1, &target).expect("bab = aa is forward-derivable");
+        // Every coefficient is a positive whole number — a real forward
+        // application count, never a fractional or backward step.
+        for (_, coeff) in &witness {
+            assert!(*coeff > whole(0), "forward witness coefficients are positive: {coeff:?}");
+        }
+        universe
+            .closes_to(1, &witness, &target, DEFAULT_FUEL)
+            .expect("solve_forward's own witness independently verifies");
+    }
+
+    /// The direction guard, made concrete: a target that names the
+    /// REVERSE of the only licensed edge has an integer solution (sign-
+    /// free `solve` finds it, using a −1 coefficient) but NO forward
+    /// solution — `solve_forward` correctly refuses rather than
+    /// returning a backward-edge "derivation".
+    #[test]
+    fn solve_forward_refuses_a_backward_target_that_sign_free_solve_accepts() {
+        let op = vec![
+            Entry { row: 0, col: 0, coeff: whole(-1) },
+            Entry { row: 1, col: 0, coeff: whole(1) },
+        ];
+        let complex = DeclaredComplex {
+            cells: vec![2, 1],
+            ops: vec![op],
+        };
+        // The reverse boundary: 0 - 1, i.e. "derive node-0 from node-1"
+        // against a single forward edge 0->1.
+        let backward = vec![(0u32, whole(1)), (1u32, whole(-1))];
+        // sign-free solve accepts it (coefficient -1 on the forward edge)...
+        assert!(complex.solve(1, &backward).is_ok(), "sign-free solve uses the edge backward");
+        // ...but solve_forward will not run a rewrite backward.
+        assert_eq!(
+            complex.solve_forward(1, &backward),
+            Err(SolveRefused::NoRationalSolution),
+            "no forward derivation exists, and solve_forward says so"
+        );
+    }
 }

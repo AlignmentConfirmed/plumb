@@ -535,6 +535,51 @@ impl DeclaredComplex {
             .map(|(cell, coeff)| (cell as u32, coeff))
             .collect())
     }
+
+    /// Find the cost-minimal **forward** `dim`-chain closing onto
+    /// `target`: `min Σx s.t. ∂_dim x = target, x ≥ 0`
+    /// ([`crate::simplex::minimize_forward`]).
+    ///
+    /// This is the producer's aligned physics — the court's own
+    /// incidence algebra, minimizing the L1 cost the O1 rebate pays
+    /// for — while `x ≥ 0` keeps every step a legitimate FORWARD
+    /// application of a licensed cell (SQ3), so it never returns a
+    /// backward-edge "proof" the way sign-free [`DeclaredComplex::solve`]
+    /// can. For a dim-1 rewrite graph (totally unimodular) the LP
+    /// optimum is integral, so this yields whole-step witnesses for
+    /// the rewriting corpus for free. `NoRationalSolution` means the
+    /// target is not forward-derivable at this dimension.
+    pub fn solve_forward(&self, dim: u32, target: &[(u32, Exact)]) -> Result<Vec<(u32, Exact)>, SolveRefused> {
+        let dim = dim as usize;
+        if dim == 0 {
+            return Err(SolveRefused::NoSuchDimension);
+        }
+        let rows = self.cells.get(dim - 1).copied().ok_or(SolveRefused::NoSuchDimension)?;
+        let cols = self.cells.get(dim).copied().ok_or(SolveRefused::NoSuchDimension)?;
+        let op = self.ops.get(dim - 1).ok_or(SolveRefused::NoSuchDimension)?;
+
+        let mut a = vec![vec![Exact::from_integer(0.into()); cols as usize]; rows as usize];
+        for entry in op {
+            if let Some(row) = a.get_mut(entry.row as usize) {
+                if let Some(slot) = row.get_mut(entry.col as usize) {
+                    *slot += entry.coeff.clone();
+                }
+            }
+        }
+        let mut z = vec![Exact::from_integer(0.into()); rows as usize];
+        for (cell, coeff) in target {
+            if let Some(slot) = z.get_mut(*cell as usize) {
+                *slot += coeff.clone();
+            }
+        }
+
+        let x = crate::simplex::minimize_forward(&a, &z).ok_or(SolveRefused::NoRationalSolution)?;
+        Ok(x.into_iter()
+            .enumerate()
+            .filter(|(_, coeff)| !coeff.is_zero())
+            .map(|(cell, coeff)| (cell as u32, coeff))
+            .collect())
+    }
 }
 
 fn lcm(a: &BigInt, b: &BigInt) -> BigInt {

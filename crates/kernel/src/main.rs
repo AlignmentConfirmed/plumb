@@ -183,9 +183,10 @@ enum KernelRefused {
     /// ANY closing cycle is a different, unscoped problem. Named
     /// honestly rather than guessed at.
     NotAConjecture,
-    /// K2 could not find a witness within budget, or the target
-    /// wasn't a shape it derives against.
-    Derivation(sdk::derivation::DerivationRefused),
+    /// No forward derivation closes the announced target at any
+    /// dimension the universe declares — the theorem is not
+    /// forward-derivable in this calculus.
+    Unsolvable,
 }
 
 impl From<std::io::Error> for KernelRefused {
@@ -243,14 +244,15 @@ fn derive_and_settle(
     let conjecture = sdk::query::Conjecture::decode(&query.statement)
         .map_err(|_| KernelRefused::NotAConjecture)?;
 
-    // K2: derive. No lemmas cited — a fresh kernel builds from the
-    // announced conjecture alone, nothing it was handed.
-    let witness = sdk::derivation::derive(&conjecture.universe, &conjecture.target, config.budget)
-        .map_err(KernelRefused::Derivation)?;
+    // K2 (#42): DERIVE by the court's own algebra, not a graph walk.
+    // No lemmas cited — a fresh kernel builds from the announced
+    // conjecture alone, nothing it was handed.
+    let (dim, witness) = solve_conjecture(&conjecture.universe, &conjecture.target, config.budget)
+        .ok_or(KernelRefused::Unsolvable)?;
     let proof = assay::complex::ProofClaim {
         transport: 1,
         complex: conjecture.universe,
-        dim: 1,
+        dim,
         target: conjecture.target,
         witness,
         deps: Vec::new(),
@@ -289,6 +291,35 @@ fn derive_and_settle(
     sdk::receipt::verify(&signed, ledger).map_err(|_| KernelRefused::Malformed)?;
 
     Ok(signed.receipt.axes)
+}
+
+/// Derive a witness for `target` by the court's own incidence algebra
+/// (#42) — the linear-algebra replacement for the old dim-1 graph
+/// walk. Returns the winning `(dim, witness)`.
+///
+/// `solve_forward` is `min Σx s.t. ∂ₖx = target, x ≥ 0`: the
+/// cost-minimal FORWARD chain (the non-negativity keeps every step a
+/// licensed forward rewrite, SQ3), which is exactly the profit the O1
+/// rebate pays for. The dimension isn't on the wire, so the kernel
+/// tries each dimension the universe declares, lowest first, and takes
+/// the first witness that independently re-verifies under `fuel` —
+/// never trusting the solver's own say-so. This spans dim ≥ 2 and
+/// multi-term boundaries a graph walk cannot even pose.
+fn solve_conjecture(
+    universe: &assay::complex::DeclaredComplex,
+    target: &[(u32, assay::Exact)],
+    fuel: u64,
+) -> Option<(u32, Vec<(u32, assay::Exact)>)> {
+    let max_dim = u32::try_from(universe.ops.len()).unwrap_or(u32::MAX);
+    for dim in 1..=max_dim {
+        let Ok(witness) = universe.solve_forward(dim, target) else {
+            continue;
+        };
+        if universe.closes_to(dim, &witness, target, fuel).is_ok() {
+            return Some((dim, witness));
+        }
+    }
+    None
 }
 
 fn read_record(
