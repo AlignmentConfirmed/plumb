@@ -422,6 +422,87 @@ session ends — a separate, real gap from what this pass was fixing).
 
 ---
 
+## 6f · Resource-aware scheduling (Sched) — Phases 1–4 DONE 2026-08-28; Phase 5 SCOPED
+
+**The gap it closes:** before this, a court accepted every connection
+into its own thread and every producer churned as fast as it could —
+a binary that pegs a core at 100% and floods a court with back-to-back
+sessions is what a beta tester would be handed. Scheduling is **load
+physics**, and load is exactly the class of fact a federation cannot
+agree on (`bounty.rs`: "never cpu cycles, never memory — machine facts
+are unverifiable by a federation"). So the whole subsystem lives in
+`crates/datum/src/sched.rs`, governs **only** who is served, when, in
+what order, and touches nothing that reaches a `RewardAct`. That
+boundary is held by a source-scan test — `sched::tests::
+scheduling_never_names_a_settlement_type` — the same instrument
+`assay` uses to guard against floating point: two courts scheduling
+differently still converge on identical settled work.
+
+| ID | phase | done when |
+|---|---|---|
+| **Phase 1–2** (#45) | Bounded worker pool + [`Governor`] + named backpressure. `serve()` no longer spawns a thread per connection — it runs a fixed pool sized by [`StaticGovernor::tuned()`] (`available_parallelism() - 1`, so a court never occupies every core), draining a shared queue. Past a bounded queue depth the governor answers **busy** ([`BUSY_TAG`], carrying `retry_after_secs` LE u32) instead of dropping silently. `ResourceGovernor` (a `/proc/loadavg` integer-parse variant) is available to swap in without the court knowing. | DONE — `sched::tests::the_governor_sheds_with_busy_past_its_bounds_never_silently`, `::the_tuned_governor_leaves_the_machine_a_core_and_bounds_concurrency`, `::load_reports_total_and_per_key_depth`; live — kernel idles at ~1.2% CPU, whole economy healthy after the threading rewrite |
+| **Phase 3** (#46) | [`FairQueue<K, T>`] — a bounded, **per-key (per-IP) round-robin** queue between accept and the worker pool, so one flooding party cannot starve a quiet one out of the pool (`Mutex` + `Condvar`; `pop_locked` rotates a key to the back of the line when it still has more waiting). | DONE — `sched::tests::a_flooding_key_cannot_starve_a_quiet_one`; live — simnet unchanged under fair-queued accept |
+| **Phase 4** (#47) | Producer-side adaptive pacing. A kernel that reads `BUSY_TAG` as its first frame backs off exactly `retry_after_secs`; a kernel that earns resets to base cadence; repeated already-settled/error rounds back off exponentially toward a cap (`base .. base*12`). Cooperative: the producer *waits* instead of stalling on a timeout, so the court's busy answer actually reduces load. | DONE — `crates/kernel/src/main.rs` adaptive loop (`Round::{Earned, AlreadySettled, Busy}`); live — a looping kernel honours BUSY and paces itself, no CPU peg |
+
+**Phase 5 — escrow-weighted priority — SCOPED, not yet built (#48).**
+The natural next step (a high-stake producer earns a better place in a
+busy court's line) needs two things Phases 1–4 deliberately did not
+fake at the IP layer, because **an IP is not an economic identity** —
+weighting the existing per-IP `FairQueue` by IP would be the wrong
+design:
+
+1. **A per-holder escrow primitive that does not exist yet.** "Escrow"
+   in the system today is bounty *underwriting* (`bounty.escrow_bound`),
+   not a producer's refundable staked deposit a court reads to grant
+   bandwidth. Phase 5 needs a new economic fact.
+2. **A two-stage scheduler.** Escrow is per-holder, known only *after*
+   the handshake, but the accept-time queue sees only the IP. Correct
+   shape: a cheap **greeter** pool runs the handshake to learn
+   holder+escrow, then enqueues into a *separate* escrow-weighted
+   priority queue that the expensive **settler** pool drains.
+
+Tracked as an ordered, dependency-wired graph (#49–#55):
+
+- **#49 P5-Ruling** *(gates everything; operator's call)* — how escrow
+  is backed. **Recommended: Fork A** — a refundable deposit of real
+  external value over the existing x402/USDC rail (#23), Sybil-resistant
+  by construction — over Fork B (an internal debitable balance, which
+  fights the append-only credit ledger) or Fork C (a free-to-declare
+  bond, not Sybil-resistant). Paired ruling: **no slashing** — escrow's
+  only power is scheduling priority while posted; misbehaviour costs
+  admission (refusal), never the deposit, consistent with Plumb's
+  refusal-over-punishment ethos. *These are recommendations pending the
+  operator's ratification; nothing downstream is built until #49 lands.*
+- **#50 P5-A1** — the on-chain escrow fact (`Act::Escrow`/`Release`,
+  `escrow_of(holder) -> u128`), an identity/capability fact like a
+  binding, not a settlement *(needs #49)*.
+- **#51 P5-A2** — x402 deposit/withdraw wiring that emits it *(needs
+  #49, #50)*.
+- **#52 P5-C1** — the concave, float-free weight
+  `base + k·isqrt(escrow)`, capped (diminishing returns → anti-plutocracy;
+  `u128::isqrt`, no floats) *(independent)*.
+- **#53 P5-B1** — split `court_session` into handshake + settle stages;
+  the **highest-risk** piece (core session logic), done standalone and
+  independently validated (byte-identical when called back-to-back)
+  *(independent)*.
+- **#54 P5-B2** — the greeter + settler two-pool `serve()` with the
+  priority queue between *(needs #53)*.
+- **#55 P5-B3** — weighted deficit round-robin in `FairQueue`, wire the
+  escrow weight, live-validate two contending producers (one escrowed)
+  *(needs #50, #52, #54)*.
+
+**Suggested order:** #49 → #52 → #50 → #53 → #54 → #55 → #51.
+
+**The invariant Phase 5 must not break:** an escrow *amount* may be a
+chain fact (shared, verifiable), but the *weight* a court derives from
+it and how it schedules is **local policy** — it never enters a
+`RewardAct`, never touches settlement or payout. The source-scan
+boundary test extends to cover the weight function. Escrow buys a
+better place in *this* court's line, not a better payout and not a
+ledger entry.
+
+---
+
 ## 7 · Topological signatures — research track, scheme ≥ 0x02
 
 Held at research until the cryptanalytic bar is met; enters through
