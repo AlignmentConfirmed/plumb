@@ -1464,3 +1464,65 @@ mod http_quarantine {
         }
     }
 }
+
+mod live_corpus {
+    //! P5: the market a court actually prices and pays out for is
+    //! real, citable mathematics (`datum::corpus`'s dihedral group of
+    //! order 6) — never `demo_theta_universe`, the synthetic fixture
+    //! that priced every market before this. A source scan in the
+    //! same tradition as `http_quarantine`: the property is about
+    //! what got WIRED, which only source, not a unit test of
+    //! `corpus.rs` in isolation, can actually confirm.
+    //!
+    //! `demo_hexagon_*`/`demo_cycle_*` are NOT banned here — they
+    //! remain legitimate synthetic TRAFFIC generators (a client's
+    //! "fresh work every round," a witness's demo subject, a join's
+    //! proof-of-life claim), honestly labeled as such. What must
+    //! never be a fixture is the priced QUESTION itself.
+
+    #![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
+
+    use std::path::{Path, PathBuf};
+
+    fn workspace() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .expect("workspace root")
+    }
+
+    /// The part of a binary's source before its trailing `#[cfg(test)]`
+    /// region — both `plumbd.rs` and `gateway.rs` put every test-only
+    /// item at the end of the file, so this is exactly the live code.
+    fn live_source(path: &Path) -> String {
+        let text = std::fs::read_to_string(path).expect("the binary exists");
+        match text.find("#[cfg(test)]") {
+            Some(at) => text.get(..at).unwrap_or(&text).to_owned(),
+            None => text,
+        }
+    }
+
+    #[test]
+    fn neither_binarys_live_path_prices_the_synthetic_fixture() {
+        for relative in ["crates/datum/src/bin/plumbd.rs", "crates/datum/src/bin/gateway.rs"] {
+            let path = workspace().join(relative);
+            let live = live_source(&path);
+            assert!(
+                !live.contains("demo_theta_universe"),
+                "{relative}'s live path still prices the demo fixture, not the real corpus"
+            );
+        }
+    }
+
+    #[test]
+    fn the_live_market_is_the_dihedral_corpus_not_a_fixture() {
+        // The scanner must be able to FIND the real corpus wired in,
+        // or a scan that never matches anything reads as a clean one.
+        let plumbd = workspace().join("crates/datum/src/bin/plumbd.rs");
+        let live = live_source(&plumbd);
+        assert!(
+            live.contains("corpus::dihedral_conjecture"),
+            "plumbd's live path should pose datum::corpus's real theorem"
+        );
+    }
+}

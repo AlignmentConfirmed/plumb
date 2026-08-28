@@ -104,17 +104,28 @@ fn main() {
             std::process::exit(2);
         }
     };
+    // P5 — a real theorem, not a fixture: `bab = aa` in the dihedral
+    // group of order 6, a genuine instance of the defining relation
+    // `bab^-1 = a^-1`. See datum::corpus for the citation.
+    let (_, conjecture) = datum::corpus::dihedral_conjecture().unwrap_or_else(|e| {
+        eprintln!("gateway: dihedral corpus failed to compile: {e:?}");
+        std::process::exit(1);
+    });
     let query = Query {
         poser: court.clone(),
         shape: vec![2, 3],
         domain_tag: 82,
         guarantee: Guarantee::Rederivation,
-        statement: datum::domains::demo_theta_universe().encode(),
+        statement: conjecture.encode(),
     };
     let bounty = Bounty {
         query_id: query.query_id(),
-        max_fuel: 200,
-        max_bytes: 400,
+        // The dihedral corpus's own derivation spends ~464 fuel and
+        // ~8.7KB — measured, not guessed; these budgets give real
+        // headroom without inflating the yield rebate the way
+        // assay::complex::DEFAULT_FUEL's 1,000,000 ceiling would.
+        max_fuel: 2_000,
+        max_bytes: 10_000,
         base: 1_000,
         per_saved_fuel: 10,
         per_saved_byte: 3,

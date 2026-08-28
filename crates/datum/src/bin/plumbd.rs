@@ -513,31 +513,47 @@ fn main() {
                     }
                 }
             }
-            // R1 — the native market: `market = theta` posts the demo
-            // theta bounty, served on the wire (tag 85 out, receipts
-            // back on 81). Needs the court's seed to sign receipts.
+            // R1/P5 — the native market: `market = dihedral` posts a
+            // genuine theorem (P5's corpus: `bab = aa` in the dihedral
+            // group of order 6, a real, citable instance of the
+            // defining relation `bab^-1 = a^-1`) as an SQ4 conjecture,
+            // served on the wire (tag 85 out, receipts back on 81).
+            // Needs the court's seed to sign receipts.
             let market = match config.market.as_deref() {
-                Some("theta") => {
+                Some("dihedral") => {
                     let Some(seed) = resolve_seed(&config) else {
                         eprintln!("plumbd: market needs `seed_file =` or `seed =` to sign receipts");
                         std::process::exit(2);
                     };
+                    let (_, conjecture) = datum::corpus::dihedral_conjecture().unwrap_or_else(|e| {
+                        eprintln!("plumbd: dihedral corpus failed to compile: {e:?}");
+                        std::process::exit(1);
+                    });
                     let query = datum::query::Query {
                         poser: config.holder.clone(),
                         shape: vec![2, 3],
-                        domain_tag: 82,
+                        domain_tag: isthmus::work::SHAPE_CLAIM_TAG,
                         guarantee: datum::query::Guarantee::Rederivation,
-                        statement: datum::domains::demo_theta_universe().encode(),
+                        statement: conjecture.encode(),
                     };
-                    println!("plumbd: native market open — theta, query {}", {
-                        let id = query.query_id();
-                        format!("{:02x}{:02x}{:02x}{:02x}…", id[0], id[1], id[2], id[3])
-                    });
+                    println!(
+                        "plumbd: native market open — dihedral (bab = aa in D3), query {}",
+                        {
+                            let id = query.query_id();
+                            format!("{:02x}{:02x}{:02x}{:02x}…", id[0], id[1], id[2], id[3])
+                        }
+                    );
                     Some(std::sync::Arc::new(plumbd::MarketPost {
                         bounty: datum::bounty::Bounty {
                             query_id: query.query_id(),
-                            max_fuel: 200,
-                            max_bytes: 400,
+                            // The dihedral corpus's own derivation
+                            // spends ~464 fuel and ~8.7KB — measured,
+                            // not guessed; real headroom without
+                            // inflating the yield rebate the way
+                            // assay::complex::DEFAULT_FUEL's
+                            // 1,000,000 ceiling would.
+                            max_fuel: 2_000,
+                            max_bytes: 10_000,
                             base: 1_000,
                             per_saved_fuel: 10,
                             per_saved_byte: 3,
@@ -548,7 +564,7 @@ fn main() {
                     }))
                 }
                 Some(other) => {
-                    eprintln!("plumbd: unknown market '{other}' (theta)");
+                    eprintln!("plumbd: unknown market '{other}' (dihedral)");
                     std::process::exit(2);
                 }
                 None => None,
@@ -769,12 +785,33 @@ fn main() {
                 std::process::exit(2);
             };
             let key = sig::Keypair::from_seed(seed);
-            // The lean theta answer — the market's own measurement.
-            let body = assay::complex::DeclaredClaim {
+            // P5 — a real proof: the shortest derivation this
+            // presentation licenses for `bab = aa`, the dihedral
+            // group's own defining relation.
+            let (compiled, _) = datum::corpus::dihedral_conjecture().unwrap_or_else(|e| {
+                eprintln!("plumbd: dihedral corpus failed to compile: {e:?}");
+                std::process::exit(1);
+            });
+            let witness = datum::corpus::dihedral_derivation(&compiled).unwrap_or_else(|e| {
+                eprintln!("plumbd: dihedral derivation failed: {e:?}");
+                std::process::exit(1);
+            });
+            let target = (|| {
+                let bab = compiled.word(b"bab")?;
+                let aa = compiled.word(b"aa")?;
+                compiled.target(bab, aa)
+            })()
+            .unwrap_or_else(|e| {
+                eprintln!("plumbd: dihedral target failed: {e:?}");
+                std::process::exit(1);
+            });
+            let body = assay::complex::ProofClaim {
                 transport: 1,
-                complex: datum::domains::demo_theta_universe(),
+                complex: compiled.complex.clone(),
                 dim: 1,
-                witness: vec![(0, assay::whole(1)), (1, assay::whole(-1))],
+                target,
+                witness,
+                deps: Vec::new(),
             }
             .encode();
             match plumbd::solve_market(
