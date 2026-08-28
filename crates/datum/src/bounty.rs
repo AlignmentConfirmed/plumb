@@ -66,6 +66,12 @@ impl Bounty {
 /// Why an answer to a bounty refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnswerRefused {
+    /// The query poses a CONJECTURE and the answer is not a proof —
+    /// a cycle cannot answer a theorem.
+    NotAProof,
+    /// The proof closes onto a different boundary than the one the
+    /// poser paid to see closed.
+    NotThePosedTheorem,
     /// The body is not a declared-domain claim — a bounty prices a
     /// declared universe, so the answer must live in one.
     NotDeclared(ComplexBroken),
@@ -113,10 +119,6 @@ pub fn settle_answer(
     body: &[u8],
     book: &mut RewardBook,
 ) -> Result<Answer, AnswerRefused> {
-    let claim = DeclaredClaim::decode(body).map_err(AnswerRefused::NotDeclared)?;
-    if claim.complex.encode() != query.statement {
-        return Err(AnswerRefused::NotThePosersUniverse);
-    }
     let got = body.len() as u64;
     if got > bounty.max_bytes {
         return Err(AnswerRefused::Oversized {
@@ -124,9 +126,24 @@ pub fn settle_answer(
             got,
         });
     }
-    let spent_fuel = claim
-        .verify(bounty.max_fuel)
-        .map_err(AnswerRefused::Broken)?;
+    // SQ4: a conjecture statement demands a PROOF answer pinned to
+    // the posed theorem; a plain universe statement asks for closure.
+    let spent_fuel = if let Ok(conjecture) = crate::query::Conjecture::decode(&query.statement) {
+        let proof = ProofClaim::decode(body).map_err(|_| AnswerRefused::NotAProof)?;
+        if proof.complex != conjecture.universe {
+            return Err(AnswerRefused::NotThePosersUniverse);
+        }
+        if proof.target != conjecture.target {
+            return Err(AnswerRefused::NotThePosedTheorem);
+        }
+        proof.verify(bounty.max_fuel).map_err(AnswerRefused::Broken)?
+    } else {
+        let claim = DeclaredClaim::decode(body).map_err(AnswerRefused::NotDeclared)?;
+        if claim.complex.encode() != query.statement {
+            return Err(AnswerRefused::NotThePosersUniverse);
+        }
+        claim.verify(bounty.max_fuel).map_err(AnswerRefused::Broken)?
+    };
     let credit = book.credit_claim(body).map_err(AnswerRefused::Book)?;
     let payout = bounty.payout(spent_fuel, got);
     Ok(Answer {

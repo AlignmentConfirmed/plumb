@@ -949,3 +949,114 @@ mod registered_calculus {
         });
     }
 }
+
+mod session_watcher {
+    //! R4: the watcher, live in the session. A witness about a
+    //! subject the session itself carried gets re-derived on the
+    //! spot — and a witness about a BROKEN claim becomes a dispute
+    //! on the record, not a rumor.
+
+    use std::io::Write;
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::{Arc, Mutex};
+
+    use datum::plumbd::{self, SessionRules, SessionReport};
+    use datum::reward::RewardBook;
+    use datum::witnessing;
+    use isthmus::hello::Hello;
+    use isthmus::layout::Layout;
+    use isthmus::witness::{Arm, Observer, Witness};
+
+    use super::common::{await_true, cycle_envelope, edge_with, BOUND};
+
+    fn witness_about(envelope: &[u8]) -> Witness {
+        Witness {
+            arm: Arm::Replay,
+            observer: Observer {
+                kind: 1,
+                identity: [3u8; 32],
+                revision: "IS-6/5".into(),
+                depth: 0,
+            },
+            subject: witnessing::subject_of(envelope),
+            derivation: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn the_session_watches_what_it_carried_and_disputes_the_broken() {
+        let ledger = edge_with("court");
+        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let reports: Arc<Mutex<Vec<SessionReport>>> = Arc::new(Mutex::new(Vec::new()));
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        {
+            let (layout, ledger, book, reports) =
+                (Layout::founding(), ledger.clone(), Arc::clone(&book), Arc::clone(&reports));
+            std::thread::spawn(move || {
+                let rules = SessionRules {
+                    holder: "court".into(),
+                    bound: BOUND,
+                    enforce: false,
+                    market: None,
+                };
+                let _ = plumbd::serve(
+                    &listener,
+                    &layout,
+                    &ledger,
+                    &rules,
+                    &book,
+                    &Arc::new(Mutex::new(Vec::new())),
+                    move |report| reports.lock().expect("reports").push(report.clone()),
+                );
+            });
+        }
+
+        // One session: a good claim, a broken claim, and a witness
+        // about each.
+        let good = cycle_envelope(11);
+        let broken = {
+            let mut open = datum::domains::demo_cycle_claim(9, 0);
+            open.witness.pop();
+            let body = open.encode();
+            let mut wire = Vec::new();
+            isthmus::work::put_shape_claim(&body, &mut wire).expect("frames");
+            wire
+        };
+
+        let layout = Layout::founding();
+        let solver = edge_with("solver");
+        let ours = Hello::of(&solver, "solver", BOUND as u32);
+        let mut stream = TcpStream::connect(addr).expect("connect");
+        plumbd::send_hello(&mut stream, &layout, plumbd::hello_tag(&solver, "solver"), &ours)
+            .expect("hello");
+        let mut buf = Vec::new();
+        let _court = plumbd::read_hello(&mut stream, &mut buf, &layout, &ours, BOUND).expect("court");
+        let _challenge = plumbd::read_record(&mut stream, &mut buf, &layout, BOUND)
+            .expect("read")
+            .expect("challenge");
+
+        for envelope in [&good, &broken] {
+            stream.write_all(envelope).expect("sends");
+            let mut wire = Vec::new();
+            isthmus::frame::put_frame(
+                &layout,
+                witnessing::WITNESS_TAG,
+                &witness_about(envelope).encode(),
+                &mut wire,
+            )
+            .expect("frames");
+            stream.write_all(&wire).expect("sends");
+        }
+        drop(stream);
+
+        await_true("the session reported", || !reports.lock().expect("r").is_empty());
+        let report = reports.lock().expect("r").first().cloned().expect("one");
+        assert_eq!(report.witnessed, 2, "both witnesses on the record");
+        assert_eq!(report.watched, 2, "both subjects crossed this session — both watched");
+        assert_eq!(
+            report.disputed, 1,
+            "the broken claim's witness re-derived FALSE: a dispute, not a rumor"
+        );
+    }
+}

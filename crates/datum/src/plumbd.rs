@@ -196,6 +196,15 @@ impl std::fmt::Debug for SessionRules {
     }
 }
 
+/// Keep the last few crossed envelopes for the session's watcher —
+/// bounded, so a long session cannot hoard memory.
+fn remember(seen: &mut Vec<Vec<u8>>, envelope: Vec<u8>) {
+    if seen.len() >= 8 {
+        seen.remove(0);
+    }
+    seen.push(envelope);
+}
+
 /// Credit a work value — through the posted market when the claim
 /// inhabits the poser's universe (settling the bounty and returning
 /// the signed receipt on the wire), through the plain book otherwise.
@@ -255,6 +264,12 @@ pub struct SessionReport {
     pub skipped: usize,
     /// Witness frames put on the record (IS-4).
     pub witnessed: usize,
+    /// Witnesses this session's own watcher re-derived (the subject
+    /// crossed the same session).
+    pub watched: usize,
+    /// Watched witnesses whose subjects FAILED re-derivation — a
+    /// dispute on the record.
+    pub disputed: usize,
 }
 
 /// Serve one inbound session as the court.
@@ -302,10 +317,14 @@ pub fn court_session(
     // arrives (the next record); an envelope displaced or orphaned
     // without one is refused, not credited.
     let mut pending: Option<Vec<u8>> = None;
+    // What this session saw cross, most recent last — the subjects a
+    // session-local watcher can be HANDED (it may not fetch, §6.1).
+    let mut seen_envelopes: Vec<Vec<u8>> = Vec::new();
     while let Some((tag, frame)) = read_record(&mut stream, &mut buffer, layout, bound)? {
         if isthmus::work::is_work_tag(tag) && tag != isthmus::work::RECEIPT_TAG {
             if !enforce {
                 let value = frame.get(layout.header()..).unwrap_or(&[]).to_vec();
+                remember(&mut seen_envelopes, frame.clone());
                 let mut guard = book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
                 credit_value(&mut stream, layout, rules, &mut guard, &value, &mut report)?;
             } else if !session_live {
@@ -342,6 +361,7 @@ pub fn court_session(
             match admission::admit(ledger, epoch, &envelope, attestation) {
                 Ok(_holder) => {
                     let value = envelope.get(layout.header()..).unwrap_or(&[]).to_vec();
+                    remember(&mut seen_envelopes, envelope.clone());
                     drop(guard);
                     let mut relocked =
                         book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
@@ -380,6 +400,21 @@ pub fn court_session(
             let value = frame.get(layout.header()..).unwrap_or(&[]);
             match isthmus::witness::Witness::decode(value) {
                 Ok(witness) => {
+                    // The watcher, live (IS-4 §6): if the witnessed
+                    // subject crossed THIS session, the court was
+                    // handed it — so it watches, and a failed
+                    // re-derivation is a dispute on the record.
+                    if let Some(subject) = seen_envelopes
+                        .iter()
+                        .find(|e| witnessing::subject_of(e) == witness.subject)
+                    {
+                        if let Ok(verdict) = witnessing::watch(&witness, subject) {
+                            report.watched += 1;
+                            if !verdict.verified {
+                                report.disputed += 1;
+                            }
+                        }
+                    }
                     let mut log = witnesses
                         .lock()
                         .map_err(|_| NodeBroken::CourtUnreachable)?;

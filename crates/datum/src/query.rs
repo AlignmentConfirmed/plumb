@@ -143,3 +143,70 @@ impl Query {
         })
     }
 }
+
+/// SQ4 — a conjecture: a query whose statement pins BOTH the universe
+/// and the theorem. Without this, a posed question flattens to
+/// "exhibit any closure" — the poser could not say WHICH boundary
+/// they are paying to see closed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Conjecture {
+    /// The universe the derivation must live in.
+    pub universe: assay::complex::DeclaredComplex,
+    /// The prescribed boundary the answer must close onto:
+    /// `theorem − axioms`, canonical.
+    pub target: Vec<(u32, assay::Exact)>,
+}
+
+impl Conjecture {
+    /// Canonical statement bytes for [`Query::statement`].
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        let universe = self.universe.encode();
+        let ul = u32::try_from(universe.len()).unwrap_or(u32::MAX);
+        out.extend_from_slice(&ul.to_le_bytes());
+        out.extend_from_slice(&universe);
+        let n = u32::try_from(self.target.len()).unwrap_or(u32::MAX);
+        out.extend_from_slice(&n.to_le_bytes());
+        for (cell, coeff) in &self.target {
+            out.extend_from_slice(&cell.to_le_bytes());
+            assay::exact_codec::put_exact(coeff, &mut out);
+        }
+        out
+    }
+
+    /// Read a conjecture statement back. A statement that is not a
+    /// conjecture is not an error — it is a plain universe statement,
+    /// and the caller falls back to the closure question.
+    pub fn decode(bytes: &[u8]) -> Result<Self, QueryBroken> {
+        let mut at = 0usize;
+        let take = |at: &mut usize, n: usize| -> Result<&[u8], QueryBroken> {
+            let end = at.saturating_add(n);
+            let piece = bytes.get(*at..end).ok_or(QueryBroken::Truncated)?;
+            *at = end;
+            Ok(piece)
+        };
+        let mut l4 = [0u8; 4];
+        l4.copy_from_slice(take(&mut at, 4)?);
+        let ul = u32::from_le_bytes(l4) as usize;
+        let universe = assay::complex::DeclaredComplex::decode(take(&mut at, ul)?)
+            .map_err(|_| QueryBroken::Truncated)?;
+        let mut n4 = [0u8; 4];
+        n4.copy_from_slice(take(&mut at, 4)?);
+        let n = u32::from_le_bytes(n4) as usize;
+        let mut target = Vec::with_capacity(n.min(1 << 12));
+        let mut cursor = at;
+        for _ in 0..n {
+            let mut c4 = [0u8; 4];
+            c4.copy_from_slice(bytes.get(cursor..cursor.saturating_add(4)).ok_or(QueryBroken::Truncated)?);
+            cursor = cursor.saturating_add(4);
+            let coeff = assay::exact_codec::take_exact(bytes, &mut cursor)
+                .map_err(|_| QueryBroken::Truncated)?;
+            target.push((u32::from_le_bytes(c4), coeff));
+        }
+        if cursor != bytes.len() {
+            return Err(QueryBroken::Trailing);
+        }
+        Ok(Self { universe, target })
+    }
+}

@@ -41,6 +41,8 @@ struct Config {
     fed_secs: u64,
     require_signatures: bool,
     seed: Option<String>,
+    market: Option<String>,
+    epoch_label: Option<String>,
     demo: String,
     upstream: Option<String>,
     every: u64,
@@ -67,6 +69,8 @@ fn parse(text: &str) -> Config {
         fed_secs: 10,
         require_signatures: false,
         seed: None,
+        market: None,
+        epoch_label: None,
         demo: "triangle".into(),
         upstream: None,
         every: 5,
@@ -129,6 +133,8 @@ fn parse(text: &str) -> Config {
             }
             "declare" => config.declares.push(value),
             "seed" => config.seed = Some(value),
+            "market" => config.market = Some(value),
+            "epoch_label" => config.epoch_label = Some(value),
             "fed_listen" => config.fed_listen = Some(value),
             "fed_peer" => config.fed_peers.push(value),
             "fed_secs" => {
@@ -271,11 +277,71 @@ fn main() {
             if config.require_signatures {
                 println!("plumbd: signature enforcement ON (S4)");
             }
+            // R3 — epochs are LIVE: the court opens one at start if
+            // none is open, so bind windows can actually bite.
+            if let Ok(mut guard) = book.lock() {
+                if guard.open_epoch().is_none() {
+                    let label = config
+                        .epoch_label
+                        .clone()
+                        .unwrap_or_else(|| format!("court {} session epoch", config.holder));
+                    match guard.open_epoch_named(label) {
+                        Ok(epoch) => println!("plumbd: epoch {epoch} open"),
+                        Err(e) => eprintln!("plumbd: epoch refused: {e:?}"),
+                    }
+                }
+            }
+            // R1 — the native market: `market = theta` posts the demo
+            // theta bounty, served on the wire (tag 85 out, receipts
+            // back on 81). Needs the court's seed to sign receipts.
+            let market = match (config.market.as_deref(), config.seed.as_deref()) {
+                (Some("theta"), Some(seed_hex)) => match seed_from_hex(seed_hex) {
+                    Some(seed) => {
+                        let query = datum::query::Query {
+                            poser: config.holder.clone(),
+                            shape: vec![2, 3],
+                            domain_tag: 82,
+                            guarantee: datum::query::Guarantee::Rederivation,
+                            statement: datum::domains::demo_theta_universe().encode(),
+                        };
+                        println!("plumbd: native market open — theta, query {}", {
+                            let id = query.query_id();
+                            format!("{:02x}{:02x}{:02x}{:02x}…", id[0], id[1], id[2], id[3])
+                        });
+                        Some(std::sync::Arc::new(plumbd::MarketPost {
+                            bounty: datum::bounty::Bounty {
+                                query_id: query.query_id(),
+                                max_fuel: 200,
+                                max_bytes: 400,
+                                base: 1_000,
+                                per_saved_fuel: 10,
+                                per_saved_byte: 3,
+                            },
+                            query,
+                            court: config.holder.clone(),
+                            key: sig::Keypair::from_seed(seed),
+                        }))
+                    }
+                    None => {
+                        eprintln!("plumbd: market needs a valid 64-hex seed");
+                        std::process::exit(2);
+                    }
+                },
+                (Some(_), None) => {
+                    eprintln!("plumbd: market needs `seed =` to sign receipts");
+                    std::process::exit(2);
+                }
+                (Some(other), _) if other != "theta" => {
+                    eprintln!("plumbd: unknown market '{other}' (theta)");
+                    std::process::exit(2);
+                }
+                _ => None,
+            };
             let rules = plumbd::SessionRules {
                 holder: config.holder.clone(),
                 bound: config.bound,
                 enforce: config.require_signatures,
-                market: None,
+                market,
             };
             let witnesses: plumbd::WitnessLog =
                 Arc::new(Mutex::new(Vec::new()));
@@ -427,6 +493,47 @@ fn main() {
                 std::thread::sleep(std::time::Duration::from_secs(config.every.max(1)));
             }
         }
+        "solver" => {
+            let Some(seed) = config.seed.as_deref().and_then(seed_from_hex) else {
+                eprintln!("plumbd: solver needs `seed = <64 hex>`");
+                std::process::exit(2);
+            };
+            let Some(peer) = config.peers.first() else {
+                eprintln!("plumbd: solver needs a `peer =` line");
+                std::process::exit(2);
+            };
+            let key = sig::Keypair::from_seed(seed);
+            // The lean theta answer — the market's own measurement.
+            let body = assay::complex::DeclaredClaim {
+                transport: 1,
+                complex: datum::domains::demo_theta_universe(),
+                dim: 1,
+                witness: vec![(0, assay::whole(1)), (1, assay::whole(-1))],
+            }
+            .encode();
+            match plumbd::solve_market(
+                peer.as_str(),
+                &layout,
+                &ledger,
+                &config.holder,
+                config.bound,
+                &body,
+                &key,
+            ) {
+                Ok((query, receipt)) => {
+                    println!(
+                        "plumbd: solved natively — query {}…, receipt axes {:?}, epoch {}",
+                        query.query_id().first().map(|b| format!("{b:02x}")).unwrap_or_default(),
+                        receipt.receipt.axes,
+                        receipt.receipt.epoch,
+                    );
+                }
+                Err(e) => {
+                    eprintln!("plumbd: solving failed: {e:?}");
+                    std::process::exit(1);
+                }
+            }
+        }
         "witness" => {
             if config.peers.is_empty() {
                 eprintln!("plumbd: witness needs at least one `peer =` line");
@@ -528,7 +635,7 @@ fn main() {
             );
         }
         other => {
-            eprintln!("plumbd: unknown role '{other}' (court | producer | carrier | client | witness | genesis)");
+            eprintln!("plumbd: unknown role '{other}' (court | producer | carrier | client | solver | witness | genesis)");
             std::process::exit(2);
         }
     }

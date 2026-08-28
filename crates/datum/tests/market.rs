@@ -881,3 +881,91 @@ mod shaped_closure {
         );
     }
 }
+
+mod conjecture {
+    //! R2/SQ4: a query can pose a THEOREM — the un-flattening. The
+    //! statement pins universe AND target; a proof answering a
+    //! different theorem refuses by name, and a cycle cannot answer
+    //! a conjecture at all.
+
+    use datum::bounty::{settle_answer, AnswerRefused, Bounty};
+    use datum::query::{Conjecture, Guarantee, Query};
+    use datum::reward::RewardBook;
+
+    fn posed() -> (Query, Bounty, assay::rewrite::Compiled) {
+        let compiled = assay::rewrite::Presentation {
+            alphabet: vec![b'a', b'b'],
+            rules: vec![(vec![b'b', b'a'], vec![b'a', b'b'])],
+        }
+        .compile(3)
+        .expect("compiles");
+        let bba = compiled.word(b"bba").expect("axiom");
+        let abb = compiled.word(b"abb").expect("theorem");
+        let conjecture = Conjecture {
+            universe: compiled.complex.clone(),
+            target: compiled.target(bba, abb).expect("target"),
+        };
+        let query = Query {
+            poser: "hilbert".into(),
+            shape: vec![15, 5],
+            domain_tag: 82,
+            guarantee: Guarantee::Rederivation,
+            statement: conjecture.encode(),
+        };
+        let bounty = Bounty {
+            query_id: query.query_id(),
+            max_fuel: 500,
+            max_bytes: 2000,
+            base: 10_000,
+            per_saved_fuel: 10,
+            per_saved_byte: 1,
+        };
+        (query, bounty, compiled)
+    }
+
+    fn derivation(compiled: &assay::rewrite::Compiled, words: &[&[u8]]) -> Vec<u8> {
+        let path: Vec<usize> = words
+            .iter()
+            .map(|w| compiled.word(w).expect("in universe"))
+            .collect();
+        let first = *path.first().expect("axiom");
+        let last = *path.last().expect("theorem");
+        assay::complex::ProofClaim {
+            transport: 1,
+            complex: compiled.complex.clone(),
+            dim: 1,
+            target: compiled.target(first, last).expect("target"),
+            witness: compiled.derive(&path).expect("licensed"),
+            deps: Vec::new(),
+        }
+        .encode()
+    }
+
+    #[test]
+    fn the_posed_theorem_settles_and_the_wrong_one_refuses_by_name() {
+        let (query, bounty, compiled) = posed();
+        let mut book = RewardBook::new();
+
+        // A correct derivation of a DIFFERENT theorem: real math,
+        // wrong question — the poser paid for bba → abb.
+        let other = derivation(&compiled, &[b"ba", b"ab"]);
+        assert_eq!(
+            settle_answer(&bounty, &query, &other, &mut book),
+            Err(AnswerRefused::NotThePosedTheorem)
+        );
+
+        // A cycle cannot answer a conjecture at all.
+        let cycle = datum::domains::demo_cycle_claim(6, 1).encode();
+        assert_eq!(
+            settle_answer(&bounty, &query, &cycle, &mut book),
+            Err(AnswerRefused::NotAProof)
+        );
+        assert_eq!(book.act_len(), 0);
+
+        // The posed theorem, derived: settles, with the rebate.
+        let answer = derivation(&compiled, &[b"bba", b"bab", b"abb"]);
+        let settled = settle_answer(&bounty, &query, &answer, &mut book)
+            .expect("the conjecture closes");
+        assert!(settled.payout > bounty.base, "yield on the unspent budget");
+    }
+}

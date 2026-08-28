@@ -278,8 +278,62 @@ pub fn handle(method: &str, path: &str, body: &[u8], gateway: &Gateway) -> (u16,
                 Err(refused) => (422, refusal_json(&refused)),
             }
         }
+        ("POST", "/authorize") => {
+            // R5: the calldata assembler, SERVED. The payer's wallet
+            // signed the authorization; the facilitator needs the
+            // standard's calldata. Fixed-width raw body — 169 bytes,
+            // one shape, no parser surface:
+            // from(20) ‖ to(20) ‖ value(16 BE) ‖ after(8 BE) ‖
+            // before(8 BE) ‖ nonce(32) ‖ v(1) ‖ r(32) ‖ s(32).
+            match parse_authorization(body) {
+                Some(auth) => (
+                    200,
+                    format!("{{\"calldata\":\"{}\"}}", hex(&eip3009_calldata(&auth))),
+                ),
+                None => (
+                    422,
+                    "{\"refused\":\"authorization is 169 fixed bytes\"}".into(),
+                ),
+            }
+        }
         _ => (404, "{\"refused\":\"no such resource\"}".into()),
     }
+}
+
+/// The one fixed shape `/authorize` accepts.
+fn parse_authorization(body: &[u8]) -> Option<TransferAuthorization> {
+    if body.len() != 169 {
+        return None;
+    }
+    let grab = |from: usize, len: usize| body.get(from..from.saturating_add(len));
+    let mut from = [0u8; 20];
+    from.copy_from_slice(grab(0, 20)?);
+    let mut to = [0u8; 20];
+    to.copy_from_slice(grab(20, 20)?);
+    let mut value = [0u8; 16];
+    value.copy_from_slice(grab(40, 16)?);
+    let mut after = [0u8; 8];
+    after.copy_from_slice(grab(56, 8)?);
+    let mut before = [0u8; 8];
+    before.copy_from_slice(grab(64, 8)?);
+    let mut nonce = [0u8; 32];
+    nonce.copy_from_slice(grab(72, 32)?);
+    let v = *grab(104, 1)?.first()?;
+    let mut r = [0u8; 32];
+    r.copy_from_slice(grab(105, 32)?);
+    let mut s = [0u8; 32];
+    s.copy_from_slice(grab(137, 32)?);
+    Some(TransferAuthorization {
+        from,
+        to,
+        value: u128::from_be_bytes(value),
+        valid_after: u64::from_be_bytes(after),
+        valid_before: u64::from_be_bytes(before),
+        nonce,
+        v,
+        r,
+        s,
+    })
 }
 
 fn refusal_json(refused: &AnswerRefused) -> String {
@@ -522,6 +576,27 @@ mod tests {
         stream.read_to_string(&mut response).expect("reads");
         assert!(response.starts_with("HTTP/1.1 422"), "{response}");
         assert!(response.contains("Replay"), "the refusal names itself over HTTP too");
+    }
+
+    #[test]
+    fn the_authorize_endpoint_serves_the_assembler() {
+        let gw = gateway();
+        let mut body = Vec::new();
+        body.extend_from_slice(&[0x11; 20]);
+        body.extend_from_slice(&[0x22; 20]);
+        body.extend_from_slice(&5_000_000u128.to_be_bytes());
+        body.extend_from_slice(&0u64.to_be_bytes());
+        body.extend_from_slice(&u64::MAX.to_be_bytes());
+        body.extend_from_slice(&[0x33; 32]);
+        body.push(27);
+        body.extend_from_slice(&[0x44; 32]);
+        body.extend_from_slice(&[0x55; 32]);
+        let (status, response) = x402::handle("POST", "/authorize", &body, &gw);
+        assert_eq!(status, 200);
+        assert!(response.contains("e3ee160e"), "the standard's selector, served");
+
+        let (status, _) = x402::handle("POST", "/authorize", &body[..100], &gw);
+        assert_eq!(status, 422, "one shape; anything else refuses");
     }
 
     #[test]
