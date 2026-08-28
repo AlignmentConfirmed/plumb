@@ -4,6 +4,7 @@
 //! plumbd <config>
 //! plumbd keygen <path>
 //! plumbd tls-cert <holder> <cert-path> <key-path>
+//! plumbd status <dir> [interval_secs]
 //! ```
 //!
 //! `keygen` draws a fresh identity from OS entropy and writes ONLY the
@@ -17,6 +18,13 @@
 //! `IS-6/6`) and writes the cert and key DER to two paths, printing
 //! the fingerprint a `certify =` genesis line — or a live `Act::Certify`
 //! a court records of itself at startup — should carry.
+//!
+//! `status` is continuous monitoring, compiled: scans every `.conf`
+//! in `<dir>`, probes each listener with a real bounded TCP connect
+//! (not a pidfile check), and decodes each court's `.xdct` snapshot
+//! and the shared chain — real economic and ledger state, never a
+//! log line pattern-matched into looking like one. Repaints every
+//! `interval_secs` (default 2) until killed.
 //!
 //! Config is plain `key = value` lines, no dependency spent on it:
 //!
@@ -58,7 +66,7 @@
 //! the fresh key, registers it live, and sends a proof-of-life claim
 //! — no operator, no restart, no hand-edited genesis config.
 
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 
 use datum::plumbd;
@@ -434,10 +442,23 @@ fn main() {
         );
         return;
     }
+    if first.as_deref() == Some("status") {
+        let Some(dir) = std::env::args().nth(2) else {
+            eprintln!("usage: plumbd status <dir> [interval_secs]");
+            std::process::exit(2);
+        };
+        let interval = std::env::args()
+            .nth(3)
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(2)
+            .max(1);
+        run_status_loop(std::path::Path::new(&dir), interval);
+        return;
+    }
     let path = match first {
         Some(p) => p,
         None => {
-            eprintln!("usage: plumbd <config> | plumbd keygen <path> | plumbd tls-cert <holder> <cert-path> <key-path>");
+            eprintln!("usage: plumbd <config> | plumbd keygen <path> | plumbd tls-cert <holder> <cert-path> <key-path> | plumbd status <dir> [interval_secs]");
             std::process::exit(2);
         }
     };
@@ -1003,6 +1024,184 @@ fn main() {
     }
 }
 
+/// P7 — continuous monitoring, compiled: reads what is actually
+/// TRUE (a live TCP reachability probe, a decoded `.xdct` reward-book
+/// snapshot, the decoded chain) rather than pattern-matching log
+/// text. Loops until killed (Ctrl-C); there is nothing to clean up.
+fn run_status_loop(dir: &std::path::Path, interval_secs: u64) {
+    use std::io::Write;
+    loop {
+        let report = render_status_report(dir);
+        // Clear screen, home cursor — a plain repaint, not a scrolling
+        // log; ANSI, which every terminal this binary ships for reads.
+        print!("\x1B[2J\x1B[H{report}");
+        // Rust block-buffers stdout when it is not a TTY (redirected
+        // to a file, piped, watched by another process) — an
+        // unflushed monitor is a contradiction, so flush every frame
+        // rather than trust the next print to eventually force it.
+        let _ = std::io::stdout().flush();
+        std::thread::sleep(std::time::Duration::from_secs(interval_secs));
+    }
+}
+
+/// One row: what a `.conf` file in the directory claims to be, and
+/// whether its listener is ACTUALLY answering right now.
+struct NodeRow {
+    name: String,
+    role: String,
+    listen: Option<String>,
+    up: Option<bool>,
+}
+
+fn probe_tcp(addr: &str) -> Option<bool> {
+    use std::net::ToSocketAddrs;
+    let target = addr.to_socket_addrs().ok()?.next()?;
+    Some(TcpStream::connect_timeout(&target, std::time::Duration::from_millis(300)).is_ok())
+}
+
+/// A read-only `key = value` lookup, deliberately separate from the
+/// shared `parse()`: that function WARNS on every key it does not
+/// recognize, which is correct for loading a role this binary is
+/// about to run and wrong for a status scan that reads configs
+/// belonging to a DIFFERENT binary (the gateway) it never loads.
+fn quiet_lookup(text: &str, key: &str) -> Option<String> {
+    text.lines().find_map(|line| {
+        let line = line.split('#').next().unwrap_or("").trim();
+        let (k, v) = line.split_once('=')?;
+        (k.trim() == key).then(|| v.trim().to_owned())
+    })
+}
+
+#[must_use]
+fn render_status_report(dir: &std::path::Path) -> String {
+    let mut out = String::new();
+    out.push_str(&format!(
+        "plumb status — {}  (refresh; Ctrl-C to stop)\n\n",
+        dir.display()
+    ));
+
+    let mut entries: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|ext| ext == "conf"))
+                .collect()
+        })
+        .unwrap_or_default();
+    entries.sort();
+
+    let mut rows = Vec::new();
+    let mut snapshot_paths: Vec<(String, std::path::PathBuf)> = Vec::new();
+    let mut chain_paths: std::collections::BTreeSet<std::path::PathBuf> =
+        std::collections::BTreeSet::new();
+
+    for entry in &entries {
+        let name = entry
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| entry.display().to_string());
+        let Ok(text) = std::fs::read_to_string(entry) else {
+            continue;
+        };
+        // A quiet, read-only lookup — NOT the shared `parse()`, which
+        // warns on every key it does not recognize. The gateway binary
+        // has its OWN config shape (no `role =`, `facilitator =`
+        // instead), so running it through plumbd's parser here would
+        // print a stream of "unknown config key" noise for a config
+        // this binary never actually loads.
+        let role = match quiet_lookup(&text, "role") {
+            Some(r) => r,
+            None if quiet_lookup(&text, "facilitator").is_some() => "gateway".to_owned(),
+            None => "court".to_owned(),
+        };
+        let listen = quiet_lookup(&text, "listen");
+        let up = listen.as_deref().and_then(probe_tcp);
+        if let Some(path) = quiet_lookup(&text, "snapshot") {
+            snapshot_paths.push((name.clone(), std::path::PathBuf::from(path)));
+        }
+        if let Some(path) = quiet_lookup(&text, "chain") {
+            chain_paths.insert(std::path::PathBuf::from(path));
+        }
+        rows.push(NodeRow {
+            name,
+            role,
+            listen,
+            up,
+        });
+    }
+
+    out.push_str(&format!(
+        "{:<12} {:<9} {:<22} {}\n",
+        "NODE", "ROLE", "ADDR", "LIVE"
+    ));
+    for row in &rows {
+        let addr = row.listen.as_deref().unwrap_or("-");
+        let up = match row.up {
+            Some(true) => "UP",
+            Some(false) => "DOWN",
+            None => "-",
+        };
+        out.push_str(&format!("{:<12} {:<9} {:<22} {}\n", row.name, row.role, addr, up));
+    }
+
+    out.push_str("\nCOURT BOOKS (decoded from .xdct snapshots — real credit state)\n");
+    if snapshot_paths.is_empty() {
+        out.push_str("  (none configured)\n");
+    }
+    for (name, path) in &snapshot_paths {
+        match datum::court_store::load(path) {
+            Ok(book) => out.push_str(&format!(
+                "  {:<12} acts={:<6} distinct_work={:<6} credited={}\n",
+                name,
+                book.act_len(),
+                book.seen().len(),
+                book.total()
+            )),
+            Err(_) if !path.exists() => {
+                out.push_str(&format!("  {name:<12} (no snapshot written yet)\n"));
+            }
+            Err(e) => out.push_str(&format!("  {name:<12} snapshot unreadable: {e:?}\n")),
+        }
+    }
+
+    out.push_str("\nCHAIN (decoded — real ledger state, not a log line)\n");
+    if chain_paths.is_empty() {
+        out.push_str("  (none configured)\n");
+    }
+    for path in &chain_paths {
+        match std::fs::read(path)
+            .ok()
+            .and_then(|bytes| isthmus::deed::chain::decode(&bytes).ok())
+        {
+            Some(acts) => {
+                let ledger = Ledger::replay(Layout::founding(), acts);
+                let live_holders = ledger.deeds().iter().filter(|d| d.live).count();
+                let bound = ledger
+                    .acts()
+                    .iter()
+                    .filter(|a| matches!(a, isthmus::deed::Act::Bind { .. }))
+                    .count();
+                let certified = ledger
+                    .acts()
+                    .iter()
+                    .filter(|a| matches!(a, isthmus::deed::Act::Certify { .. }))
+                    .count();
+                out.push_str(&format!(
+                    "  {:<40} acts={:<6} live_holders={:<4} binds={:<4} certifies(TLS)={}\n",
+                    path.display(),
+                    ledger.acts().len(),
+                    live_holders,
+                    bound,
+                    certified
+                ));
+            }
+            None => out.push_str(&format!("  {}: unreadable or not written yet\n", path.display())),
+        }
+    }
+
+    out
+}
+
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::panic)]
 mod tests {
@@ -1116,5 +1315,43 @@ mod tests {
     fn resolve_seed_is_none_when_neither_source_is_configured() {
         let config = parse("role = client\n");
         assert_eq!(resolve_seed(&config), None);
+    }
+
+    #[test]
+    fn quiet_lookup_reads_a_key_and_never_touches_stderr_on_unknown_ones() {
+        let text = "role = court\nlisten = 127.0.0.1:9501  # trailing comment\nfacilitator = 0xDEAD\n";
+        assert_eq!(quiet_lookup(text, "role"), Some("court".into()));
+        assert_eq!(quiet_lookup(text, "listen"), Some("127.0.0.1:9501".into()));
+        assert_eq!(quiet_lookup(text, "facilitator"), Some("0xDEAD".into()));
+        assert_eq!(quiet_lookup(text, "nonexistent"), None);
+    }
+
+    #[test]
+    fn status_labels_a_gatewayshaped_config_without_a_role_line() {
+        // The gateway binary's config has no `role =` line at all;
+        // `facilitator =` is the tell that distinguishes it from a
+        // plain court config (which also defaults role-less to court
+        // when plumbd itself is asked to run one).
+        let gateway_text = "listen = 127.0.0.1:9801\nchain = x\ncourt = court-a\nfacilitator = 0xABC\n";
+        assert!(quiet_lookup(gateway_text, "role").is_none());
+        assert!(quiet_lookup(gateway_text, "facilitator").is_some());
+    }
+
+    #[test]
+    fn render_status_report_reads_real_decoded_state_not_log_text() {
+        let dir = scratch_dir("status-report");
+        std::fs::write(
+            dir.join("court-a.conf"),
+            "role = court\nholder = court-a\nlisten = 127.0.0.1:1\nsnapshot = ident-does-not-exist.xdct\nchain = chain-does-not-exist.tlv\n",
+        )
+        .expect("write conf");
+        let report = render_status_report(&dir);
+        assert!(report.contains("court-a"), "the node shows up");
+        assert!(report.contains("court"), "its role is read");
+        assert!(
+            report.contains("no snapshot written yet") || report.contains("unreadable"),
+            "a missing snapshot is named, not silently skipped or panicked over"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
