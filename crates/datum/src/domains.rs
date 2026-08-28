@@ -142,3 +142,34 @@ pub fn demo_hexagon_universe() -> DeclaredComplex {
 pub fn demo_hexagon_claim(transport: u64) -> DeclaredClaim {
     demo_cycle_claim(6, transport)
 }
+
+/// The theta universe: two vertices, three parallel edges — a cycle
+/// space wide enough to hold genuinely leaner and fatter closures,
+/// which is what the optimization market's measurements select
+/// between.
+#[must_use]
+pub fn demo_theta_universe() -> DeclaredComplex {
+    let mut op = Vec::new();
+    for edge in 0..3u32 {
+        op.push(assay::complex::Entry { row: 0, col: edge, coeff: assay::whole(-1) });
+        op.push(assay::complex::Entry { row: 1, col: edge, coeff: assay::whole(1) });
+    }
+    DeclaredComplex {
+        cells: vec![2, 3],
+        ops: vec![op],
+    }
+}
+
+/// Theta with a filling: one 2-cell f with boundary 2·e1 − 2·e2, so
+/// theta's fat and lean cycles are genuinely homologous and a
+/// homology certificate has something true to prove.
+#[must_use]
+pub fn demo_theta_filled_universe() -> DeclaredComplex {
+    let mut theta = demo_theta_universe();
+    theta.cells.push(1);
+    theta.ops.push(vec![
+        assay::complex::Entry { row: 1, col: 0, coeff: assay::whole(2) },
+        assay::complex::Entry { row: 2, col: 0, coeff: assay::whole(-2) },
+    ]);
+    theta
+}

@@ -5,6 +5,8 @@
 
 #![allow(clippy::expect_used, clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
+mod common;
+
 mod declared_domain {
 
 
@@ -302,20 +304,12 @@ mod receipts {
     use datum::query::{Guarantee, Query, QueryBroken};
     use datum::receipt::{self, ReceiptRefused};
     use datum::reward::RewardBook;
-    use isthmus::deed::{Act, Ledger};
+    use isthmus::deed::Ledger;
     use isthmus::layout::Layout;
 
     fn court_chain(court: &str, key: &sig::Keypair, from: u64, until: u64) -> Ledger {
-        let mut ledger = Ledger::new(Layout::founding());
-        ledger.encumber(1, 31, "ancestral", "founding registries");
-        ledger.issue(court, 16).expect("room");
-        ledger.record(Act::Bind {
-            holder: court.into(),
-            scheme: sig::SCHEME_ED25519_BLAKE3,
-            key: key.public().to_vec(),
-            from_epoch: from,
-            until_epoch: until,
-        });
+        let mut ledger = super::common::edge_with(court);
+        super::common::bind(&mut ledger, court, key, from, until);
         ledger
     }
 
@@ -509,7 +503,7 @@ mod receipts {
 mod yield_rebate {
 
 
-    use assay::complex::{ComplexBroken, DeclaredClaim, DeclaredComplex, Entry};
+    use assay::complex::{ComplexBroken, DeclaredClaim, DeclaredComplex};
     use assay::whole;
     use datum::bounty::{settle_answer, AnswerRefused, Bounty};
     use datum::query::{Guarantee, Query};
@@ -520,15 +514,7 @@ mod yield_rebate {
     /// genuinely leaner and fatter closures — which is what a rebate
     /// needs to select between.
     fn theta() -> DeclaredComplex {
-        let mut op = Vec::new();
-        for edge in 0..3u32 {
-            op.push(Entry { row: 0, col: edge, coeff: whole(-1) });
-            op.push(Entry { row: 1, col: edge, coeff: whole(1) });
-        }
-        DeclaredComplex {
-            cells: vec![2, 3],
-            ops: vec![op],
-        }
+        datum::domains::demo_theta_universe()
     }
 
     fn posted() -> (Query, Bounty) {
@@ -659,7 +645,7 @@ mod yield_rebate {
 mod refinement {
 
 
-    use assay::complex::{DeclaredClaim, DeclaredComplex, Entry, ProofClaim};
+    use assay::complex::{DeclaredClaim, DeclaredComplex, ProofClaim};
     use assay::whole;
     use datum::bounty::{settle_refinement, RefineRefused, RefinementBounty};
     use datum::reward::RewardBook;
@@ -671,19 +657,7 @@ mod refinement {
     /// are not merely same-boundary but genuinely homologous, and the
     /// certificate has something true to prove.
     fn theta_filled() -> DeclaredComplex {
-        let mut op1 = Vec::new();
-        for edge in 0..3u32 {
-            op1.push(Entry { row: 0, col: edge, coeff: whole(-1) });
-            op1.push(Entry { row: 1, col: edge, coeff: whole(1) });
-        }
-        let op2 = vec![
-            Entry { row: 1, col: 0, coeff: whole(2) },
-            Entry { row: 2, col: 0, coeff: whole(-2) },
-        ];
-        DeclaredComplex {
-            cells: vec![2, 3, 1],
-            ops: vec![op1, op2],
-        }
+        datum::domains::demo_theta_filled_universe()
     }
 
     /// The fat cycle: e0 + e1 − 2·e2.

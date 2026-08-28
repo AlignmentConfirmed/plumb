@@ -129,7 +129,7 @@ mod court_service {
 
         // …and repeated pushes add nothing: replay refuses by work_id,
         // continuously, across the wire.
-        std::thread::sleep(Duration::from_millis(2500));
+        std::thread::sleep(Duration::from_millis(1500)); // >1 full push cycle at fed_secs = 1
         assert_eq!(
             book_b.lock().expect("book").act_len(),
             1,
