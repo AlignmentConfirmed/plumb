@@ -298,6 +298,27 @@ working board.
 
 ---
 
+## 6c · The kernel (K) — SCOPED 2026-08-28, awaiting ratification
+
+**The validation gap it closes:** every producer on the net today
+replays fixtures it was handed — clients walk cycle families, the
+solver answers with a hard-coded lean chain. Nothing SEARCHES. A
+kernel — a simplified convergence engine in the netstratum lineage —
+is a producer that finds answers it was not given: posed a conjecture
+in a universe it has never seen, it searches the declared complex for
+a chain closing the target. Production is search; verification stays
+the court's; the asymmetry POWPP §4 describes finally has both sides
+running on one machine.
+
+| ID | task | done when |
+|---|---|---|
+| **K1** | Portable market vocabulary out of the court: `Query` / `Conjecture` / `Receipt`+verify move to a leaf a kernel may import. Ruling to ratify: the SDK may import the LEAVES (isthmus, assay, sig) — leaves are laws, not the court; "sdk never imports datum" stays its law | a kernel crate builds against sdk+leaves with zero datum in its tree |
+| **K2** | The search core: given a declared universe and a target boundary, FIND a witness chain — bounded path search over the 1-cells, iterative deepening, with a search budget distinct from verification fuel (production may be expensive; checking stays cheap) | the kernel derives `bba → abb` in a calculus it was never compiled to know, from the announced query alone |
+| **K3** | The kernel daemon (`crates/kernel`, `plumb-kernel`): attach via sdk, hear query announcements (tag 85), decode the conjecture, search, submit the attested proof, take the receipt (tag 81) — looping, native Plumbline, no HTTP | one binary joins any court and earns by searching |
+| **K4** | Composed localhost validation: the kernel joins the simnet; courts pose conjectures over registered calculi; the kernel finds derivations by search and the books fill with SEARCHED work | `simnet.sh status` shows kernel earnings; the whole economy — courts, carrier, clients, kernel, solver, witness, gateway — on one machine |
+
+---
+
 ## 7 · Topological signatures — research track, scheme ≥ 0x02
 
 Held at research until the cryptanalytic bar is met; enters through

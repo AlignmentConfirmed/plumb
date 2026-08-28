@@ -20,7 +20,10 @@ HOME_DIR="${PLUMB_SIMNET_DIR:-$HOME/.plumb/simnet}"
 BIN="$ROOT/target/debug/plumbd"
 SEED1="0101010101010101010101010101010101010101010101010101010101010101"
 SEED2="0202020202020202020202020202020202020202020202020202020202020202"
-NODES="court-a court-b court-c carrier-1 client-1 client-2"
+SEED_COURT_A="0303030303030303030303030303030303030303030303030303030303030303"
+SEED_SOLVER="0505050505050505050505050505050505050505050505050505050505050505"
+SEED_WITNESS="0606060606060606060606060606060606060606060606060606060606060606"
+NODES="court-a court-b court-c carrier-1 client-1 client-2 gateway-1"
 
 write_configs() {
   cat > "$HOME_DIR/genesis.conf" <<EOF
@@ -31,8 +34,13 @@ grant   = court-c
 grant   = carrier-1
 grant   = client-1
 grant   = client-2
+grant   = solver-1
+grant   = witness-1
 bind    = client-1:$SEED1
 bind    = client-2:$SEED2
+bind    = court-a:$SEED_COURT_A
+bind    = solver-1:$SEED_SOLVER
+bind    = witness-1:$SEED_WITNESS
 declare = court-a
 out     = $HOME_DIR/chain.tlv
 EOF
@@ -42,6 +50,8 @@ holder = court-a
 chain = $HOME_DIR/chain.tlv
 listen = 127.0.0.1:9501
 require_signatures = true
+market = theta
+seed = $SEED_COURT_A
 snapshot = $HOME_DIR/court-a.xdct
 snapshot_secs = 2
 fed_listen = 127.0.0.1:9601
@@ -89,6 +99,28 @@ every = 5
 start_n = 3
 step = 2
 EOF
+  cat > "$HOME_DIR/gateway-1.conf" <<EOF
+listen = 127.0.0.1:9801
+chain = $HOME_DIR/chain.tlv
+court = court-a
+seed = $SEED_COURT_A
+facilitator = 0xBaseFacilitatorTBD
+EOF
+  cat > "$HOME_DIR/solver-1.conf" <<EOF
+role = solver
+holder = solver-1
+chain = $HOME_DIR/chain.tlv
+peer = 127.0.0.1:9501
+seed = $SEED_SOLVER
+EOF
+  cat > "$HOME_DIR/witness-1.conf" <<EOF
+role = witness
+holder = witness-1
+chain = $HOME_DIR/chain.tlv
+peer = 127.0.0.1:9502
+seed = $SEED_WITNESS
+demo = hexagon
+EOF
   cat > "$HOME_DIR/client-2.conf" <<EOF
 role = client
 holder = client-2
@@ -108,16 +140,30 @@ start() {
   if [ ! -f "$HOME_DIR/chain.tlv" ]; then
     "$BIN" "$HOME_DIR/genesis.conf" || exit 1
   fi
+  GATEWAY_BIN="$ROOT/target/debug/gateway"
+  (cd "$ROOT" && cargo build -q --bin gateway) || { echo "gateway build failed"; exit 1; }
   for node in $NODES; do
     if [ -f "$HOME_DIR/$node.pid" ] && kill -0 "$(cat "$HOME_DIR/$node.pid")" 2>/dev/null; then
       echo "$node: already running"
       continue
     fi
-    nohup "$BIN" "$HOME_DIR/$node.conf" >> "$HOME_DIR/$node.log" 2>&1 &
+    RUN="$BIN"
+    [ "$node" = "gateway-1" ] && RUN="$GATEWAY_BIN"
+    nohup "$RUN" "$HOME_DIR/$node.conf" >> "$HOME_DIR/$node.log" 2>&1 &
     echo $! > "$HOME_DIR/$node.pid"
     echo "$node: started (pid $!)"
     sleep 0.3
   done
+  # One-shots: the native solver answers the posted market; the
+  # witness puts an attestation on the record. Both are the composed
+  # economy exercising itself at boot.
+  sleep 1
+  "$BIN" "$HOME_DIR/solver-1.conf" >> "$HOME_DIR/solver-1.log" 2>&1 \
+    && echo "solver-1: solved the native market (one-shot)" \
+    || echo "solver-1: FAILED (see solver-1.log)"
+  "$BIN" "$HOME_DIR/witness-1.conf" >> "$HOME_DIR/witness-1.log" 2>&1 \
+    && echo "witness-1: on the record (one-shot)" \
+    || echo "witness-1: FAILED (see witness-1.log)"
   echo "simnet up — status: $0 status"
 }
 
@@ -154,6 +200,10 @@ status() {
   done
   carried=$(grep 'carried session' "$HOME_DIR/carrier-1.log" 2>/dev/null | tail -20 | grep -c 'forwarded'); carried=${carried:-0}
   echo "  carrier-1  recent carried sessions: $carried (all forwarded unread)"
+  solved=$(grep -c 'solved natively' "$HOME_DIR/solver-1.log" 2>/dev/null); solved=${solved:-0}
+  witnessed=$(grep -c 'on the record' "$HOME_DIR/witness-1.log" 2>/dev/null); witnessed=${witnessed:-0}
+  gw402=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9801/query 2>/dev/null || echo down)
+  echo "  solver-1   native market solutions: $solved   witness-1 records: $witnessed   gateway /query: HTTP $gw402"
 }
 
 logs() {
