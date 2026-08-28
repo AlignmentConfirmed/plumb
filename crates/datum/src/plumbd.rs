@@ -29,6 +29,7 @@ use isthmus::session::{self, Step};
 
 use crate::admission;
 use crate::bounty::{settle_answer, Bounty};
+use crate::sched::Governor as _;
 use crate::query::Query;
 use crate::receipt;
 use crate::reward::RewardBook;
@@ -710,6 +711,31 @@ pub fn serve(
     on_session: impl Fn(&SessionReport) + Send + Sync + 'static,
 ) -> std::io::Error {
     let on_session = Arc::new(on_session);
+
+    // The scheduler (sched Phases 1–3): a FIXED worker pool sized to
+    // the machine — not a thread per connection — draining a bounded,
+    // per-IP-fair queue. At most `worker_target` sessions run at once,
+    // so a court can never occupy the whole machine however hard it is
+    // hit; a flooding IP is shed (BUSY) before it can starve a quiet
+    // one. None of this touches settlement: load decides who is served
+    // and when, never what work is worth (sched's own boundary test).
+    let governor = crate::sched::StaticGovernor::tuned();
+    let queue: Arc<crate::sched::FairQueue<std::net::IpAddr, TcpStream>> = Arc::new(crate::sched::FairQueue::new());
+    for _ in 0..governor.worker_target() {
+        let queue = Arc::clone(&queue);
+        let layout = layout.clone();
+        let ledger = Arc::clone(ledger);
+        let rules = rules.clone();
+        let book = Arc::clone(book);
+        let witnesses = Arc::clone(witnesses);
+        let on_session = Arc::clone(&on_session);
+        std::thread::spawn(move || {
+            while let Some((ip, stream)) = queue.take_blocking() {
+                run_session(stream, ip, &layout, &ledger, &rules, &book, &witnesses, &*on_session);
+            }
+        });
+    }
+
     loop {
         match listener.accept() {
             Ok((stream, peer)) => {
@@ -740,76 +766,96 @@ pub fn serve(
                 if !admitted {
                     continue; // the connection is simply dropped: no thread, no response
                 }
-                let layout = layout.clone();
-                let ledger = Arc::clone(ledger);
-                let rules = rules.clone();
-                let book = Arc::clone(book);
-                let witnesses = Arc::clone(witnesses);
-                let on_session = Arc::clone(&on_session);
-                let connections = Arc::clone(&rules.connections);
-                std::thread::spawn(move || {
-                    let release_wall = |connections: &Arc<Mutex<ConnectionCounts>>| {
-                        if let Ok(mut counts) = connections.lock() {
-                            counts.total = counts.total.saturating_sub(1);
-                            if let Some(c) = counts.per_ip.get_mut(&ip) {
-                                *c = c.saturating_sub(1);
-                                if *c == 0 {
-                                    counts.per_ip.remove(&ip);
-                                }
-                            }
+                // Past the anti-Sybil wall, the SCHEDULER decides: the
+                // bounded worker pool (not a thread per connection)
+                // serves this if the fair queue has room, else the peer
+                // is told to WAIT with a named BUSY frame — never
+                // dropped in silence, and never allowed to spawn work
+                // past what the machine can hold.
+                match governor.admit(&queue.load(&ip)) {
+                    crate::sched::Admission::Admit => queue.offer(ip, stream),
+                    crate::sched::Admission::Busy { retry_after_secs } => {
+                        let mut wire = Vec::new();
+                        if isthmus::frame::put_frame(
+                            layout,
+                            crate::sched::BUSY_TAG,
+                            &retry_after_secs.to_le_bytes(),
+                            &mut wire,
+                        )
+                        .is_ok()
+                        {
+                            let mut stream = stream;
+                            let _ = stream.write_all(&wire);
                         }
-                    };
-                    // P3's deadline is set on the RAW socket, before
-                    // P4 might wrap it — it has to bound a stalled TLS
-                    // handshake too, not just a stalled declaration.
-                    // The clone is held only so `court_session` can
-                    // lift it later; it shares the same underlying fd.
-                    if let Some(deadline) = rules.handshake_deadline {
-                        let _ = stream.set_read_timeout(Some(deadline));
+                        release_wall(&rules.connections, ip);
                     }
-                    let handshake_socket = stream.try_clone().ok();
-                    // P4 — every inbound tag on this listener (claims,
-                    // registration, market answers, witness records)
-                    // crosses the SAME accept loop, so wrapping here
-                    // covers all of them with nothing role-specific.
-                    let wire = match &rules.tls {
-                        Some(server_tls) => rustls::ServerConnection::new(Arc::clone(server_tls))
-                            .map(|conn| {
-                                Box::new(rustls::StreamOwned::new(conn, stream)) as Box<dyn ReadWrite>
-                            })
-                            .map_err(|e| format!("{e:?}")),
-                        None => Ok(Box::new(stream) as Box<dyn ReadWrite>),
-                    };
-                    let wire = match wire {
-                        Ok(wire) => wire,
-                        Err(e) => {
-                            release_wall(&connections);
-                            println!("plumbd: TLS setup failed: {e}");
-                            return;
-                        }
-                    };
-                    let result = court_session(
-                        wire,
-                        handshake_socket,
-                        &layout,
-                        &ledger,
-                        &rules,
-                        &book,
-                        &witnesses,
-                    );
-                    // Release the wall regardless of how the session
-                    // ended — a session that errors still held a slot.
-                    release_wall(&connections);
-                    match result {
-                        Ok(report) => on_session(&report),
-                        // The audit's lesson: a session that dies
-                        // silently looks identical to a healthy idle
-                        // court. Failures say so.
-                        Err(e) => println!("plumbd: session failed: {e:?}"),
-                    }
-                });
+                    crate::sched::Admission::Reject => release_wall(&rules.connections, ip),
+                }
             }
             Err(e) => return e,
+        }
+    }
+}
+
+/// Serve one admitted connection to completion — the body that used to
+/// run in a per-connection thread, now called by a bounded worker.
+/// TLS-wraps (P4), runs the session under the handshake deadline (P3),
+/// and releases the admission wall however the session ends.
+#[allow(clippy::too_many_arguments)] // the shared court state a session needs
+fn run_session(
+    stream: TcpStream,
+    ip: std::net::IpAddr,
+    layout: &Layout,
+    ledger: &Arc<Mutex<Ledger>>,
+    rules: &SessionRules,
+    book: &Arc<Mutex<RewardBook>>,
+    witnesses: &WitnessLog,
+    on_session: &(dyn Fn(&SessionReport) + Send + Sync),
+) {
+    // P3's deadline is set on the RAW socket, before P4 might wrap it —
+    // it has to bound a stalled TLS handshake too, not just a stalled
+    // declaration. The clone shares the same underlying fd.
+    if let Some(deadline) = rules.handshake_deadline {
+        let _ = stream.set_read_timeout(Some(deadline));
+    }
+    let handshake_socket = stream.try_clone().ok();
+    // P4 — every inbound tag on this listener crosses the same worker,
+    // so wrapping here covers all of them with nothing role-specific.
+    let wire = match &rules.tls {
+        Some(server_tls) => rustls::ServerConnection::new(Arc::clone(server_tls))
+            .map(|conn| Box::new(rustls::StreamOwned::new(conn, stream)) as Box<dyn ReadWrite>)
+            .map_err(|e| format!("{e:?}")),
+        None => Ok(Box::new(stream) as Box<dyn ReadWrite>),
+    };
+    let wire = match wire {
+        Ok(wire) => wire,
+        Err(e) => {
+            release_wall(&rules.connections, ip);
+            println!("plumbd: TLS setup failed: {e}");
+            return;
+        }
+    };
+    let result = court_session(wire, handshake_socket, layout, ledger, rules, book, witnesses);
+    // Release the wall regardless of how the session ended — a session
+    // that errors still held a slot.
+    release_wall(&rules.connections, ip);
+    match result {
+        Ok(report) => on_session(&report),
+        // The audit's lesson: a session that dies silently looks
+        // identical to a healthy idle court. Failures say so.
+        Err(e) => println!("plumbd: session failed: {e:?}"),
+    }
+}
+
+/// Return one connection's slot to the admission wall (P3), by IP.
+fn release_wall(connections: &Arc<Mutex<ConnectionCounts>>, ip: std::net::IpAddr) {
+    if let Ok(mut counts) = connections.lock() {
+        counts.total = counts.total.saturating_sub(1);
+        if let Some(c) = counts.per_ip.get_mut(&ip) {
+            *c = c.saturating_sub(1);
+            if *c == 0 {
+                counts.per_ip.remove(&ip);
+            }
         }
     }
 }

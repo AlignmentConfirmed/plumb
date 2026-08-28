@@ -54,6 +54,7 @@ pub mod merge;
 pub mod negotiation;
 pub mod onramp;
 pub mod plumbd;
+pub mod sched;
 // K1: Query/Conjecture/Receipt now live in the leaf-importable sdk
 // crate (a kernel may need them with zero datum in its tree); the
 // court re-exports them under their original names so every existing
