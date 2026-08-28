@@ -104,7 +104,22 @@ pub fn read_record(
             }
             Step::Refuse(_) => return Err(NodeBroken::Unsatisfiable),
             Step::Wait => {
-                let got = stream.read(&mut chunk)?;
+                let got = match stream.read(&mut chunk) {
+                    Ok(got) => got,
+                    // A reset at a record boundary is a peer that left
+                    // with unread data in ITS buffer (e.g. a fixture
+                    // producer that never reads the market
+                    // announcement) — TCP sends RST instead of FIN.
+                    // Between records that is a departure, not a
+                    // failure; inside one it is still an error.
+                    Err(e)
+                        if e.kind() == std::io::ErrorKind::ConnectionReset
+                            && buffer.is_empty() =>
+                    {
+                        return Ok(None)
+                    }
+                    Err(e) => return Err(NodeBroken::Io(e)),
+                };
                 if got == 0 {
                     if buffer.is_empty() {
                         return Ok(None);
