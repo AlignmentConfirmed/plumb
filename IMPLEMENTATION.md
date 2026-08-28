@@ -270,9 +270,9 @@ hat.
 | ID | task | done when |
 |---|---|---|
 | **O1** | Yield rebate | **DONE** — `datum::bounty`: payout = base + saved-fuel·rate + saved-bytes·rate, escrow-bounded; the poser's-universe gate refuses self-posed answers however well they close; over-budget refuses with the price named (fuel AND bytes); measured on the theta universe: the lean cycle out-earns the fat one on the same bounty; T2 untouched |
-| **O2** | Refinement bounty + improvement threshold | an equal-or-worse resubmission earns nothing; a ≥N% tighter chain settles |
-| **O3** | Equivalence act; dependency checks accept either id | old citations unbroken; new work resolves to the cheaper id |
-| **O4** | Homology certificate via filling chain | claimed-homologous refuses without its $h$; verifies with it |
+| **O2** | Refinement bounty | **DONE** — `settle_refinement`: the original's cost is RE-DERIVED FROM ITS CONTENT ADDRESS (a work_id is the structure; the ledger stores no cost table); a ≥N% leaner same-universe chain settles; zero improvement dies at the threshold before the book is consulted; refusals name every number |
+| **O3** | Equivalence by append | **DONE** — `RewardAct::Equivalent` (old ≈ new + measured savings), grow-only and deduplicated, in the durable store (tag 4) and the federation merge; `refinements_of` advertises the cheap articulation; old citations frozen, both ids remain settled work; gossip creates no value, equivalences included |
+| **O4** | Homology certificate | **DONE** — the certificate IS a proof claim: dim+1, prescribed boundary = original − refined, verified by the SQ1 evaluator; wrong difference and unfilling fillings each refuse by name; `homologous` is a verified fact on the settlement, never a belief |
 
 Sequenced behind **X2** (receipts) for payout; O1's mechanics and all
 verification pieces can start now. Tracked with SQ and X on the

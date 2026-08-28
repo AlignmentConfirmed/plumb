@@ -122,6 +122,22 @@ pub enum RewardAct {
         /// How many Credited acts fell inside the open window.
         credits_in_epoch: u64,
     },
+    /// O3 — a refinement settled: `new` closes the same boundary in
+    /// the same universe as `old`, measurably leaner. **An append,
+    /// never a rewrite**: old citations keep their frozen meaning;
+    /// new work selects the cheap id because the record advertises
+    /// it. Both ids are settled credits in their own right — this act
+    /// records the RELATION and the savings.
+    Equivalent {
+        /// The settled work that was refined.
+        old: WorkId,
+        /// The leaner work that refines it.
+        new: WorkId,
+        /// Verification fuel saved, measured.
+        saved_fuel: u64,
+        /// Canonical bytes saved, measured.
+        saved_bytes: u64,
+    },
 }
 
 /// Why an epoch op refused.
@@ -388,6 +404,54 @@ impl RewardBook {
     /// Returns how many new **credit** acts were admitted. Already-seen
     /// `work_id`s are skipped. Epoch open/close acts are replayed as
     /// markers only when not already present at the same epoch id.
+    /// O3 — record a settled refinement. Grow-only, deduplicated by
+    /// the pair; both ids must already be settled on THIS book, so an
+    /// equivalence can never advertise work nobody verified.
+    pub fn record_equivalence(
+        &mut self,
+        old: WorkId,
+        new: WorkId,
+        saved_fuel: u64,
+        saved_bytes: u64,
+    ) -> Result<(), RewardRefused> {
+        if !self.seen.contains(&old) {
+            return Err(RewardRefused::UnsettledDependency { work_id: old });
+        }
+        if !self.seen.contains(&new) {
+            return Err(RewardRefused::UnsettledDependency { work_id: new });
+        }
+        if !self.acts.iter().any(|a| {
+            matches!(a, RewardAct::Equivalent { old: o, new: n, .. } if *o == old && *n == new)
+        }) {
+            self.acts.push(RewardAct::Equivalent {
+                old,
+                new,
+                saved_fuel,
+                saved_bytes,
+            });
+        }
+        Ok(())
+    }
+
+    /// The refinements the record advertises for a settled work:
+    /// `(leaner id, saved fuel, saved bytes)`. New work reads this to
+    /// SELECT the cheap articulation — nothing is ever rerouted.
+    #[must_use]
+    pub fn refinements_of(&self, old: &WorkId) -> Vec<(WorkId, u64, u64)> {
+        self.acts
+            .iter()
+            .filter_map(|a| match a {
+                RewardAct::Equivalent {
+                    old: o,
+                    new,
+                    saved_fuel,
+                    saved_bytes,
+                } if o == old => Some((new.clone(), *saved_fuel, *saved_bytes)),
+                _ => None,
+            })
+            .collect()
+    }
+
     pub fn merge_acts_from(&mut self, other: &RewardBook) -> usize {
         let mut added = 0usize;
         for act in &other.acts {
@@ -408,6 +472,25 @@ impl RewardBook {
                         if self.next_epoch <= *epoch {
                             self.next_epoch = epoch.saturating_add(1);
                         }
+                    }
+                }
+                RewardAct::Equivalent {
+                    old,
+                    new,
+                    saved_fuel,
+                    saved_bytes,
+                } => {
+                    if !self.acts.iter().any(|a| {
+                        matches!(a, RewardAct::Equivalent { old: o, new: n, .. }
+                            if o == old && n == new)
+                    }) {
+                        self.acts.push(RewardAct::Equivalent {
+                            old: old.clone(),
+                            new: new.clone(),
+                            saved_fuel: *saved_fuel,
+                            saved_bytes: *saved_bytes,
+                        });
+                        added = added.saturating_add(1);
                     }
                 }
                 RewardAct::EpochClosed {

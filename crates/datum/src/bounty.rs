@@ -136,3 +136,196 @@ pub fn settle_answer(
         payout,
     })
 }
+
+use assay::complex::ProofClaim;
+use assay::work::WorkId;
+use assay::Exact;
+
+/// O2 — a standing bounty on a settled work: exhibit a chain closing
+/// the same boundary in the same universe, at least this much leaner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefinementBounty {
+    /// The settled work to refine.
+    pub target: WorkId,
+    /// The strict improvement threshold, in percent of the original's
+    /// verification fuel — the anti-dust rule (O3 of the docket).
+    pub min_improvement_percent: u8,
+    /// The standing reward.
+    pub reward: u128,
+}
+
+/// Why a refinement refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RefineRefused {
+    /// The bounty targets work this book has not settled.
+    UnsettledTarget,
+    /// The target's content address does not decode as a declared
+    /// claim — nothing to re-meter against.
+    TargetNotDeclared(ComplexBroken),
+    /// The refinement body is not a declared claim.
+    NotDeclared(ComplexBroken),
+    /// The refinement lives in a different universe than the target.
+    NotTheSameUniverse,
+    /// The refinement is not leaner by the threshold — refused with
+    /// every number named, so an almost-improvement knows exactly how
+    /// far it fell short.
+    NotAnImprovement {
+        /// Required percent.
+        needed_percent: u8,
+        /// The original's measured fuel.
+        original_fuel: u64,
+        /// The refinement's measured fuel.
+        refined_fuel: u64,
+    },
+    /// Fewer fuel units but more bytes: a trade, not a refinement.
+    ByteRegression {
+        /// The original's canonical size.
+        original_bytes: u64,
+        /// The refinement's.
+        refined_bytes: u64,
+    },
+    /// The refinement itself refused verification.
+    Broken(ComplexBroken),
+    /// The book refused (replay: an identical resubmission earns
+    /// nothing, exactly as the docket demands).
+    Book(RewardRefused),
+    /// O4 — the homology certificate does not fill the difference:
+    /// its prescribed boundary must be exactly `original − refined`.
+    CertificateWrongDifference,
+    /// O4 — the certificate refused verification.
+    CertificateBroken(ComplexBroken),
+    /// O4 — the certificate lives in a different universe.
+    CertificateWrongUniverse,
+}
+
+/// What a settled refinement earned and recorded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Refined {
+    /// The new credit — the leaner chain is work in its own right.
+    pub credit: Credit,
+    /// Fuel saved, measured (original re-metered from its own
+    /// content address — the ledger stores no costs; it stores the
+    /// structures, and costs re-derive).
+    pub saved_fuel: u64,
+    /// Bytes saved.
+    pub saved_bytes: u64,
+    /// The standing reward.
+    pub payout: u128,
+    /// O4 — whether a homology certificate verified: the refinement
+    /// is not merely same-boundary but provably the same class,
+    /// `∂h = original − refined` exhibited and checked.
+    pub homologous: bool,
+}
+
+/// The sparse difference of two canonical chains, canonical.
+fn chain_difference(
+    a: &[(u32, Exact)],
+    b: &[(u32, Exact)],
+) -> Vec<(u32, Exact)> {
+    let mut acc: std::collections::BTreeMap<u32, Exact> = std::collections::BTreeMap::new();
+    for (cell, coeff) in a {
+        let slot = acc.entry(*cell).or_insert_with(|| assay::whole(0));
+        *slot += coeff.clone();
+    }
+    for (cell, coeff) in b {
+        let slot = acc.entry(*cell).or_insert_with(|| assay::whole(0));
+        *slot -= coeff.clone();
+    }
+    acc.into_iter()
+        .filter(|(_, coeff)| !num_traits::Zero::is_zero(coeff))
+        .collect()
+}
+
+/// Settle a refinement against a standing bounty.
+///
+/// The original's cost is **re-derived from its content address** —
+/// a `work_id` IS the canonical structure, so the ledger needs no
+/// cost table: decode the settled original, re-meter it, compare.
+pub fn settle_refinement(
+    bounty: &RefinementBounty,
+    body: &[u8],
+    certificate: Option<&[u8]>,
+    book: &mut RewardBook,
+    fuel_ceiling: u64,
+) -> Result<Refined, RefineRefused> {
+    if !book.seen().contains(&bounty.target) {
+        return Err(RefineRefused::UnsettledTarget);
+    }
+    let original = DeclaredClaim::decode(bounty.target.as_bytes())
+        .map_err(RefineRefused::TargetNotDeclared)?;
+    let refined = DeclaredClaim::decode(body).map_err(RefineRefused::NotDeclared)?;
+    if refined.complex != original.complex || refined.dim != original.dim {
+        return Err(RefineRefused::NotTheSameUniverse);
+    }
+
+    let original_fuel = original
+        .verify(fuel_ceiling)
+        .map_err(RefineRefused::TargetNotDeclared)?;
+    let refined_fuel = refined.verify(fuel_ceiling).map_err(RefineRefused::Broken)?;
+
+    // The strict threshold: refined ≤ original · (100 − N) / 100,
+    // in exact integer arithmetic.
+    let needed = bounty.min_improvement_percent;
+    let lhs = u128::from(refined_fuel).saturating_mul(100);
+    let rhs = u128::from(original_fuel).saturating_mul(u128::from(100u8.saturating_sub(needed)));
+    if lhs > rhs {
+        return Err(RefineRefused::NotAnImprovement {
+            needed_percent: needed,
+            original_fuel,
+            refined_fuel,
+        });
+    }
+    let original_bytes = bounty.target.as_bytes().len() as u64;
+    let refined_bytes = body.len() as u64;
+    if refined_bytes > original_bytes {
+        return Err(RefineRefused::ByteRegression {
+            original_bytes,
+            refined_bytes,
+        });
+    }
+
+    // O4 — the optional quality tier: a certificate is a PROOF CLAIM
+    // whose prescribed boundary is exactly original − refined, one
+    // dimension up. The SQ1 evaluator does the rest.
+    let homologous = match certificate {
+        None => false,
+        Some(cert_body) => {
+            let proof =
+                ProofClaim::decode(cert_body).map_err(RefineRefused::CertificateBroken)?;
+            if proof.complex != original.complex {
+                return Err(RefineRefused::CertificateWrongUniverse);
+            }
+            let difference = chain_difference(&original.witness, &refined.witness);
+            if proof.dim != original.dim.saturating_add(1) || proof.target != difference {
+                return Err(RefineRefused::CertificateWrongDifference);
+            }
+            proof
+                .verify(fuel_ceiling)
+                .map_err(RefineRefused::CertificateBroken)?;
+            true
+        }
+    };
+
+    // The leaner chain is new work by content address (T2 untouched);
+    // an identical resubmission refuses right here as replay.
+    let credit = book.credit_claim(body).map_err(RefineRefused::Book)?;
+    let saved_fuel = original_fuel.saturating_sub(refined_fuel);
+    let saved_bytes = original_bytes.saturating_sub(refined_bytes);
+
+    // O3 — the append, never a rewrite.
+    book.record_equivalence(
+        bounty.target.clone(),
+        credit.work_id.clone(),
+        saved_fuel,
+        saved_bytes,
+    )
+    .map_err(RefineRefused::Book)?;
+
+    Ok(Refined {
+        credit,
+        saved_fuel,
+        saved_bytes,
+        payout: bounty.reward,
+        homologous,
+    })
+}

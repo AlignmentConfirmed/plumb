@@ -160,7 +160,8 @@ fn multi_node_handoff_merge_and_local_anchor_survive() {
         .filter_map(|a| match a {
             datum::reward::RewardAct::Credited { event, .. } => Some(event.clone()),
             datum::reward::RewardAct::EpochOpened { .. }
-            | datum::reward::RewardAct::EpochClosed { .. } => None,
+            | datum::reward::RewardAct::EpochClosed { .. }
+            | datum::reward::RewardAct::Equivalent { .. } => None,
         })
         .collect();
     assert_eq!(events.len(), 2);

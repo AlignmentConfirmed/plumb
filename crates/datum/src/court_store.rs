@@ -43,6 +43,8 @@ const TAG_CREDITED: u8 = 1;
 const TAG_EPOCH_OPEN: u8 = 2;
 /// Act tag: epoch closed (D-L7).
 const TAG_EPOCH_CLOSED: u8 = 3;
+/// O3 — a settled refinement: old ≈ new, with the measured savings.
+const TAG_EQUIVALENT: u8 = 4;
 
 /// Why encode/decode/load refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,6 +108,22 @@ pub fn encode(book: &RewardBook) -> Vec<u8> {
                 out.push(TAG_EPOCH_CLOSED);
                 put_u64(&mut out, *epoch);
                 put_u64(&mut out, *credits_in_epoch);
+            }
+            RewardAct::Equivalent {
+                old,
+                new,
+                saved_fuel,
+                saved_bytes,
+            } => {
+                out.push(TAG_EQUIVALENT);
+                let ob = old.as_bytes();
+                put_u32(&mut out, u32::try_from(ob.len()).unwrap_or(u32::MAX));
+                out.extend_from_slice(ob);
+                let nb = new.as_bytes();
+                put_u32(&mut out, u32::try_from(nb.len()).unwrap_or(u32::MAX));
+                out.extend_from_slice(nb);
+                put_u64(&mut out, *saved_fuel);
+                put_u64(&mut out, *saved_bytes);
             }
         }
     }
@@ -173,6 +191,23 @@ pub fn decode(bytes: &[u8]) -> Result<RewardBook, StoreBroken> {
                 let epoch = take_u64(bytes, &mut i)?;
                 let credits_in_epoch = take_u64(bytes, &mut i)?;
                 book.restore_epoch_closed(epoch, credits_in_epoch);
+            }
+            TAG_EQUIVALENT => {
+                let ol = take_u32(bytes, &mut i)? as usize;
+                let ob = bytes
+                    .get(i..i.saturating_add(ol))
+                    .ok_or(StoreBroken::Truncated)?;
+                let old = WorkId::from_bytes(ob.to_vec());
+                i = i.saturating_add(ol);
+                let nl = take_u32(bytes, &mut i)? as usize;
+                let nb = bytes
+                    .get(i..i.saturating_add(nl))
+                    .ok_or(StoreBroken::Truncated)?;
+                let new = WorkId::from_bytes(nb.to_vec());
+                i = i.saturating_add(nl);
+                let saved_fuel = take_u64(bytes, &mut i)?;
+                let saved_bytes = take_u64(bytes, &mut i)?;
+                let _ = book.record_equivalence(old, new, saved_fuel, saved_bytes);
             }
             other => return Err(StoreBroken::Tag(other)),
         }
