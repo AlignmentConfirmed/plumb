@@ -39,8 +39,44 @@ use crate::witnessing;
 /// `send_hello`, the claim loop) reads and writes through this alone,
 /// which is what makes P4 a substitution at the edges rather than a
 /// second copy of the session logic.
-pub trait ReadWrite: Read + Write + Send {}
-impl<T: Read + Write + Send + ?Sized> ReadWrite for T {}
+pub trait ReadWrite: Read + Write + Send {
+    /// Signal "no more writes coming" WITHOUT fully closing — so a
+    /// peer still mid-read-loop gets a clean end to its input rather
+    /// than a drop. Needed by a relay (the carrier) that must not
+    /// close its upstream leg while records it forwarded might still
+    /// be unread by the peer: closing a socket with unread data of
+    /// its OWN still queued sends RST instead of FIN, and RST at a
+    /// record boundary elsewhere reads as a graceful departure — a
+    /// carrier that closes early can make a court silently drop
+    /// records that genuinely arrived.
+    fn shutdown_write(&mut self) -> std::io::Result<()>;
+}
+
+impl ReadWrite for TcpStream {
+    fn shutdown_write(&mut self) -> std::io::Result<()> {
+        self.shutdown(std::net::Shutdown::Write)
+    }
+}
+
+impl ReadWrite for rustls::StreamOwned<rustls::ClientConnection, TcpStream> {
+    fn shutdown_write(&mut self) -> std::io::Result<()> {
+        self.conn.send_close_notify();
+        Write::flush(self)
+    }
+}
+
+impl ReadWrite for rustls::StreamOwned<rustls::ServerConnection, TcpStream> {
+    fn shutdown_write(&mut self) -> std::io::Result<()> {
+        self.conn.send_close_notify();
+        Write::flush(self)
+    }
+}
+
+impl<T: ReadWrite + ?Sized> ReadWrite for Box<T> {
+    fn shutdown_write(&mut self) -> std::io::Result<()> {
+        (**self).shutdown_write()
+    }
+}
 
 /// The tag a posted query travels under: the court announces its
 /// question right after the session challenge, natively — no HTTP in
@@ -1018,6 +1054,26 @@ pub fn carrier_session(
     while let Some((_tag, frame)) = read_record(&mut client, &mut client_buf, layout, bound)? {
         court.write_all(&frame)?;
         forwarded += 1;
+    }
+    // The client is gone — no more records will ever cross this leg.
+    // Say so cleanly (half-close) instead of dropping the connection
+    // outright: the court may still have more to send (a market
+    // announcement this carrier never relays, say), and closing a
+    // socket while its OWN receive buffer still holds unread data
+    // sends RST instead of FIN. A RST at a record boundary elsewhere
+    // reads as a graceful departure (the earlier fix for exactly this
+    // shape of thing) — so closing early here can make the COURT
+    // silently discard records that genuinely arrived. Draining
+    // (bounded, so a peer that never stops sending cannot hang this
+    // thread forever) empties the buffer first, so the eventual drop
+    // is a clean close on both sides.
+    let _ = court.shutdown_write();
+    let mut sink = [0u8; 4096];
+    for _ in 0..1024 {
+        match court.read(&mut sink) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
     }
     Ok(forwarded)
 }

@@ -538,6 +538,138 @@ mod carrier {
             std::thread::sleep(Duration::from_millis(20));
         }
     }
+
+    #[test]
+    fn repeated_relays_through_a_market_court_never_silently_drop_a_record() {
+        // A market court sends an UNCONDITIONAL announcement right
+        // after the challenge — the carrier never reads it (it only
+        // ever reads the challenge itself before forwarding
+        // whatever the client sends). That leaves the carrier's OWN
+        // receive buffer non-empty at the moment it closes its
+        // upstream leg, which is exactly the condition that makes an
+        // OS send RST instead of FIN — and a RST at a record
+        // boundary elsewhere reads as a graceful departure, silently
+        // dropping whatever was still in flight. Every one of these
+        // relays reproduces that condition; none may drop a record.
+        let layout = Layout::founding();
+        let key = sig::Keypair::from_seed([6u8; 32]);
+        let court_key = sig::Keypair::from_seed([7u8; 32]);
+
+        let mut court_ledger = edge_with("court");
+        court_ledger.record(Act::Bind {
+            holder: "solver-b".into(),
+            scheme: sig::SCHEME_ED25519_BLAKE3,
+            key: key.public().to_vec(),
+            from_epoch: 0,
+            until_epoch: u64::MAX,
+        });
+
+        let query = datum::query::Query {
+            poser: "court".into(),
+            shape: vec![2, 3],
+            domain_tag: isthmus::work::SHAPE_CLAIM_TAG,
+            guarantee: datum::query::Guarantee::Rederivation,
+            statement: datum::domains::demo_theta_universe().encode(),
+        };
+        let market = std::sync::Arc::new(plumbd::MarketPost {
+            bounty: datum::bounty::Bounty {
+                query_id: query.query_id(),
+                max_fuel: 200,
+                max_bytes: 4_000,
+                base: 1_000,
+                per_saved_fuel: 10,
+                per_saved_byte: 3,
+            },
+            query,
+            court: "court".into(),
+            key: court_key,
+        });
+
+        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let court_listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let court_addr = court_listener.local_addr().expect("addr");
+        {
+            let (layout, ledger, book, market) =
+                (layout.clone(), court_ledger.clone(), Arc::clone(&book), Arc::clone(&market));
+            std::thread::spawn(move || {
+                let rules = plumbd::SessionRules {
+                    holder: "court".into(),
+                    bound: BOUND,
+                    enforce: true,
+                    market: Some(market),
+                    register: false,
+                    chain_path: None,
+                    max_total_connections: 0,
+                    max_connections_per_ip: 0,
+                    handshake_deadline: None,
+                    connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
+                    tls: None,
+                };
+                let _ = plumbd::serve(
+                    &court_listener,
+                    &layout,
+                    &Arc::new(Mutex::new(ledger)),
+                    &rules,
+                    &book,
+                    &Arc::new(Mutex::new(Vec::new())),
+                    |_| {},
+                );
+            });
+        }
+
+        let carrier_listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let carrier_addr = carrier_listener.local_addr().expect("addr");
+        {
+            let (layout, ledger) = (layout.clone(), edge_with("carrier"));
+            std::thread::spawn(move || {
+                let _ = plumbd::carry(
+                    &carrier_listener,
+                    &layout,
+                    &ledger,
+                    "carrier",
+                    BOUND,
+                    court_addr.to_string(),
+                    None,
+                    |_| {},
+                );
+            });
+        }
+
+        // Fresh (non-market) work every round, relayed through the
+        // carrier — the market's announcement is left unread EVERY
+        // time. A fixed universe size (9), varying charge only, keeps
+        // every claim's body comfortably inside the bounty's byte
+        // budget while still being distinct content each round.
+        const ROUNDS: i64 = 30;
+        for lap in 1..=ROUNDS {
+            let body = datum::domains::demo_cycle_claim_charged(9, lap, 0).encode();
+            let mut envelope = Vec::new();
+            isthmus::work::put_shape_claim(&body, &mut envelope).expect("frames");
+            plumbd::produce_signed(
+                carrier_addr,
+                &layout,
+                &edge_with("solver-b"),
+                "solver-b",
+                BOUND,
+                std::slice::from_ref(&envelope),
+                &key,
+            )
+            .expect("client attaches to the carrier");
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let credited = book.lock().expect("book").act_len();
+            if credited == ROUNDS as usize {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "only {credited}/{ROUNDS} relayed claims credited — a record was silently dropped"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
 }
 
 mod registered_wire {

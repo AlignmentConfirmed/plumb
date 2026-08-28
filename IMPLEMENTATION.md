@@ -340,6 +340,49 @@ and real (non-`demo_*`) corpus content. Tracked as tasks #18, #29–33.
 
 ---
 
+## 6e · Carrier upstream close race (found during PR1–6's own live verification)
+
+**The bug:** a carrier drops its upstream `TcpStream` to the court the
+instant the client disconnects, without confirming the court consumed
+every relayed record. A market-enabled court sends an UNCONDITIONAL
+announcement right after the challenge, which the carrier never reads
+(it only reads the challenge itself before switching to a
+write-only forward loop) — so the carrier's OWN receive buffer is
+never empty at the moment it closes. Closing a socket with unread
+data in its own receive queue makes the OS send RST instead of a
+clean FIN, and `read_record`'s existing RST/`UnexpectedEof`-at-a-
+boundary leniency (added for a genuine departure case, see PR4) reads
+that RST as a graceful departure — silently discarding whatever
+records were still in flight, with no credit and no refusal logged.
+Reproduces intermittently on a long-running carrier relay, not
+reliably on a fresh boot, which is what let it hide through PR1–6's
+own live checks.
+
+**The fix:** `carrier_session` (`crates/datum/src/plumbd.rs`) no
+longer drops its upstream connection immediately. After relaying
+every client record it now calls `shutdown_write()` (a new
+`ReadWrite` trait method — a raw TCP half-close for `TcpStream`, a
+TLS `close_notify` + flush for a `rustls::StreamOwned` upstream leg)
+to tell the court "no more input, but I may still want to read,"
+then drains (bounded, so a peer that never stops sending cannot hang
+the thread forever) whatever the court still sends before the final
+drop — so the carrier's receive buffer is empty and the eventual
+close is a clean FIN on both sides. `ReadWrite` moved from a blanket
+impl to three explicit ones (`TcpStream`, `StreamOwned<ClientConnection, _>`,
+`StreamOwned<ServerConnection, _>`, plus a forwarding impl for
+`Box<T>`) since the half-close/close_notify behavior genuinely
+differs per transport.
+
+DONE 2026-08-28 — test: `crates/datum/tests/wire.rs (mod carrier)
+::repeated_relays_through_a_market_court_never_silently_drop_a_record`
+— 30 rounds of client→carrier→market-court relay, asserting all 30
+credit. Falsified before committing: reverting only the fix (keeping
+the test) drops it to 9/30 credited, confirming the test catches the
+exact bug; with the fix, 30/30. Verified live on the simnet
+afterward, consistent with the regression test.
+
+---
+
 ## 7 · Topological signatures — research track, scheme ≥ 0x02
 
 Held at research until the cryptanalytic bar is met; enters through
