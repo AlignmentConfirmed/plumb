@@ -20,7 +20,8 @@
 
 use crate::exact_codec::{self, ExactBroken};
 use crate::Exact;
-use num_traits::Zero;
+use num_bigint::BigInt;
+use num_traits::{Signed, Zero};
 
 /// Domain byte for declared-complex claims. Boundary is 1, Shape is 2.
 pub const DOMAIN_DECLARED: u8 = 3;
@@ -409,6 +410,106 @@ impl DeclaredComplex {
             return Err(ComplexBroken::OpenBoundary { cell: *cell });
         }
         Ok(fuel.spent())
+    }
+}
+
+/// Why [`DeclaredComplex::solve`] could not construct a witness.
+///
+/// Distinct from [`ComplexBroken`] on purpose: that enum names why a
+/// GIVEN witness failed to verify; this one names why no witness was
+/// found in the first place — a different operation with different
+/// failure modes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SolveRefused {
+    /// `dim` names a dimension this complex does not have a boundary
+    /// operator for.
+    NoSuchDimension,
+    /// No integral chain closes onto this target — solvable over ℚ
+    /// is not the same question, and [`crate::snf`]'s whole point is
+    /// that gap.
+    NoIntegralSolution,
+}
+
+impl DeclaredComplex {
+    /// Find a `dim`-chain closing onto `target` directly, via linear
+    /// algebra over `∂_dim` — never by walking anything.
+    ///
+    /// Scales `∂_dim` and `target` by the LCM of every denominator
+    /// present (an equation `Ax = z` has the identical solution set
+    /// as `(kA)x = (kz)` for any nonzero `k`, so this changes nothing
+    /// about which `x` exist — only makes them integer-solvable via
+    /// [`crate::snf`]), then decides integral solvability directly.
+    ///
+    /// This is producer-side, not verifier-side: whatever it returns
+    /// still has to pass [`DeclaredComplex::closes_to`] like any other
+    /// witness — a bug here produces a rejected claim, never a wrongly
+    /// accepted one.
+    ///
+    /// See [`crate::snf`]'s module docs for the real gap this doesn't
+    /// close: an integral solution may use a licensed cell with a
+    /// NEGATIVE coefficient, which is not the same thing as a
+    /// legitimate forward derivation using that cell.
+    pub fn solve(&self, dim: u32, target: &[(u32, Exact)]) -> Result<Vec<(u32, Exact)>, SolveRefused> {
+        let dim = dim as usize;
+        if dim == 0 {
+            return Err(SolveRefused::NoSuchDimension);
+        }
+        let rows = self.cells.get(dim - 1).copied().ok_or(SolveRefused::NoSuchDimension)?;
+        let cols = self.cells.get(dim).copied().ok_or(SolveRefused::NoSuchDimension)?;
+        let op = self.ops.get(dim - 1).ok_or(SolveRefused::NoSuchDimension)?;
+
+        let one = BigInt::from(1);
+        let mut scale = one.clone();
+        for entry in op {
+            scale = lcm(&scale, entry.coeff.denom());
+        }
+        for (_, coeff) in target {
+            scale = lcm(&scale, coeff.denom());
+        }
+
+        let mut a = crate::snf::Matrix::zeros(rows as usize, cols as usize);
+        for entry in op {
+            let scaled = entry.coeff.numer() * (&scale / entry.coeff.denom());
+            let existing = a.get(entry.row as usize, entry.col as usize);
+            a.set(entry.row as usize, entry.col as usize, existing + scaled);
+        }
+        let mut z = vec![BigInt::from(0); rows as usize];
+        for (cell, coeff) in target {
+            let scaled = coeff.numer() * (&scale / coeff.denom());
+            if let Some(slot) = z.get_mut(*cell as usize) {
+                *slot += scaled;
+            }
+        }
+
+        let x = crate::snf::solve_integer(&a, &z).ok_or(SolveRefused::NoIntegralSolution)?;
+        Ok(x
+            .into_iter()
+            .enumerate()
+            .filter(|(_, coeff)| !coeff.is_zero())
+            .map(|(cell, coeff)| (cell as u32, Exact::from_integer(coeff)))
+            .collect())
+    }
+}
+
+fn lcm(a: &BigInt, b: &BigInt) -> BigInt {
+    if a.is_zero() || b.is_zero() {
+        return BigInt::from(0);
+    }
+    let g = gcd(a, b);
+    (a / g) * b
+}
+
+fn gcd(a: &BigInt, b: &BigInt) -> BigInt {
+    let (mut a, mut b) = (a.clone(), b.clone());
+    while !b.is_zero() {
+        let r = &a % &b;
+        a = b;
+        b = r;
+    }
+    if a.is_negative() {
+        -a
+    } else {
+        a
     }
 }
 

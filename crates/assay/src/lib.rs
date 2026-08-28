@@ -83,6 +83,7 @@ pub mod freshness;
 pub mod flux;
 pub mod rewrite;
 pub mod shape;
+pub mod snf;
 pub mod work;
 
 pub use credit_event::{ClaimClasses, CreditEvent};

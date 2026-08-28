@@ -1105,3 +1105,124 @@ mod confluence {
         assert!(commutes, "a compiled diamond fills the difference exactly");
     }
 }
+
+mod solve {
+    //! Task #36: `DeclaredComplex::solve` finds a witness via linear
+    //! algebra over `∂` (Smith Normal Form) rather than walking
+    //! anything. Every witness it returns still has to pass the same
+    //! `closes_to`/`ProofClaim::verify` as any other — these tests
+    //! check that independently, never trusting `solve` on its own
+    //! say-so.
+
+    #![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
+
+    use assay::complex::{DeclaredComplex, Entry, ProofClaim, SolveRefused, DEFAULT_FUEL};
+    use assay::rewrite::Presentation;
+    use assay::whole;
+
+    #[test]
+    fn a_simple_two_point_boundary_solves_at_dimension_one() {
+        // 0 -> 1 -> 2, the same shape sdk::derivation's BFS handles —
+        // solve() must agree a witness exists here too.
+        let edge = |from: u32, to: u32, col: u32| {
+            let mut pair = vec![
+                Entry { row: from, col, coeff: whole(-1) },
+                Entry { row: to, col, coeff: whole(1) },
+            ];
+            pair.sort_by_key(|e| (e.col, e.row));
+            pair
+        };
+        let mut op = Vec::new();
+        op.extend(edge(0, 1, 0));
+        op.extend(edge(1, 2, 1));
+        let complex = DeclaredComplex {
+            cells: vec![3, 2],
+            ops: vec![op],
+        };
+        let target = vec![(0u32, whole(-1)), (2u32, whole(1))];
+        let witness = complex.solve(1, &target).expect("0->1->2 is licensed");
+        complex
+            .closes_to(1, &witness, &target, DEFAULT_FUEL)
+            .expect("solve()'s own witness must independently verify");
+    }
+
+    #[test]
+    fn disjoint_components_refuse_with_no_integral_solution() {
+        let mut op = Vec::new();
+        op.extend([
+            Entry { row: 0, col: 0, coeff: whole(-1) },
+            Entry { row: 1, col: 0, coeff: whole(1) },
+        ]);
+        let complex = DeclaredComplex {
+            cells: vec![4, 1], // cells 2,3 have no edge touching them at all
+            ops: vec![op],
+        };
+        let target = vec![(0u32, whole(-1)), (2u32, whole(1))];
+        assert_eq!(complex.solve(1, &target), Err(SolveRefused::NoIntegralSolution));
+    }
+
+    #[test]
+    fn a_nonexistent_dimension_refuses_by_name() {
+        let complex = DeclaredComplex {
+            cells: vec![1],
+            ops: vec![],
+        };
+        assert_eq!(complex.solve(1, &[]), Err(SolveRefused::NoSuchDimension));
+    }
+
+    /// The whole point of task #36 (over `sdk::derivation`'s BFS,
+    /// which is hard-scoped to dimension 1): `solve` works at
+    /// dimension 2, over the confluence cells `with_confluences`
+    /// compiles — a boundary matrix that is not a graph incidence
+    /// matrix at all, and total unimodularity no longer applies.
+    /// A directed walk over 1-cells cannot even pose this question.
+    #[test]
+    fn solve_finds_the_filling_diamond_at_dimension_two() {
+        let compiled = Presentation {
+            alphabet: vec![b'a', b'b'],
+            rules: vec![(vec![b'b', b'a'], vec![b'a', b'b'])],
+        }
+        .compile(4)
+        .expect("compiles")
+        .with_confluences()
+        .expect("confluences");
+
+        let (baba, abba, baab, abab) = (
+            compiled.word(b"baba").expect("w"),
+            compiled.word(b"abba").expect("w"),
+            compiled.word(b"baab").expect("w"),
+            compiled.word(b"abab").expect("w"),
+        );
+        let left = compiled.derive(&[baba, abba, abab]).expect("left path");
+        let right = compiled.derive(&[baba, baab, abab]).expect("right path");
+
+        let mut difference: std::collections::BTreeMap<u32, assay::Exact> =
+            std::collections::BTreeMap::new();
+        for (cell, coeff) in &left {
+            *difference.entry(*cell).or_insert_with(|| whole(0)) += coeff.clone();
+        }
+        for (cell, coeff) in &right {
+            *difference.entry(*cell).or_insert_with(|| whole(0)) -= coeff.clone();
+        }
+        let target: Vec<(u32, assay::Exact)> = difference
+            .into_iter()
+            .filter(|(_, c)| !num_traits::Zero::is_zero(c))
+            .collect();
+
+        let witness = compiled
+            .complex
+            .solve(2, &target)
+            .expect("a diamond fills the difference — linear algebra, not a brute-force scan");
+
+        ProofClaim {
+            transport: 0,
+            complex: compiled.complex.clone(),
+            dim: 2,
+            target,
+            witness,
+            deps: Vec::new(),
+        }
+        .verify(DEFAULT_FUEL)
+        .expect("solve()'s own dimension-2 witness independently verifies");
+    }
+}
