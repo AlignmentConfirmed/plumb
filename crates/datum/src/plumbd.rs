@@ -1253,10 +1253,13 @@ pub fn solve_market(
         return Err(NodeBroken::NoDeclaration);
     }
     let value = rframe.get(layout.header()..).unwrap_or(&[]);
-    let split = value.len().saturating_sub(sig::ATTESTATION_LEN);
-    let parsed = receipt::Receipt::decode(value.get(..split).unwrap_or(&[]))
+    // The split between receipt and attestation is found by parsing
+    // the receipt forward, not by subtracting a fixed attestation
+    // width — so a variable-length (scheme ≥ 0x02) attestation rides
+    // behind the receipt with no wire break.
+    let (parsed, consumed) = receipt::Receipt::decode_prefix(value)
         .map_err(|_| NodeBroken::NoDeclaration)?;
-    let attestation = sig::Attestation::decode(value.get(split..).unwrap_or(&[]))
+    let attestation = sig::Attestation::decode(value.get(consumed..).unwrap_or(&[]))
         .map_err(|_| NodeBroken::NoDeclaration)?;
     Ok((
         query,

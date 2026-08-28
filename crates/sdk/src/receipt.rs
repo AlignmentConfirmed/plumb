@@ -73,8 +73,26 @@ impl Receipt {
         out
     }
 
-    /// Read canonical bytes back.
+    /// Read canonical bytes back, requiring the whole slice to be
+    /// exactly one receipt — trailing bytes refuse.
     pub fn decode(bytes: &[u8]) -> Result<Self, ReceiptRefused> {
+        let (receipt, consumed) = Self::decode_prefix(bytes)?;
+        if consumed != bytes.len() {
+            return Err(ReceiptRefused::Malformed);
+        }
+        Ok(receipt)
+    }
+
+    /// Read a receipt from the front of `bytes`, returning it and how
+    /// many bytes it consumed — the rest is the caller's (e.g. the
+    /// attestation packed after it on the receipt frame). Because the
+    /// receipt is self-describing (every field is length-prefixed
+    /// internally), the split between it and a following attestation
+    /// is found by parsing FORWARD, never by subtracting a fixed
+    /// attestation width — which is what lets a variable-length
+    /// topological signature ride behind a receipt with no wire break,
+    /// while the `0x01` bytes stay byte-for-byte unchanged.
+    pub fn decode_prefix(bytes: &[u8]) -> Result<(Self, usize), ReceiptRefused> {
         let mut at = 0usize;
         let take = |at: &mut usize, n: usize| -> Result<&[u8], ReceiptRefused> {
             let end = at.saturating_add(n);
@@ -103,16 +121,16 @@ impl Receipt {
             a.copy_from_slice(take(&mut at, 16)?);
             axes.push(u128::from_le_bytes(a));
         }
-        if at != bytes.len() {
-            return Err(ReceiptRefused::Malformed);
-        }
-        Ok(Self {
-            court,
-            epoch,
-            query_id,
-            work_id,
-            axes,
-        })
+        Ok((
+            Self {
+                court,
+                epoch,
+                query_id,
+                work_id,
+                axes,
+            },
+            at,
+        ))
     }
 }
 

@@ -276,11 +276,12 @@ fn derive_and_settle(
         return Err(KernelRefused::Malformed);
     }
     let value = rframe.get(layout.header()..).unwrap_or(&[]);
-    let split = value.len().saturating_sub(sig::ATTESTATION_LEN);
-    let receipt = sdk::receipt::Receipt::decode(value.get(..split).unwrap_or(&[]))
-        .map_err(|_| KernelRefused::Malformed)?;
+    // Split by parsing the receipt forward, not by subtracting a fixed
+    // attestation width — a scheme ≥ 0x02 signature is variable-length.
+    let (receipt, consumed) =
+        sdk::receipt::Receipt::decode_prefix(value).map_err(|_| KernelRefused::Malformed)?;
     let receipt_attestation =
-        sig::Attestation::decode(value.get(split..).unwrap_or(&[])).map_err(|_| KernelRefused::Malformed)?;
+        sig::Attestation::decode(value.get(consumed..).unwrap_or(&[])).map_err(|_| KernelRefused::Malformed)?;
     let signed = sdk::receipt::SignedReceipt {
         receipt,
         attestation: receipt_attestation,
