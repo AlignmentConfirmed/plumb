@@ -11,18 +11,27 @@
 //! complex already licenses which single steps exist as 1-cells (SQ3):
 //! `ops[0]` names, for every 1-cell, the exact pair of 0-cells it
 //! connects and which way. What a deriver does is TRAVERSE that
-//! already-licensed step-graph — depth-bounded, iterative deepening
-//! (one 0-cell memory footprint per branch, not one per frontier node)
-//! — never invent, weight, or guess at a step the complex did not
-//! already declare.
+//! already-licensed step-graph — never invent, weight, or guess at a
+//! step the complex did not already declare.
 //!
 //! Scoped to the shape every conjecture in this workspace actually
 //! poses (SQ1/SQ4): a 1-dimensional witness (`ops[0]` only) closing
 //! onto a two-point boundary, `theorem − axiom`. A target that is not
 //! exactly one `+1` cell and one `-1` cell refuses by name rather than
 //! guessing what a richer boundary would mean.
+//!
+//! **Breadth-first, not iterative deepening.** A single source/sink
+//! reachability-and-shortest-path query over a directed graph is
+//! already polynomial (`O(V+E)` via BFS) — nothing about this scope
+//! is exponential, so no depth-bounded/iterative-deepening machinery
+//! was ever necessary here. An earlier revision reached for iterative
+//! deepening anyway; that was solving an already-easy problem with
+//! the wrong tool, not a limit of the domain. Multi-term boundaries or
+//! non-graph (dim≥2) complexes are where the real escape from search
+//! lives — linear algebra over `∂` (Smith Normal Form / min-cost
+//! flow), tracked separately, not here.
 
-use std::collections::HashSet;
+use std::collections::VecDeque;
 
 use assay::complex::DeclaredComplex;
 use assay::{whole, Exact};
@@ -52,9 +61,9 @@ pub enum DerivationRefused {
         /// The budget the attempt was given.
         budget: u64,
     },
-    /// Every depth up to the complex's own size was exhausted within
-    /// budget and no chain closing the target exists — the two named
-    /// points are not connected by any licensed path at all.
+    /// Every 0-cell reachable within budget was visited and the
+    /// destination was never among them — the two named points are
+    /// not connected by any licensed path at all.
     NoDerivation,
 }
 
@@ -106,57 +115,66 @@ fn endpoints(target: &[(u32, Exact)]) -> Result<(u32, u32), DerivationRefused> {
     }
 }
 
-/// The traversal's own state: the step-graph it walks, where it is
-/// headed, and how much of the derivation budget it has spent so far
-/// — bundled so a single depth-bounded walk stays a small, ordinary
-/// recursive call rather than a wide parameter list.
-struct Traversal<'a> {
-    adjacency: &'a [Vec<(u32, u32)>],
+/// Breadth-first from `source` toward `destination`, one visit per
+/// 0-cell — a global visited set rules out cycles for free, unlike a
+/// depth-bounded walk that has to track and unwind a per-branch path.
+/// Returns the 0-cell path (`source..=destination` inclusive) the
+/// instant `destination` is discovered — BFS's own guarantee that
+/// this is a *shortest* licensed path, not merely *a* path.
+fn breadth_first(
+    adjacency: &[Vec<(u32, u32)>],
+    source: u32,
     destination: u32,
     budget: u64,
-    spent: u64,
-}
-
-impl Traversal<'_> {
-    /// Depth-bounded walk from `at`, extending `path`/`on_path` in
-    /// place. Refuses to revisit a 0-cell already on the current
-    /// branch — the step-graph a real presentation compiles to can
-    /// hold cycles, and a branch that walked back onto itself would
-    /// never bottom out.
-    fn walk(
-        &mut self,
-        at: u32,
-        depth_left: usize,
-        path: &mut Vec<u32>,
-        on_path: &mut HashSet<u32>,
-    ) -> Result<bool, DerivationRefused> {
-        if at == self.destination {
-            return Ok(true);
-        }
-        if depth_left == 0 {
-            return Ok(false);
-        }
-        let Some(edges) = self.adjacency.get(at as usize) else {
-            return Ok(false);
+) -> Result<Vec<u32>, DerivationRefused> {
+    let mut visited = vec![false; adjacency.len()];
+    let mut parent: Vec<Option<u32>> = vec![None; adjacency.len()];
+    if let Some(slot) = visited.get_mut(source as usize) {
+        *slot = true;
+    }
+    let mut frontier = VecDeque::from([source]);
+    let mut spent = 0u64;
+    while let Some(at) = frontier.pop_front() {
+        let Some(edges) = adjacency.get(at as usize) else {
+            continue;
         };
         for (to, _cell) in edges {
-            if on_path.contains(to) {
+            if visited.get(*to as usize).copied().unwrap_or(true) {
                 continue;
             }
-            self.spent = self.spent.saturating_add(1);
-            if self.spent > self.budget {
-                return Err(DerivationRefused::BudgetExhausted { budget: self.budget });
+            spent = spent.saturating_add(1);
+            if spent > budget {
+                return Err(DerivationRefused::BudgetExhausted { budget });
             }
-            path.push(*to);
-            on_path.insert(*to);
-            if self.walk(*to, depth_left - 1, path, on_path)? {
-                return Ok(true);
+            if let Some(slot) = visited.get_mut(*to as usize) {
+                *slot = true;
             }
-            path.pop();
-            on_path.remove(to);
+            if let Some(slot) = parent.get_mut(*to as usize) {
+                *slot = Some(at);
+            }
+            if *to == destination {
+                return Ok(retrace(&parent, source, destination));
+            }
+            frontier.push_back(*to);
         }
-        Ok(false)
     }
+    Err(DerivationRefused::NoDerivation)
+}
+
+/// Walk BFS's parent pointers back from `destination` to `source`,
+/// then reverse — the path in travel order.
+fn retrace(parent: &[Option<u32>], source: u32, destination: u32) -> Vec<u32> {
+    let mut path = vec![destination];
+    let mut at = destination;
+    while at != source {
+        let Some(before) = parent.get(at as usize).copied().flatten() else {
+            break;
+        };
+        path.push(before);
+        at = before;
+    }
+    path.reverse();
+    path
 }
 
 /// The witness 1-chain a word path implies: one `+1` per licensed
@@ -186,11 +204,9 @@ fn witness_along(adjacency: &[Vec<(u32, u32)>], path: &[u32]) -> Vec<(u32, Exact
 /// Find a 1-chain in `universe` closing onto `target`, spending no
 /// more than `budget` licensed-step visits.
 ///
-/// Iterative deepening: try every path of length 1, then every path
-/// of length 2, and so on, up to the universe's own 0-cell count (no
-/// simple path can be longer). Each depth re-walks from empty, so the
-/// memory a branch holds is one 0-cell per current depth, never one
-/// per node ever seen — the budget bounds work, not memory.
+/// Breadth-first: every 0-cell within one step, then two, and so on,
+/// stopping the instant the destination is discovered — one pass,
+/// `O(V+E)` bounded by `budget`, no re-exploration of shallower depths.
 pub fn derive(
     universe: &DeclaredComplex,
     target: &[(u32, Exact)],
@@ -208,20 +224,8 @@ pub fn derive(
     if source == destination {
         return Ok(Vec::new());
     }
-    let mut traversal = Traversal {
-        adjacency: &adjacency,
-        destination,
-        budget,
-        spent: 0,
-    };
-    for depth in 1..=adjacency.len() {
-        let mut path = vec![source];
-        let mut on_path = HashSet::from([source]);
-        if traversal.walk(source, depth, &mut path, &mut on_path)? {
-            return Ok(witness_along(&adjacency, &path));
-        }
-    }
-    Err(DerivationRefused::NoDerivation)
+    let path = breadth_first(&adjacency, source, destination, budget)?;
+    Ok(witness_along(&adjacency, &path))
 }
 
 #[cfg(test)]
@@ -294,6 +298,21 @@ mod tests {
         assert_eq!(
             derive(&universe, &lopsided, 100),
             Err(DerivationRefused::NotASimpleBoundary)
+        );
+    }
+
+    /// The decoy edge `1 -> 4` is a dead end nowhere near the target
+    /// — BFS must never let it show up in the returned witness, and
+    /// must still find the direct path through node 1 toward 3.
+    #[test]
+    fn a_decoy_branch_never_leaks_into_the_witness() {
+        let universe = path_graph();
+        let target = boundary(0, 3);
+        let witness = derive(&universe, &target, 100).expect("0->1->2->3 is licensed");
+        let decoy_cell = 3u32; // the 1->4 edge's column, per path_graph()
+        assert!(
+            !witness.iter().any(|(cell, _)| *cell == decoy_cell),
+            "witness must never cite a step that does not lead to the target"
         );
     }
 
