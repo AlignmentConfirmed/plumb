@@ -938,7 +938,7 @@ mod native_market {
     use datum::reward::RewardBook;
     use isthmus::layout::Layout;
 
-    use super::common::{bind, edge_with, BOUND};
+    use super::common::{await_true, bind, cycle_envelope, edge_with, BOUND};
 
     #[test]
     fn the_whole_market_loop_natively_no_http_anywhere() {
@@ -1029,6 +1029,94 @@ mod native_market {
         datum::receipt::verify(&signed, &chain).expect("offline verification, same as ever");
         assert_eq!(signed.receipt.axes, vec![2, 3]);
         assert_eq!(signed.receipt.query_id, heard.query_id());
+    }
+
+    #[test]
+    fn ordinary_traffic_still_credits_when_the_posted_market_is_a_conjecture() {
+        // credit_value's "not an answer to the question" fallthrough
+        // originally only named NotThePosersUniverse — the plain-
+        // universe market's shape of "this isn't even trying to
+        // answer." A CONJECTURE market's equivalent is NotAProof /
+        // NotDeclared, and until those were added a court running any
+        // conjecture-shaped market (P5's real corpus, live) refused
+        // EVERY ordinary claim that ever crossed it — the market
+        // question was the only thing that could ever settle.
+        let key = sig::Keypair::from_seed([8u8; 32]);
+        let court_key = sig::Keypair::from_seed([9u8; 32]);
+        let mut ledger = edge_with("court-a");
+        bind(&mut ledger, "producer-a", &key, 0, u64::MAX);
+        bind(&mut ledger, "court-a", &court_key, 0, u64::MAX);
+
+        let (_, conjecture) = datum::corpus::dihedral_conjecture().expect("compiles");
+        let query = Query {
+            poser: "court-a".into(),
+            shape: vec![2, 3],
+            domain_tag: isthmus::work::SHAPE_CLAIM_TAG,
+            guarantee: Guarantee::Rederivation,
+            statement: conjecture.encode(),
+        };
+        let market = MarketPost {
+            bounty: Bounty {
+                query_id: query.query_id(),
+                max_fuel: 2_000,
+                max_bytes: 10_000,
+                base: 1_000,
+                per_saved_fuel: 10,
+                per_saved_byte: 3,
+            },
+            query,
+            court: "court-a".into(),
+            key: court_key,
+        };
+
+        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        {
+            let (layout, ledger, book) = (Layout::founding(), ledger.clone(), Arc::clone(&book));
+            std::thread::spawn(move || {
+                let rules = SessionRules {
+                    holder: "court-a".into(),
+                    bound: BOUND,
+                    enforce: true,
+                    market: Some(Arc::new(market)),
+                    register: false,
+                    chain_path: None,
+                    max_total_connections: 0,
+                    max_connections_per_ip: 0,
+                    handshake_deadline: None,
+                    connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
+                    tls: None,
+                };
+                let _ = plumbd::serve(
+                    &listener,
+                    &layout,
+                    &Arc::new(Mutex::new(ledger)),
+                    &rules,
+                    &book,
+                    &Arc::new(Mutex::new(Vec::new())),
+                    |_| {},
+                );
+            });
+        }
+
+        // Plain background work — never an attempt at the posted
+        // theorem — sent while a CONJECTURE market is live.
+        let envelope = cycle_envelope(11);
+        plumbd::produce_signed(
+            addr,
+            &Layout::founding(),
+            &edge_with("producer-a"),
+            "producer-a",
+            BOUND,
+            std::slice::from_ref(&envelope),
+            &key,
+        )
+        .expect("attaches");
+
+        await_true("ordinary work still credits under a conjecture market", || {
+            book.lock().expect("book").act_len() == 1
+        });
     }
 }
 

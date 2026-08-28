@@ -366,8 +366,22 @@ fn credit_value(
                 report.credited += 1;
                 return Ok(());
             }
-            Err(crate::bounty::AnswerRefused::NotThePosersUniverse) => {
-                // Not an answer to the question — ordinary work.
+            Err(crate::bounty::AnswerRefused::NotThePosersUniverse)
+            | Err(crate::bounty::AnswerRefused::NotAProof)
+            | Err(crate::bounty::AnswerRefused::NotDeclared(_)) => {
+                // Not an answer to the question — ordinary work. This
+                // has to cover BOTH market shapes: a plain-universe
+                // market's "wrong universe" (NotThePosersUniverse) and
+                // a conjecture market's "not even a proof"
+                // (NotAProof) / "not even a declared claim"
+                // (NotDeclared) all mean the same thing — the
+                // submission never engaged with what was posed. A
+                // court's ordinary background traffic (a producer's
+                // plain claims, unrelated to whatever question is
+                // posted) must credit the same way regardless of
+                // which shape of question happens to be live; before
+                // this, a conjecture-shaped market silently refused
+                // every non-market claim it ever saw.
             }
             Err(_) => {
                 report.refused += 1;
@@ -884,6 +898,28 @@ fn dial_with_timeout(
     Ok(Box::new(rustls::StreamOwned::new(conn, stream)))
 }
 
+/// A client's final act before dropping a connection to a court: say
+/// "no more input from me," then drain whatever the court still has
+/// queued — a market announcement this role never reads, say — before
+/// the actual close. Skipping this leaves data unread in THIS side's
+/// own receive buffer at close, which makes the OS send RST instead
+/// of FIN; a RST at a record boundary elsewhere reads as a graceful
+/// departure, and the cost lands on the COURT, which may not have
+/// finished reading the records this side just sent. Every function
+/// that writes to a court and then walks away needs this — a market
+/// being posted is a fact about the COURT, not about which client
+/// role happens to be dialing it.
+fn finish_politely(stream: &mut dyn ReadWrite) {
+    let _ = stream.shutdown_write();
+    let mut sink = [0u8; 4096];
+    for _ in 0..1024 {
+        match stream.read(&mut sink) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // see produce_signed_over_tls
 fn produce_inner(
     addr: impl ToSocketAddrs,
@@ -934,6 +970,7 @@ fn produce_inner(
         }
         sent += 1;
     }
+    finish_politely(&mut stream);
     Ok(sent)
 }
 
@@ -1004,6 +1041,7 @@ pub fn register_and_produce(
     isthmus::frame::put_frame(layout, admission::ATTESTATION_TAG, &attestation.encode(), &mut wire)
         .map_err(|_| NodeBroken::CannotFrame)?;
     stream.write_all(&wire)?;
+    finish_politely(&mut stream);
 
     Ok(outcome)
 }
@@ -1056,25 +1094,11 @@ pub fn carrier_session(
         forwarded += 1;
     }
     // The client is gone — no more records will ever cross this leg.
-    // Say so cleanly (half-close) instead of dropping the connection
-    // outright: the court may still have more to send (a market
-    // announcement this carrier never relays, say), and closing a
-    // socket while its OWN receive buffer still holds unread data
-    // sends RST instead of FIN. A RST at a record boundary elsewhere
-    // reads as a graceful departure (the earlier fix for exactly this
-    // shape of thing) — so closing early here can make the COURT
-    // silently discard records that genuinely arrived. Draining
-    // (bounded, so a peer that never stops sending cannot hang this
-    // thread forever) empties the buffer first, so the eventual drop
-    // is a clean close on both sides.
-    let _ = court.shutdown_write();
-    let mut sink = [0u8; 4096];
-    for _ in 0..1024 {
-        match court.read(&mut sink) {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {}
-        }
-    }
+    // finish_politely tells the court so and drains whatever it still
+    // sends (a market announcement this carrier never relays, say)
+    // before the drop — the same reasoning as every other role that
+    // dials a court and then walks away.
+    finish_politely(&mut court);
     Ok(forwarded)
 }
 
@@ -1159,6 +1183,7 @@ pub fn witness_to(
         stream.write_all(&wire)?;
         sent += 1;
     }
+    finish_politely(&mut stream);
     Ok(sent)
 }
 
