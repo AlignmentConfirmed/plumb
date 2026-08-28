@@ -43,8 +43,10 @@ mod noded {
                     bound: BOUND,
                     enforce: false,
                 market: None,
+                register: false,
+                chain_path: None,
                 };
-                let _ = plumbd::serve(&listener, &layout, &ledger, &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
+                let _ = plumbd::serve(&listener, &layout, &Arc::new(Mutex::new(ledger)), &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
             });
         }
 
@@ -257,8 +259,10 @@ mod admission {
                     bound: BOUND,
                     enforce: true,
                 market: None,
+                register: false,
+                chain_path: None,
                 };
-                let _ = plumbd::serve(&listener, &layout, &ledger, &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
+                let _ = plumbd::serve(&listener, &layout, &Arc::new(Mutex::new(ledger)), &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
             });
         }
 
@@ -354,8 +358,10 @@ mod session_freshness {
                 bound: BOUND,
                 enforce: true,
                 market: None,
+            register: false,
+            chain_path: None,
             };
-            let _ = plumbd::serve(&listener, &layout, &ledger, &rules, &book2, &Arc::new(Mutex::new(Vec::new())), |_| {});
+            let _ = plumbd::serve(&listener, &layout, &Arc::new(Mutex::new(ledger)), &rules, &book2, &Arc::new(Mutex::new(Vec::new())), |_| {});
         });
         (addr, book)
     }
@@ -462,8 +468,10 @@ mod carrier {
                     bound: BOUND,
                     enforce: true,
                 market: None,
+                register: false,
+                chain_path: None,
                 };
-                let _ = plumbd::serve(&court_listener, &layout, &ledger, &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
+                let _ = plumbd::serve(&court_listener, &layout, &Arc::new(Mutex::new(ledger)), &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
             });
         }
 
@@ -558,11 +566,13 @@ mod registered_wire {
                     bound: BOUND,
                     enforce: false,
                 market: None,
+                register: false,
+                chain_path: None,
                 };
                 let _ = plumbd::serve(
                     &listener,
                     &layout,
-                    &ledger,
+                    &Arc::new(Mutex::new(ledger)),
                     &rules,
                     &book,
                     &Arc::new(Mutex::new(Vec::new())),
@@ -670,8 +680,10 @@ mod witnessing {
                     bound: BOUND,
                     enforce: false,
                 market: None,
+                register: false,
+                chain_path: None,
                 };
-                let _ = plumbd::serve(&listener, &layout, &ledger, &rules, &book, &log, |_| {});
+                let _ = plumbd::serve(&listener, &layout, &Arc::new(Mutex::new(ledger)), &rules, &book, &log, |_| {});
             });
         }
 
@@ -808,11 +820,13 @@ mod native_market {
                     bound: BOUND,
                     enforce: true,
                     market: Some(Arc::new(market)),
+                register: false,
+                chain_path: None,
                 };
                 let _ = plumbd::serve(
                     &listener,
                     &layout,
-                    &ledger,
+                    &Arc::new(Mutex::new(ledger)),
                     &rules,
                     &book,
                     &Arc::new(Mutex::new(Vec::new())),
@@ -902,11 +916,13 @@ mod registered_calculus {
                     bound: BOUND,
                     enforce: false,
                     market: None,
+                register: false,
+                chain_path: None,
                 };
                 let _ = plumbd::serve(
                     &listener,
                     &layout,
-                    &ledger,
+                    &Arc::new(Mutex::new(ledger)),
                     &rules,
                     &book,
                     &Arc::new(Mutex::new(Vec::new())),
@@ -999,11 +1015,13 @@ mod session_watcher {
                     bound: BOUND,
                     enforce: false,
                     market: None,
+                register: false,
+                chain_path: None,
                 };
                 let _ = plumbd::serve(
                     &listener,
                     &layout,
-                    &ledger,
+                    &Arc::new(Mutex::new(ledger)),
                     &rules,
                     &book,
                     &Arc::new(Mutex::new(Vec::new())),
@@ -1057,6 +1075,125 @@ mod session_watcher {
         assert_eq!(
             report.disputed, 1,
             "the broken claim's witness re-derived FALSE: a dispute, not a rumor"
+        );
+    }
+
+    #[test]
+    fn a_stranger_registers_live_and_is_credited_in_the_same_run() {
+        // A total stranger: OS entropy, an identity this chain has
+        // never heard of — no genesis edit, no restart. That is the
+        // whole claim of P2, tested against the real thing rather
+        // than a fixture seed.
+        let stranger = sig::Keypair::generate().expect("os entropy");
+
+        let layout = Layout::founding();
+        let court_ledger = edge_with("court");
+        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        {
+            let (layout, ledger, book) = (layout.clone(), court_ledger.clone(), Arc::clone(&book));
+            std::thread::spawn(move || {
+                let rules = plumbd::SessionRules {
+                    holder: "court".into(),
+                    bound: BOUND,
+                    enforce: true,
+                    market: None,
+                    register: true,
+                    chain_path: None,
+                };
+                let _ = plumbd::serve(
+                    &listener,
+                    &layout,
+                    &Arc::new(Mutex::new(ledger)),
+                    &rules,
+                    &book,
+                    &Arc::new(Mutex::new(Vec::new())),
+                    |_| {},
+                );
+            });
+        }
+
+        let envelope = cycle_envelope(21);
+        let outcome = plumbd::register_and_produce(
+            addr,
+            &layout,
+            "stranger",
+            BOUND,
+            &stranger,
+            &envelope,
+        )
+        .expect("one connection: register, then send, no restart in between");
+        assert!(outcome.high >= outcome.low, "a real deed came back");
+        assert_eq!(outcome.from_epoch, 0);
+
+        await_true("the stranger's claim credited", || {
+            let guard = book.lock().expect("book");
+            guard.act_len() == 1
+        });
+    }
+
+    #[test]
+    fn registering_a_name_or_a_key_already_on_the_chain_refuses() {
+        let layout = Layout::founding();
+        let mut court_ledger = edge_with("court");
+        let incumbent = sig::Keypair::from_seed([21u8; 32]);
+        super::common::bind(&mut court_ledger, "incumbent", &incumbent, 0, u64::MAX);
+        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        {
+            let (layout, ledger, book) = (layout.clone(), court_ledger.clone(), Arc::clone(&book));
+            std::thread::spawn(move || {
+                let rules = plumbd::SessionRules {
+                    holder: "court".into(),
+                    bound: BOUND,
+                    enforce: true,
+                    market: None,
+                    register: true,
+                    chain_path: None,
+                };
+                let _ = plumbd::serve(
+                    &listener,
+                    &layout,
+                    &Arc::new(Mutex::new(ledger)),
+                    &rules,
+                    &book,
+                    &Arc::new(Mutex::new(Vec::new())),
+                    |_| {},
+                );
+            });
+        }
+
+        // A fresh key, but asking for a name the chain already holds.
+        let envelope = cycle_envelope(22);
+        let name_taken = sig::Keypair::generate().expect("os entropy");
+        let by_name = plumbd::register_and_produce(
+            addr,
+            &layout,
+            "incumbent",
+            BOUND,
+            &name_taken,
+            &envelope,
+        );
+        assert!(
+            matches!(by_name, Err(plumbd::NodeBroken::Unsatisfiable)),
+            "a taken holder name refuses — the court sends no ack"
+        );
+
+        // The incumbent's OWN key, but a fresh name — the key is
+        // already someone.
+        let by_key = plumbd::register_and_produce(
+            addr,
+            &layout,
+            "someone-else",
+            BOUND,
+            &incumbent,
+            &envelope,
+        );
+        assert!(
+            matches!(by_key, Err(plumbd::NodeBroken::Unsatisfiable)),
+            "an already-bound key refuses under a new name too"
         );
     }
 }

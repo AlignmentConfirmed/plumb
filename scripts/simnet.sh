@@ -82,6 +82,7 @@ holder = court-b
 chain = $HOME_DIR/chain.tlv
 listen = 127.0.0.1:9502
 require_signatures = true
+register = true
 snapshot = $HOME_DIR/court-b.xdct
 snapshot_secs = 2
 fed_listen = 127.0.0.1:9602
@@ -149,6 +150,16 @@ every = 7
 start_n = 4
 step = 2
 EOF
+  # join-1: a STRANGER — no genesis edit, no pre-generated identity.
+  # `seed_file` names a path that does not exist yet; `plumbd join`
+  # generates it, registers live against court-b, and sends a
+  # proof-of-life claim, all in this one command.
+  cat > "$HOME_DIR/join-1.conf" <<EOF
+role = join
+holder = join-1
+peer = 127.0.0.1:9502
+seed_file = $IDENT/join-1.seed
+EOF
 }
 
 start() {
@@ -185,6 +196,13 @@ start() {
   timeout 20 "$BIN" "$HOME_DIR/witness-1.conf" >> "$HOME_DIR/witness-1.log" 2>&1 \
     && echo "witness-1: on the record (one-shot)" \
     || echo "witness-1: FAILED (see witness-1.log)"
+  # join-1: P2 exercised live — a stranger with no genesis edit joins
+  # court-b and earns in one command. Bounded for the same reason as
+  # the solver: on a RESTART join-1 is already registered, court-b
+  # refuses by closing the connection, and that must not hang the boot.
+  timeout 20 "$BIN" "$HOME_DIR/join-1.conf" >> "$HOME_DIR/join-1.log" 2>&1 \
+    && echo "join-1: joined live and sent a proof-of-life claim (one-shot)" \
+    || echo "join-1: no join (already registered on a prior boot, or see join-1.log)"
   echo "simnet up — status: $0 status"
 }
 
@@ -225,6 +243,8 @@ status() {
   witnessed=$(grep -c 'on the record' "$HOME_DIR/witness-1.log" 2>/dev/null); witnessed=${witnessed:-0}
   gw402=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9801/query 2>/dev/null || echo down)
   echo "  solver-1   native market solutions: $solved   witness-1 records: $witnessed   gateway /query: HTTP $gw402"
+  joined=$(grep -c 'joined as' "$HOME_DIR/join-1.log" 2>/dev/null); joined=${joined:-0}
+  echo "  join-1     live registrations completed (P2, no genesis edit): $joined"
 }
 
 logs() {

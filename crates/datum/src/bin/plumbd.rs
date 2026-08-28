@@ -22,11 +22,19 @@
 //! bound     = 65536            # largest record value this deployment accepts
 //! chain     = ledger/founding.tlv   # optional: replay this founding chain
 //! seed_file = ident/my-node.seed    # from `plumbd keygen` — never inline
+//! register  = true                  # court: accept live registration (P2)
 //! ```
 //!
 //! The producer role sends the demo triangle claim and exits — it
 //! exists so two machines can prove the seam. Real producers are
 //! kernels attached through the SDK.
+//!
+//! `role = join` is how a STRANGER gets onto a live network in one
+//! command: point `seed_file =` at a path (generated on the spot if
+//! it does not exist yet) and `peer =` at a court running
+//! `register = true`, and run it. One connection proves possession of
+//! the fresh key, registers it live, and sends a proof-of-life claim
+//! — no operator, no restart, no hand-edited genesis config.
 
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
@@ -49,6 +57,7 @@ struct Config {
     fed_peers: Vec<String>,
     fed_secs: u64,
     require_signatures: bool,
+    register: bool,
     seed: Option<String>,
     seed_file: Option<String>,
     market: Option<String>,
@@ -78,6 +87,7 @@ fn parse(text: &str) -> Config {
         fed_peers: Vec::new(),
         fed_secs: 10,
         require_signatures: false,
+        register: false,
         seed: None,
         seed_file: None,
         market: None,
@@ -116,6 +126,7 @@ fn parse(text: &str) -> Config {
                 }
             }
             "require_signatures" => config.require_signatures = value == "true",
+            "register" => config.register = value == "true",
             "demo" => config.demo = value,
             "upstream" => config.upstream = Some(value),
             "every" => {
@@ -447,12 +458,18 @@ fn main() {
                 }
                 None => None,
             };
+            if config.register {
+                println!("plumbd: live registration OPEN (P2) — an unbound key that proves possession gets a deed and a bind, no restart");
+            }
             let rules = plumbd::SessionRules {
                 holder: config.holder.clone(),
                 bound: config.bound,
                 enforce: config.require_signatures,
                 market,
+                register: config.register,
+                chain_path: config.chain.clone().map(std::path::PathBuf::from),
             };
+            let ledger = Arc::new(Mutex::new(ledger));
             let witnesses: plumbd::WitnessLog =
                 Arc::new(Mutex::new(Vec::new()));
             let err = plumbd::serve(
@@ -732,8 +749,64 @@ fn main() {
                 config.declares.len()
             );
         }
+        "join" => {
+            let Some(peer) = config.peers.first() else {
+                eprintln!("plumbd: join needs a `peer =` line — the court to join");
+                std::process::exit(2);
+            };
+            let Some(path) = config.seed_file.as_deref() else {
+                eprintln!("plumbd: join needs `seed_file =` — the identity to generate or reuse");
+                std::process::exit(2);
+            };
+            let path_ref = std::path::Path::new(path);
+            if !path_ref.exists() {
+                match run_keygen(path_ref) {
+                    Ok(public) => println!(
+                        "plumbd: no identity at {path} yet — generated one ({})",
+                        hex_encode(&public)
+                    ),
+                    Err(e) => {
+                        eprintln!("plumbd: keygen failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            }
+            let Some(seed) = resolve_seed(&config) else {
+                eprintln!("plumbd: join could not read the identity it just ensured exists");
+                std::process::exit(1);
+            };
+            let key = sig::Keypair::from_seed(seed);
+            let Some(envelope) = demo_envelope(&config.demo) else {
+                eprintln!("plumbd: could not build the proof-of-life claim");
+                std::process::exit(1);
+            };
+            match plumbd::register_and_produce(
+                peer.as_str(),
+                &layout,
+                &config.holder,
+                config.bound,
+                &key,
+                &envelope,
+            ) {
+                Ok(outcome) => {
+                    println!(
+                        "plumbd: joined as '{}' — deed [{}, {}], epoch window [{}, {}]",
+                        config.holder,
+                        outcome.low,
+                        outcome.high,
+                        outcome.from_epoch,
+                        outcome.until_epoch
+                    );
+                    println!("plumbd: sent the proof-of-life claim on the same connection");
+                }
+                Err(e) => {
+                    eprintln!("plumbd: join failed: {e:?} — the court may not have `register = true` set, or the holder/key is already taken");
+                    std::process::exit(1);
+                }
+            }
+        }
         other => {
-            eprintln!("plumbd: unknown role '{other}' (court | producer | carrier | client | solver | witness | genesis)");
+            eprintln!("plumbd: unknown role '{other}' (court | producer | carrier | client | solver | witness | genesis | join)");
             std::process::exit(2);
         }
     }

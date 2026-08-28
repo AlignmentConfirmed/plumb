@@ -198,6 +198,15 @@ pub struct SessionRules {
     /// A posted market, served natively over the wire (tag 85 out,
     /// receipts back on tag 81). `None` is a court with no question.
     pub market: Option<Arc<MarketPost>>,
+    /// P2: accept live registration from an unbound key that proves
+    /// possession over this session's own challenge. `false` is a
+    /// court that only ever admits the parties genesis already knew.
+    pub register: bool,
+    /// Where to flush the ledger's act log after a live registration
+    /// lands, atomically — so a restart replays it. `None` means a
+    /// successful registration would not survive a restart; courts
+    /// that set `register = true` should set this too.
+    pub chain_path: Option<std::path::PathBuf>,
 }
 
 impl std::fmt::Debug for SessionRules {
@@ -207,6 +216,8 @@ impl std::fmt::Debug for SessionRules {
             .field("bound", &self.bound)
             .field("enforce", &self.enforce)
             .field("market", &self.market.is_some())
+            .field("register", &self.register)
+            .field("chain_path", &self.chain_path)
             .finish()
     }
 }
@@ -285,6 +296,10 @@ pub struct SessionReport {
     /// Watched witnesses whose subjects FAILED re-derivation — a
     /// dispute on the record.
     pub disputed: usize,
+    /// Live registrations that landed this session (P2) — an unbound
+    /// key proved possession and was issued a deed and bound, with no
+    /// restart and no re-genesis.
+    pub registered: usize,
 }
 
 /// Serve one inbound session as the court.
@@ -295,16 +310,26 @@ pub struct SessionReport {
 pub fn court_session(
     mut stream: TcpStream,
     layout: &Layout,
-    ledger: &Ledger,
+    ledger: &Arc<Mutex<Ledger>>,
     rules: &SessionRules,
     book: &Arc<Mutex<RewardBook>>,
     witnesses: &WitnessLog,
 ) -> Result<SessionReport, NodeBroken> {
     let (holder, bound, enforce) = (rules.holder.as_str(), rules.bound, rules.enforce);
-    let ours = Hello::of(ledger, holder, u32::try_from(bound).unwrap_or(u32::MAX));
+    // A snapshot for framing OUR OWN declaration and challenge tag —
+    // read once, at session start, exactly as a per-thread clone did
+    // before this ledger could change live. Admission checks below
+    // re-lock for the CURRENT state on purpose: a registration that
+    // lands mid-session must be visible to that same session's next
+    // claim.
+    let opening = ledger
+        .lock()
+        .map_err(|_| NodeBroken::CourtUnreachable)?
+        .clone();
+    let ours = Hello::of(&opening, holder, u32::try_from(bound).unwrap_or(u32::MAX));
     let mut buffer = Vec::new();
     let _theirs = read_hello(&mut stream, &mut buffer, layout, &ours, bound)?;
-    send_hello(&mut stream, layout, hello_tag(ledger, holder), &ours)?;
+    send_hello(&mut stream, layout, hello_tag(&opening, holder), &ours)?;
 
     // IS-2/2 — the session challenge: eight bytes of entropy, framed,
     // sent once per session right after the declaration. A replayed
@@ -312,7 +337,7 @@ pub fn court_session(
     // never issued again.
     let token = sig::session_token().map_err(|_| NodeBroken::CannotFrame)?;
     let mut challenge_frame = Vec::new();
-    isthmus::frame::put_frame(layout, hello_tag(ledger, holder), &token, &mut challenge_frame)
+    isthmus::frame::put_frame(layout, hello_tag(&opening, holder), &token, &mut challenge_frame)
         .map_err(|_| NodeBroken::CannotFrame)?;
     stream.write_all(&challenge_frame)?;
 
@@ -335,6 +360,10 @@ pub fn court_session(
     // What this session saw cross, most recent last — the subjects a
     // session-local watcher can be HANDED (it may not fetch, §6.1).
     let mut seen_envelopes: Vec<Vec<u8>> = Vec::new();
+    // P2: a register request, held until the attestation proving
+    // possession of ITS key arrives — the same displaced-envelope
+    // discipline a work claim gets, applied to a bind-in-waiting.
+    let mut pending_register: Option<crate::registration::RegisterRequest> = None;
     while let Some((tag, frame)) = read_record(&mut stream, &mut buffer, layout, bound)? {
         if isthmus::work::is_work_tag(tag) && tag != isthmus::work::RECEIPT_TAG {
             if !enforce {
@@ -350,17 +379,96 @@ pub fn court_session(
                 }
                 pending = Some(frame);
             }
+        } else if rules.register && tag == crate::registration::REGISTER_TAG {
+            if session_live {
+                report.skipped += 1; // registration is a pre-admission act only
+            } else {
+                match crate::registration::RegisterRequest::decode(
+                    frame.get(layout.header()..).unwrap_or(&[]),
+                ) {
+                    Ok(request) => {
+                        if pending_register.replace(request).is_some() {
+                            report.refused += 1; // a second request displaced the first
+                        }
+                    }
+                    Err(_) => report.refused += 1,
+                }
+            }
         } else if enforce && tag == admission::ATTESTATION_TAG {
             if !session_live {
+                let attestation_bytes = frame.get(layout.header()..).unwrap_or(&[]);
+                if let Some(request) = pending_register.take() {
+                    // P2: proof of possession over THIS session's own
+                    // challenge, then the ledger-level rules — never
+                    // the ordinary admission path, which would
+                    // (correctly) refuse a key that is not bound yet.
+                    let outcome = (|| {
+                        crate::registration::verify_possession(
+                            &request,
+                            &challenge_frame,
+                            attestation_bytes,
+                        )
+                        .map_err(|_| ())?;
+                        let epoch = {
+                            let guard =
+                                book.lock().map_err(|_| ())?;
+                            guard.open_epoch().unwrap_or(0)
+                        };
+                        let mut guard = ledger.lock().map_err(|_| ())?;
+                        let deed = crate::registration::bind_live(&mut guard, &request, epoch)
+                            .map_err(|_| ())?;
+                        if let Some(path) = &rules.chain_path {
+                            let _ = crate::registration::persist_chain_atomic(path, &guard);
+                        }
+                        Ok::<_, ()>((deed, epoch))
+                    })();
+                    match outcome {
+                        Ok((deed, epoch)) => {
+                            let ack = crate::registration::RegisterOutcome {
+                                low: deed.low(),
+                                high: deed.high(),
+                                from_epoch: epoch,
+                                until_epoch: u64::MAX,
+                            };
+                            let mut wire = Vec::new();
+                            isthmus::frame::put_frame(
+                                layout,
+                                crate::registration::REGISTER_TAG,
+                                &ack.encode(),
+                                &mut wire,
+                            )
+                            .map_err(|_| NodeBroken::CannotFrame)?;
+                            stream.write_all(&wire)?;
+                            session_live = true;
+                            report.registered += 1;
+                        }
+                        // A refused registration closes here, same as
+                        // a court that refuses a market answer: the
+                        // client waiting on a response cannot tell
+                        // refusal from slowness any other way, and
+                        // this session's challenge is already spent —
+                        // looping back to await a NEW attestation
+                        // would just deadlock a client that is, in
+                        // turn, waiting on this ack.
+                        Err(()) => {
+                            report.refused += 1;
+                            return Ok(report);
+                        }
+                    }
+                    continue;
+                }
                 // The first attestation must answer THIS session's
                 // challenge. A stale answer — a replayed session —
                 // refuses, and the session never goes live.
-                let attestation = frame.get(layout.header()..).unwrap_or(&[]);
                 let epoch = {
                     let guard = book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
                     guard.open_epoch().unwrap_or(0)
                 };
-                match admission::admit(ledger, epoch, &challenge_frame, attestation) {
+                let admitted = {
+                    let guard = ledger.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
+                    admission::admit(&guard, epoch, &challenge_frame, attestation_bytes)
+                };
+                match admitted {
                     Ok(_holder) => session_live = true,
                     Err(_) => report.refused += 1,
                 }
@@ -373,7 +481,11 @@ pub fn court_session(
             let attestation = frame.get(layout.header()..).unwrap_or(&[]);
             let guard = book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
             let epoch = guard.open_epoch().unwrap_or(0);
-            match admission::admit(ledger, epoch, &envelope, attestation) {
+            let admitted = {
+                let ledger_guard = ledger.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
+                admission::admit(&ledger_guard, epoch, &envelope, attestation)
+            };
+            match admitted {
                 Ok(_holder) => {
                     let value = envelope.get(layout.header()..).unwrap_or(&[]).to_vec();
                     remember(&mut seen_envelopes, envelope.clone());
@@ -384,7 +496,12 @@ pub fn court_session(
                 }
                 Err(_) => report.refused += 1,
             }
-        } else if ledger.declaration_of(tag).is_some() {
+        } else if ledger
+            .lock()
+            .map_err(|_| NodeBroken::CourtUnreachable)?
+            .declaration_of(tag)
+            .is_some()
+        {
             // UC4, LIVE: a tag with a registered definition on this
             // court's chain is judged against that definition — the
             // discipline the chain taught, applied on the wire. Under
@@ -392,12 +509,11 @@ pub fn court_session(
             // here the claim must inhabit the registered universe and
             // close in it.
             let value = frame.get(layout.header()..).unwrap_or(&[]);
-            match crate::domains::verify_registered(
-                ledger,
-                tag,
-                value,
-                assay::complex::DEFAULT_FUEL,
-            ) {
+            let verified = {
+                let guard = ledger.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
+                crate::domains::verify_registered(&guard, tag, value, assay::complex::DEFAULT_FUEL)
+            };
+            match verified {
                 Ok(_spent) => {
                     let mut guard = book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
                     match guard.credit_claim(value) {
@@ -455,7 +571,7 @@ pub fn court_session(
 pub fn serve(
     listener: &TcpListener,
     layout: &Layout,
-    ledger: &Ledger,
+    ledger: &Arc<Mutex<Ledger>>,
     rules: &SessionRules,
     book: &Arc<Mutex<RewardBook>>,
     witnesses: &WitnessLog,
@@ -466,7 +582,7 @@ pub fn serve(
         match listener.accept() {
             Ok((stream, _peer)) => {
                 let layout = layout.clone();
-                let ledger = ledger.clone();
+                let ledger = Arc::clone(ledger);
                 let rules = rules.clone();
                 let book = Arc::clone(book);
                 let witnesses = Arc::clone(witnesses);
@@ -564,6 +680,76 @@ fn produce_inner(
         sent += 1;
     }
     Ok(sent)
+}
+
+/// Join a live network in one connection: declare with no deed (there
+/// is none yet — a fresh empty ledger is exactly the right thing to
+/// declare with), prove possession of a freshly generated key over
+/// THIS session's own challenge (registering, not admitting), and —
+/// once the court's ack shows the bind landed — send one signed claim
+/// on the SAME connection through the now-ordinary admission path.
+/// Registration and first credit in one run: no restart, no
+/// re-genesis, no operator hand-editing a config.
+pub fn register_and_produce(
+    addr: impl ToSocketAddrs,
+    layout: &Layout,
+    holder: &str,
+    bound: usize,
+    key: &sig::Keypair,
+    envelope: &[u8],
+) -> Result<crate::registration::RegisterOutcome, NodeBroken> {
+    let empty = Ledger::new(Layout::founding());
+    let mut stream = TcpStream::connect(addr)?;
+    let ours = Hello::of(&empty, holder, u32::try_from(bound).unwrap_or(u32::MAX));
+    send_hello(&mut stream, layout, hello_tag(&empty, holder), &ours)?;
+    let mut buffer = Vec::new();
+    let _court = read_hello(&mut stream, &mut buffer, layout, &ours, bound)?;
+    let (_ctag, challenge_frame) = read_record(&mut stream, &mut buffer, layout, bound)?
+        .ok_or(NodeBroken::NoDeclaration)?;
+
+    let request = crate::registration::RegisterRequest {
+        holder: holder.to_owned(),
+        scheme: sig::SCHEME_ED25519_BLAKE3,
+        key: key.public(),
+    };
+    let mut request_wire = Vec::new();
+    isthmus::frame::put_frame(
+        layout,
+        crate::registration::REGISTER_TAG,
+        &request.encode(),
+        &mut request_wire,
+    )
+    .map_err(|_| NodeBroken::CannotFrame)?;
+    stream.write_all(&request_wire)?;
+
+    let proof = key.attest(&challenge_frame);
+    let mut proof_wire = Vec::new();
+    isthmus::frame::put_frame(layout, admission::ATTESTATION_TAG, &proof.encode(), &mut proof_wire)
+        .map_err(|_| NodeBroken::CannotFrame)?;
+    stream.write_all(&proof_wire)?;
+
+    let Some((ack_tag, ack_frame)) = read_record(&mut stream, &mut buffer, layout, bound)? else {
+        return Err(NodeBroken::Unsatisfiable); // closed with no ack: the court refused
+    };
+    if ack_tag != crate::registration::REGISTER_TAG {
+        return Err(NodeBroken::Unsatisfiable);
+    }
+    let outcome = crate::registration::RegisterOutcome::decode(
+        ack_frame.get(layout.header()..).unwrap_or(&[]),
+    )
+    .map_err(|_| NodeBroken::Unsatisfiable)?;
+
+    // Bound now — the SAME connection's challenge was already spent
+    // proving possession, so this claim answers admission the
+    // ordinary way: envelope, then the attestation over it.
+    stream.write_all(envelope)?;
+    let attestation = key.attest(envelope);
+    let mut wire = Vec::new();
+    isthmus::frame::put_frame(layout, admission::ATTESTATION_TAG, &attestation.encode(), &mut wire)
+        .map_err(|_| NodeBroken::CannotFrame)?;
+    stream.write_all(&wire)?;
+
+    Ok(outcome)
 }
 
 /// One carried session: records from `client` forwarded to `upstream`

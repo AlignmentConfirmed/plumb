@@ -55,6 +55,7 @@ pub mod onramp;
 pub mod plumbd;
 pub mod query;
 pub mod receipt;
+pub mod registration;
 pub mod registry;
 pub mod reward;
 pub mod sample;
