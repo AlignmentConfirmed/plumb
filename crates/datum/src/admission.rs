@@ -17,12 +17,11 @@
 //! that refuses a mis-signed envelope at admission is still a carrier.
 
 use isthmus::deed::Ledger;
-use isthmus::layout::Tag;
 
-/// The tag an attestation record travels under: inside the work band
-/// (80–127, assay's grant on the founding edge), beside the claim
-/// tags 80–82 it attests to.
-pub const ATTESTATION_TAG: Tag = 83;
+// K1: canonical home is `sdk::submit` now — a kernel that never links
+// datum must agree on this byte too. Re-exported so every existing
+// `admission::ATTESTATION_TAG` reference is unchanged.
+pub use sdk::submit::ATTESTATION_TAG;
 
 /// Why admission refused. Every arm is a decision, not a guess.
 #[derive(Debug, Clone, PartialEq, Eq)]

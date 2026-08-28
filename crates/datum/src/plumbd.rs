@@ -78,10 +78,11 @@ impl<T: ReadWrite + ?Sized> ReadWrite for Box<T> {
     }
 }
 
-/// The tag a posted query travels under: the court announces its
-/// question right after the session challenge, natively — no HTTP in
-/// the loop. Beside claims (80–82), attestation (83), witness (84).
-pub const QUERY_TAG: Tag = 85;
+// K1: canonical home is `sdk::submit` now — the court announces its
+// question right after the session challenge, natively, no HTTP; a
+// kernel that never links datum must agree on this byte too.
+// Re-exported so every existing `QUERY_TAG` reference is unchanged.
+pub use sdk::submit::QUERY_TAG;
 
 /// A demand-posed market a court serves natively: the question, its
 /// bounty, and the receipt-signing identity.

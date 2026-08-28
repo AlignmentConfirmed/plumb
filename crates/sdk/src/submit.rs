@@ -11,6 +11,19 @@ use isthmus::Malformed;
 
 pub use isthmus::work::{classify, Envelope, CLAIM_TAG, RECEIPT_TAG, SHAPE_CLAIM_TAG};
 
+/// The tag a posted query (X1) or conjecture (SQ4) announcement
+/// travels under: beside the claim tags (80–82), the attestation tag
+/// (83), and witness (84). Canonical here so a court and a kernel
+/// that never links the court still agree on the byte.
+pub const QUERY_TAG: Tag = 85;
+
+/// The tag an attestation record travels under: beside the claim
+/// tags it attests to (80–82), inside the work band (80–127).
+/// Canonical here for the same reason as [`QUERY_TAG`] — a kernel
+/// checking or producing an attestation frame must agree on this byte
+/// without linking `datum`.
+pub const ATTESTATION_TAG: Tag = 83;
+
 /// A boundary-domain claim (PoWC), enveloped for the highway.
 pub fn claim(body: &[u8]) -> Result<Vec<u8>, Malformed> {
     let mut out = Vec::new();
