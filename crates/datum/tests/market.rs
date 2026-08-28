@@ -437,7 +437,7 @@ mod receipts {
     // ── X4: the facilitator vector ──────────────────────────────────────
 
     /// The regeneration path — never hand-typed. Run explicitly:
-    /// `cargo test -p plumb-datum --test receipts -- --ignored`
+    /// `cargo test -p plumb-datum --test market -- --ignored`
     #[test]
     #[ignore = "writes the committed vector; run on codec change, then commit"]
     fn regenerate_the_facilitator_vector() {

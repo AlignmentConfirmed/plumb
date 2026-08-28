@@ -204,11 +204,11 @@ Stated plainly, because discovering these later is worse.
 cargo test
 ```
 
-43 tests. `tests/vectors.rs` asserts every byte string `IS-1` §9
+43 tests. `tests/wire_suite.rs (mod vectors)` asserts every byte string `IS-1` §9
 publishes for the frames this crate owns, in **both** directions — one
 direction alone passes for a codec that is consistently wrong.
 
-`tests/refusals.rs` constructs one input per row of the §4 table **and
+`tests/wire_suite.rs (mod refusals)` constructs one input per row of the §4 table **and
 one that must be accepted for each**. A reader that refuses everything
 passes a table of refusals perfectly; a gate is only a gate once both
 sides of it are built.

@@ -47,7 +47,7 @@ space: correct on one axis and unfunded on another settles nothing.
 There is no total "score"; `volume()` (the product across axes) was
 deliberately struck from the code, because collapsing axes into one
 number is exactly the flattening this language exists to refuse.
-*Enforced:* `datum::extent`, `reward` multi-axis cover, `tests/board.rs`.
+*Enforced:* `datum::extent`, `reward` multi-axis cover, `tests/court_laws.rs (mod board)`.
 
 ### 2 · Nouns are regions, not points
 
@@ -66,7 +66,7 @@ Dimensionality is not a design-time constant: the board has priced
 an axis opened later reads every earlier deed as pinned to its zero
 slice — old sentences stay true in the larger space.
 *Enforced:* `Act::Open`, `Estate::Galaxy { axes, region }`,
-`tests/master_equation.rs` (laws S · E · C · W · M).
+`tests/estates.rs (mod master_equation)` (laws S · E · C · W · M).
 
 ### 4 · Time is a partial order, not a line
 
@@ -87,7 +87,7 @@ gives the language a dimension *across* ledgers: what a chain knows
 of other chains is a **frontier** (how far into each it has seen),
 and multi-chain knowledge is a **sphere of frontiers**, not a merged
 log. Plumbline can talk about speech it does not carry.
-*Enforced:* `isthmus::sphere`, `tests/vertical.rs`.
+*Enforced:* `isthmus::sphere`, `tests/estates.rs (mod vertical)`.
 
 ### 6 · Meaning varies by speaker-pair, and no one is wrong
 

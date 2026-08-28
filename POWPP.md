@@ -99,8 +99,8 @@ Kirchhoff-conserving loop currents on $n$-rings, each a different
 $n$, each verified by exact cancellation. An open chain refuses as
 `OpenBoundary{cell}` — the refusal names the leaking cell.
 
-*(Enforced: `assay::complex`, `tests/declared.rs`,
-`tests/domains.rs`. The engine's fixed axioms are exactly (i) and
+*(Enforced: `assay::complex`, `tests/complex_laws.rs (mod declared)`,
+`tests/market.rs (mod domains)`. The engine's fixed axioms are exactly (i) and
 (ii) plus exactness and fuel; every geometry — hexagon, five-simplex,
 anything — is data.)*
 

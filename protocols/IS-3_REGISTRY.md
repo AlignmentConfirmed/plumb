@@ -199,7 +199,7 @@ resolved**: `Deed::collisions` names the pair and the author renames
 one. Silently probing past it would trade a visible refusal for a
 property nobody could rely on.
 
-Held by `isthmus/tests/derivation_laws.rs` — determinism, containment,
+Held by `isthmus/tests/deed_suite.rs (mod derivation_laws)` — determinism, containment,
 cross-holder disjointness, stability under growth, order-invariant
 collision reporting, and the refusal to derive anything from a deed
 with no region (which would land on tag 0, the void).

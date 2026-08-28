@@ -113,7 +113,7 @@ reason the signature does: the answer binds bytes, not routes).
 
 Lenient courts emit the challenge and do not demand the answer; an
 unsigned peer reads past it. Enforced by `datum::plumbd`
-(`tests/session_freshness.rs`, including the replayed-session and
+(`tests/wire.rs (mod session_freshness)`, including the replayed-session and
 through-carrier measurements).
 
 **Session still detects no replay.** That is deliberate (§6.1).
@@ -274,7 +274,7 @@ declarations about one direction, and deduping keeps the first, which
 silently discards the second. `IS-6` §8 names it as a flaw rather than
 folding it away — see `Flaw::AxisRedeclared`.
 
-Held by `isthmus/tests/replay_laws.rs`, as **one law over every act**
+Held by `isthmus/tests/deed_suite.rs (mod replay_laws)`, as **one law over every act**
 rather than one test per act, with a coverage gate asserting the act
 table and the codec's tags are the same set. A ninth act arriving
 without a row fails `r2` rather than passing silently.

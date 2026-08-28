@@ -31,7 +31,7 @@ mirrored in [`ROADMAP.md`](ROADMAP.md).
   rotation is an append; a bind covers no ground; unbound holders
   read as legacy. Strict predicate: `sdk::grant::authorizes_presenter`.
 
-**Enforcement (built — `datum::admission`, `tests/admission.rs`):**
+**Enforcement (built — `datum::admission`, `tests/wire.rs (mod admission)`):**
 
 | ID | task | status |
 |---|---|---|
@@ -78,11 +78,11 @@ compiled path stays until UC5's verdict-equivalence suite is green.
 
 | ID | task | done when |
 |---|---|---|
-| **UC1** | Declared-complex codec: incidence + boundary operators + exact weights as data, no geometry structs | **DONE** — `assay::complex`, `tests/declared.rs`: hexagon ≠ five-simplex as bytes |
+| **UC1** | Declared-complex codec: incidence + boundary operators + exact weights as data, no geometry structs | **DONE** — `assay::complex`, `tests/complex_laws.rs (mod declared)`: hexagon ≠ five-simplex as bytes |
 | **UC2** | Fixed evaluator in assay: submitted chain closes against a declared complex, exact arithmetic, fuel-bounded | **DONE** — ∂∂=0 admitted, closure checked, `OpenBoundary` names the leaking cell, `FuelExhausted` refuses |
 | **UC3** | Domain-3 claim body: complex reference + witness; content-addressed `work_id` | **DONE** — `DOMAIN_DECLARED=3` through `WorkBody`; replay refuses across transports; multi-axial credit per declared dimension |
 | **UC4** | Domain registration on chain, bound to a tag grant; courts resolve tag → definition from chain state | **DONE** — `Act::Declare` (IS-6/5), `Ledger::declaration_of`, `datum::domains::verify_registered`; a definition lapses with its grant; registration is not trust (bad definitions refuse at judgment) |
-| **UC5** | Shape re-expressed as declared complex; verdict equivalence vs compiled domain 2 | **DONE** — `complex::from_shape`, `tests/shape_equivalence.rs` over the constructible corpus; charges survive exactly |
+| **UC5** | Shape re-expressed as declared complex; verdict equivalence vs compiled domain 2 | **DONE** — `complex::from_shape`, `tests/complex_laws.rs (mod shape_equivalence)` over the constructible corpus; charges survive exactly |
 | **UC6** | Fuel/size bounds priced as board axes | **DONE** — metered verify returns spent; `FuelExhausted { budget }` names the price; `domains::fuel_budget` reads it off a board price axis |
 
 Registration authority (ruled here): publishing a domain definition

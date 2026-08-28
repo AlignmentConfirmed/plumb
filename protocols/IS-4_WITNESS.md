@@ -4,7 +4,7 @@
 `isthmus::witness` (the frame, refuse-not-repair on arm and revision),
 `datum::witnessing` (the watcher, held to all four §6 prohibitions;
 the court's witness log; tag 84 in the court's own grant), the fourth
-`plumbd` role, `tests/witness_frame.rs` + `tests/witnessing.rs`.
+`plumbd` role, `tests/wire_suite.rs (mod witness_frame)` + `tests/wire.rs (mod witnessing)`.
 §8 stands: the verdict frame remains unsettled — watchers return
 reports above the substrate, not on the wire. Grounded in the lab's
 `measure/witnesses.md`, which surveyed every witness-shaped type
