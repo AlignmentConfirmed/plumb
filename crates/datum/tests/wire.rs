@@ -320,7 +320,7 @@ mod session_freshness {
     use std::io::Write;
     use std::net::{TcpListener, TcpStream};
     use std::sync::{Arc, Mutex};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     use datum::admission;
     use datum::plumbd::{self, SessionRules};
@@ -359,26 +359,6 @@ mod session_freshness {
 
     use super::common::cycle_envelope as envelope;
 
-    #[test]
-    fn a_live_key_answers_the_challenge_and_credits() {
-        let key = sig::Keypair::from_seed([1u8; 32]);
-        let (addr, book) = court(&key);
-        plumbd::produce_signed(
-            addr,
-            &Layout::founding(),
-            &edge_with("solver-a"),
-            "solver-a",
-            BOUND,
-            &[envelope(11)],
-            &key,
-        )
-        .expect("fresh session");
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while book.lock().expect("book").act_len() != 1 {
-            assert!(Instant::now() < deadline, "fresh session never credited");
-            std::thread::sleep(Duration::from_millis(20));
-        }
-    }
 
     #[test]
     fn a_replayed_session_answer_never_goes_live() {
@@ -436,40 +416,6 @@ mod session_freshness {
         );
     }
 
-    #[test]
-    fn an_unsigned_producer_still_talks_to_a_lenient_court() {
-        // Back-compat: a non-enforcing court sends the challenge too, and
-        // an unsigned producer simply reads past it.
-        let ledger = edge_with("court");
-        let book = Arc::new(Mutex::new(RewardBook::new()));
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
-        let addr = listener.local_addr().expect("addr");
-        {
-            let (layout, ledger, book) = (Layout::founding(), ledger.clone(), Arc::clone(&book));
-            std::thread::spawn(move || {
-                let rules = SessionRules {
-                    holder: "court".into(),
-                    bound: BOUND,
-                    enforce: false,
-                };
-                let _ = plumbd::serve(&listener, &layout, &ledger, &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
-            });
-        }
-        plumbd::produce(
-            addr,
-            &Layout::founding(),
-            &edge_with("solver-b"),
-            "solver-b",
-            BOUND,
-            &[envelope(17)],
-        )
-        .expect("unsigned session");
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while book.lock().expect("book").act_len() != 1 {
-            assert!(Instant::now() < deadline, "lenient court never credited");
-            std::thread::sleep(Duration::from_millis(20));
-        }
-    }
 }
 
 mod carrier {

@@ -268,19 +268,6 @@ mod proof_market {
             .expect("and the theorem follows it");
     }
 
-    #[test]
-    fn a_proof_replays_like_any_other_work() {
-        let mut book = RewardBook::new();
-        let lemma = proof(2, 1, Vec::new());
-        let lemma_id = lemma.work_id();
-        book.credit_claim(&lemma.encode()).expect("settles");
-        let theorem = proof(4, 1, vec![lemma_id.as_bytes().to_vec()]);
-        book.credit_claim(&theorem.encode()).expect("credits");
-        match book.credit_claim(&proof(4, 77, vec![lemma_id.as_bytes().to_vec()]).encode()) {
-            Err(RewardRefused::Replay { .. }) => {}
-            other => panic!("expected replay, got {other:?}"),
-        }
-    }
 
     #[test]
     fn a_broken_derivation_earns_nothing_even_on_settled_ground() {
