@@ -847,3 +847,105 @@ mod native_market {
         assert_eq!(signed.receipt.query_id, heard.query_id());
     }
 }
+
+mod registered_calculus {
+    //! SQ3's done-when: a machine-checkable derivation in a CHAIN-
+    //! REGISTERED calculus settles end to end — announced by Declare,
+    //! judged by the session, credited by the book. The court was
+    //! never compiled to know the sorting monoid; the chain taught it.
+
+    use std::io::Write;
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::{Arc, Mutex};
+
+    use datum::plumbd::{self, SessionRules};
+    use datum::reward::RewardBook;
+    use isthmus::deed::Act;
+    use isthmus::hello::Hello;
+    use isthmus::layout::Layout;
+
+    use super::common::{await_true, edge_with, BOUND};
+
+    #[test]
+    fn a_derivation_in_a_chain_taught_calculus_settles_over_the_wire() {
+        let compiled = assay::rewrite::Presentation {
+            alphabet: vec![b'a', b'b'],
+            rules: vec![(vec![b'b', b'a'], vec![b'a', b'b'])],
+        }
+        .compile(3)
+        .expect("compiles");
+
+        // The chain: "logician" holds a range and registers the
+        // compiled calculus on its low tag.
+        let mut ledger = edge_with("court");
+        ledger.issue("logician", 16).expect("room");
+        let tag = ledger
+            .deeds()
+            .into_iter()
+            .find(|d| d.live && d.holder == "logician")
+            .expect("issued")
+            .low();
+        ledger.record(Act::Declare {
+            holder: "logician".into(),
+            tag,
+            definition: compiled.complex.encode(),
+        });
+
+        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        {
+            let (layout, ledger, book) = (Layout::founding(), ledger.clone(), Arc::clone(&book));
+            std::thread::spawn(move || {
+                let rules = SessionRules {
+                    holder: "court".into(),
+                    bound: BOUND,
+                    enforce: false,
+                    market: None,
+                };
+                let _ = plumbd::serve(
+                    &listener,
+                    &layout,
+                    &ledger,
+                    &rules,
+                    &book,
+                    &Arc::new(Mutex::new(Vec::new())),
+                    |_| {},
+                );
+            });
+        }
+
+        // The derivation bba → bab → abb, framed under the calculus
+        // tag and sent raw over the session.
+        let bba = compiled.word(b"bba").expect("axiom");
+        let bab = compiled.word(b"bab").expect("mid");
+        let abb = compiled.word(b"abb").expect("theorem");
+        let body = assay::complex::ProofClaim {
+            transport: 1,
+            complex: compiled.complex.clone(),
+            dim: 1,
+            target: compiled.target(bba, abb).expect("target"),
+            witness: compiled.derive(&[bba, bab, abb]).expect("licensed"),
+            deps: Vec::new(),
+        }
+        .encode();
+
+        let layout = Layout::founding();
+        let ours = Hello::of(&ledger, "logician", BOUND as u32);
+        let mut stream = TcpStream::connect(addr).expect("connect");
+        plumbd::send_hello(&mut stream, &layout, tag, &ours).expect("hello");
+        let mut buf = Vec::new();
+        let _court = plumbd::read_hello(&mut stream, &mut buf, &layout, &ours, BOUND).expect("court");
+        let _challenge = plumbd::read_record(&mut stream, &mut buf, &layout, BOUND)
+            .expect("read")
+            .expect("challenge");
+        let mut wire = Vec::new();
+        isthmus::frame::put_frame(&layout, tag, &body, &mut wire).expect("frames");
+        stream.write_all(&wire).expect("sends");
+        drop(stream);
+
+        await_true("the derivation settled", || {
+            book.lock().expect("book").act_len() == 1
+        });
+    }
+}

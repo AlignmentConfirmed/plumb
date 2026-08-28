@@ -56,11 +56,28 @@ pub fn verify_registered(
         .ok_or(DomainRefused::Unregistered)?;
     let registered =
         DeclaredComplex::decode(&definition).map_err(DomainRefused::BadDefinition)?;
-    let claim = DeclaredClaim::decode(body).map_err(DomainRefused::NotDeclared)?;
-    if claim.complex != registered {
-        return Err(DomainRefused::WrongUniverse);
+    // Two claim shapes inhabit a registered universe: a cycle
+    // (domain 3, ∂c = 0) and a DERIVATION (domain 4, ∂c = target —
+    // the proof shape, SQ3). Either way the universe must BE the
+    // registered one; the target, when present, is the claim's own
+    // assertion and is verified exactly.
+    match body.first().copied() {
+        Some(assay::complex::DOMAIN_PROOF) => {
+            let proof = assay::complex::ProofClaim::decode(body)
+                .map_err(DomainRefused::NotDeclared)?;
+            if proof.complex != registered {
+                return Err(DomainRefused::WrongUniverse);
+            }
+            proof.verify(fuel).map_err(DomainRefused::Broken)
+        }
+        _ => {
+            let claim = DeclaredClaim::decode(body).map_err(DomainRefused::NotDeclared)?;
+            if claim.complex != registered {
+                return Err(DomainRefused::WrongUniverse);
+            }
+            claim.verify(fuel).map_err(DomainRefused::Broken)
+        }
     }
-    claim.verify(fuel).map_err(DomainRefused::Broken)
 }
 
 /// UC6 — the fuel budget a priced space grants, read off a board

@@ -950,3 +950,85 @@ mod work_laws {
         assert_ne!(a.work_id(), other.work_id());
     }
 }
+
+mod rewrite_laws {
+    //! SQ3: the calculus compiles soundly — every 1-cell is a legal
+    //! rewrite (swept programmatically), and an illegal inference
+    //! FAILS TO EXIST as a cell rather than merely being refused.
+
+    #![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
+    #![allow(clippy::indexing_slicing)]
+
+    use assay::complex::DEFAULT_FUEL;
+    use assay::rewrite::{Presentation, RewriteBroken};
+
+    /// The sorting monoid: ⟨a, b | ba → ab⟩.
+    fn sorting() -> Presentation {
+        Presentation {
+            alphabet: vec![b'a', b'b'],
+            rules: vec![(vec![b'b', b'a'], vec![b'a', b'b'])],
+        }
+    }
+
+    #[test]
+    fn every_compiled_cell_is_a_legal_rewrite_swept_independently() {
+        let compiled = sorting().compile(3).expect("compiles");
+        assert_eq!(compiled.words.len(), 15, "ε + 2 + 4 + 8");
+        assert_eq!(compiled.steps.len(), 5, "the five occurrences of 'ba'");
+
+        // The sweep re-derives every step by plain string surgery —
+        // an implementation-independent check of the whole universe.
+        for step in &compiled.steps {
+            let from = &compiled.words[step.from];
+            let to = &compiled.words[step.to];
+            assert_eq!(&from[step.at..step.at + 2], b"ba", "the rule matched");
+            let mut expected = from.clone();
+            expected[step.at] = b'a';
+            expected[step.at + 1] = b'b';
+            assert_eq!(to, &expected, "and produced exactly the rewrite");
+        }
+
+        // And the compiled universe is a lawful complex.
+        compiled.complex.admit(DEFAULT_FUEL).expect("a complex");
+    }
+
+    #[test]
+    fn an_illegal_inference_fails_to_exist_as_a_cell() {
+        let compiled = sorting().compile(3).expect("compiles");
+        let ab = compiled.word(b"ab").expect("in universe");
+        let ba = compiled.word(b"ba").expect("in universe");
+
+        // The licensed direction exists…
+        assert!(compiled.step_between(ba, ab).is_some());
+        // …its REVERSE does not — not refused, ABSENT. The calculus
+        // cannot express the illegal inference at all.
+        assert!(compiled.step_between(ab, ba).is_none());
+        assert_eq!(
+            compiled.derive(&[ab, ba]),
+            Err(RewriteBroken::NoLicensedStep { from: ab, to: ba })
+        );
+    }
+
+    #[test]
+    fn the_derivation_closes_onto_its_theorem() {
+        let compiled = sorting().compile(3).expect("compiles");
+        let bba = compiled.word(b"bba").expect("axiom");
+        let bab = compiled.word(b"bab").expect("midpoint");
+        let abb = compiled.word(b"abb").expect("theorem");
+
+        let proof = assay::complex::ProofClaim {
+            transport: 0,
+            complex: compiled.complex.clone(),
+            dim: 1,
+            target: compiled.target(bba, abb).expect("target"),
+            witness: compiled.derive(&[bba, bab, abb]).expect("two licensed steps"),
+            deps: Vec::new(),
+        };
+        proof.verify(DEFAULT_FUEL).expect("bba → bab → abb, watertight");
+
+        // The gappy derivation refuses at the evaluator, as SQ1 law.
+        let mut gappy = proof;
+        gappy.witness = compiled.derive(&[bba, bab]).expect("one step");
+        assert!(gappy.verify(DEFAULT_FUEL).is_err(), "half a proof is no proof");
+    }
+}
