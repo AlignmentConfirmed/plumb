@@ -28,8 +28,29 @@ use isthmus::layout::{Layout, Tag};
 use isthmus::session::{self, Step};
 
 use crate::admission;
+use crate::bounty::{settle_answer, Bounty};
+use crate::query::Query;
+use crate::receipt;
 use crate::reward::RewardBook;
 use crate::witnessing;
+
+/// The tag a posted query travels under: the court announces its
+/// question right after the session challenge, natively — no HTTP in
+/// the loop. Beside claims (80–82), attestation (83), witness (84).
+pub const QUERY_TAG: Tag = 85;
+
+/// A demand-posed market a court serves natively: the question, its
+/// bounty, and the receipt-signing identity.
+pub struct MarketPost {
+    /// The question (X1).
+    pub query: Query,
+    /// Its priced budget and rates (O1).
+    pub bounty: Bounty,
+    /// The issuing court's name on the chain.
+    pub court: String,
+    /// The court's receipt-signing key.
+    pub key: sig::Keypair,
+}
 
 /// Where a court keeps what witnesses put on the record.
 pub type WitnessLog = Arc<Mutex<Vec<isthmus::witness::Witness>>>;
@@ -150,7 +171,7 @@ pub fn read_hello(
 
 /// How a court runs its sessions: one struct, so the daemon, the
 /// tests, and future roles pass the same rules the same way.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SessionRules {
     /// What the chain calls this court.
     pub holder: String,
@@ -159,6 +180,67 @@ pub struct SessionRules {
     /// S4: hold every work envelope for its attestation and refuse
     /// forged / stale / unbound / orphaned presentations.
     pub enforce: bool,
+    /// A posted market, served natively over the wire (tag 85 out,
+    /// receipts back on tag 81). `None` is a court with no question.
+    pub market: Option<Arc<MarketPost>>,
+}
+
+impl std::fmt::Debug for SessionRules {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionRules")
+            .field("holder", &self.holder)
+            .field("bound", &self.bound)
+            .field("enforce", &self.enforce)
+            .field("market", &self.market.is_some())
+            .finish()
+    }
+}
+
+/// Credit a work value — through the posted market when the claim
+/// inhabits the poser's universe (settling the bounty and returning
+/// the signed receipt on the wire), through the plain book otherwise.
+fn credit_value(
+    stream: &mut TcpStream,
+    layout: &Layout,
+    rules: &SessionRules,
+    book: &mut RewardBook,
+    value: &[u8],
+    report: &mut SessionReport,
+) -> Result<(), NodeBroken> {
+    if let Some(market) = &rules.market {
+        match settle_answer(&market.bounty, &market.query, value, book) {
+            Ok(answer) => {
+                let epoch = book.open_epoch().unwrap_or(0);
+                let signed = receipt::issue(
+                    &market.court,
+                    epoch,
+                    market.query.query_id(),
+                    &answer.credit,
+                    &market.key,
+                );
+                let mut body = signed.receipt.encode();
+                body.extend_from_slice(&signed.attestation.encode());
+                let mut wire = Vec::new();
+                isthmus::frame::put_frame(layout, isthmus::work::RECEIPT_TAG, &body, &mut wire)
+                    .map_err(|_| NodeBroken::CannotFrame)?;
+                stream.write_all(&wire)?;
+                report.credited += 1;
+                return Ok(());
+            }
+            Err(crate::bounty::AnswerRefused::NotThePosersUniverse) => {
+                // Not an answer to the question — ordinary work.
+            }
+            Err(_) => {
+                report.refused += 1;
+                return Ok(());
+            }
+        }
+    }
+    match book.credit_claim(value) {
+        Ok(_) => report.credited += 1,
+        Err(_) => report.refused += 1,
+    }
+    Ok(())
 }
 
 /// What one court session did.
@@ -204,6 +286,16 @@ pub fn court_session(
         .map_err(|_| NodeBroken::CannotFrame)?;
     stream.write_all(&challenge_frame)?;
 
+    // The native market: the question is ANNOUNCED on the wire the
+    // session already speaks. HTTP exists only for foreign payers, at
+    // the gateway edge; a Plumbline solver never touches it.
+    if let Some(market) = &rules.market {
+        let mut announcement = Vec::new();
+        isthmus::frame::put_frame(layout, QUERY_TAG, &market.query.encode(), &mut announcement)
+            .map_err(|_| NodeBroken::CannotFrame)?;
+        stream.write_all(&announcement)?;
+    }
+
     let mut report = SessionReport::default();
     let mut session_live = !enforce; // enforcement holds the session until the challenge is answered
     // Under enforcement a work envelope is held until its attestation
@@ -213,12 +305,9 @@ pub fn court_session(
     while let Some((tag, frame)) = read_record(&mut stream, &mut buffer, layout, bound)? {
         if isthmus::work::is_work_tag(tag) && tag != isthmus::work::RECEIPT_TAG {
             if !enforce {
-                let value = frame.get(layout.header()..).unwrap_or(&[]);
+                let value = frame.get(layout.header()..).unwrap_or(&[]).to_vec();
                 let mut guard = book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
-                match guard.credit_claim(value) {
-                    Ok(_) => report.credited += 1,
-                    Err(_) => report.refused += 1,
-                }
+                credit_value(&mut stream, layout, rules, &mut guard, &value, &mut report)?;
             } else if !session_live {
                 report.refused += 1; // work before the challenge was answered
             } else {
@@ -248,15 +337,15 @@ pub fn court_session(
                 continue;
             };
             let attestation = frame.get(layout.header()..).unwrap_or(&[]);
-            let mut guard = book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
+            let guard = book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
             let epoch = guard.open_epoch().unwrap_or(0);
             match admission::admit(ledger, epoch, &envelope, attestation) {
                 Ok(_holder) => {
-                    let value = envelope.get(layout.header()..).unwrap_or(&[]);
-                    match guard.credit_claim(value) {
-                        Ok(_) => report.credited += 1,
-                        Err(_) => report.refused += 1,
-                    }
+                    let value = envelope.get(layout.header()..).unwrap_or(&[]).to_vec();
+                    drop(guard);
+                    let mut relocked =
+                        book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
+                    credit_value(&mut stream, layout, rules, &mut relocked, &value, &mut report)?;
                 }
                 Err(_) => report.refused += 1,
             }
@@ -543,4 +632,77 @@ pub fn witness_to(
         sent += 1;
     }
     Ok(sent)
+}
+
+/// Answer a court's posted question NATIVELY: attach, answer the
+/// challenge, hear the query announcement (tag 85), send the claim,
+/// and take the signed receipt back on the wire (tag 81). The whole
+/// x402 loop with zero HTTP — the gateway edge exists only for
+/// payers who cannot speak Plumbline.
+pub fn solve_market(
+    addr: impl ToSocketAddrs,
+    layout: &Layout,
+    ledger: &Ledger,
+    holder: &str,
+    bound: usize,
+    body: &[u8],
+    key: &sig::Keypair,
+) -> Result<(Query, receipt::SignedReceipt), NodeBroken> {
+    let mut stream = TcpStream::connect(addr)?;
+    let ours = Hello::of(ledger, holder, u32::try_from(bound).unwrap_or(u32::MAX));
+    send_hello(&mut stream, layout, hello_tag(ledger, holder), &ours)?;
+    let mut buffer = Vec::new();
+    let _court = read_hello(&mut stream, &mut buffer, layout, &ours, bound)?;
+    let (_ctag, challenge_frame) = read_record(&mut stream, &mut buffer, layout, bound)?
+        .ok_or(NodeBroken::NoDeclaration)?;
+    let answer = key.attest(&challenge_frame);
+    let mut wire = Vec::new();
+    isthmus::frame::put_frame(layout, admission::ATTESTATION_TAG, &answer.encode(), &mut wire)
+        .map_err(|_| NodeBroken::CannotFrame)?;
+    stream.write_all(&wire)?;
+
+    // The question, announced.
+    let (qtag, qframe) = read_record(&mut stream, &mut buffer, layout, bound)?
+        .ok_or(NodeBroken::NoDeclaration)?;
+    if qtag != QUERY_TAG {
+        return Err(NodeBroken::NoDeclaration);
+    }
+    let query = Query::decode(qframe.get(layout.header()..).unwrap_or(&[]))
+        .map_err(|_| NodeBroken::NoDeclaration)?;
+
+    // The answer, enveloped and attested like any claim.
+    let mut envelope = Vec::new();
+    isthmus::work::put_shape_claim(body, &mut envelope)
+        .map_err(|_| NodeBroken::CannotFrame)?;
+    stream.write_all(&envelope)?;
+    let attestation = key.attest(&envelope);
+    let mut wire = Vec::new();
+    isthmus::frame::put_frame(
+        layout,
+        admission::ATTESTATION_TAG,
+        &attestation.encode(),
+        &mut wire,
+    )
+    .map_err(|_| NodeBroken::CannotFrame)?;
+    stream.write_all(&wire)?;
+
+    // The receipt, on the same wire.
+    let (rtag, rframe) = read_record(&mut stream, &mut buffer, layout, bound)?
+        .ok_or(NodeBroken::NoDeclaration)?;
+    if rtag != isthmus::work::RECEIPT_TAG {
+        return Err(NodeBroken::NoDeclaration);
+    }
+    let value = rframe.get(layout.header()..).unwrap_or(&[]);
+    let split = value.len().saturating_sub(sig::ATTESTATION_LEN);
+    let parsed = receipt::Receipt::decode(value.get(..split).unwrap_or(&[]))
+        .map_err(|_| NodeBroken::NoDeclaration)?;
+    let attestation = sig::Attestation::decode(value.get(split..).unwrap_or(&[]))
+        .map_err(|_| NodeBroken::NoDeclaration)?;
+    Ok((
+        query,
+        receipt::SignedReceipt {
+            receipt: parsed,
+            attestation,
+        },
+    ))
 }

@@ -182,7 +182,25 @@ Ruled shape: freshness is layered, not invented per transport.
 
 ---
 
-## 6 · x402 payment rails (X) — COMPLETE (X1–X5, 2026-08-28); Base execution awaits the facilitator counterparty
+## 6 · x402 payment rails (X) — COMPLETE; HTTP QUARANTINED at the edge
+
+**The quarantine ruling (2026-08-28):** the native protocol is not
+downgraded to HTTP — HTTP is confined to the border, for payers who
+cannot speak Plumbline, and the confinement is a law with a test:
+
+- **The native market loop (tags 85/81):** a court with a posted
+  market ANNOUNCES its query on the session (tag 85); the solver
+  answers with an ordinary attested claim; the signed receipt returns
+  on the same wire (tag 81, the receipt tag doing its named job).
+  The whole x402 loop with zero HTTP — `plumbd::solve_market`,
+  measured end to end including offline receipt verification.
+- **The eviction:** `datum::x402` no longer exists; every byte of
+  HTTP lives in the gateway EDGE BINARY only, with its tests inside
+  it. No library a node links contains any of it.
+- **The pin:** `tests/court_laws.rs (mod http_quarantine)` scans
+  every library source for HTTP markers and refuses escape — and
+  separately asserts the edge still HOLDS them, so a broken scanner
+  cannot read as a clean one.
 
 **The division of labor:** x402 carries fiat-pegged liquidity (USDC
 on **Base** — OQ3 — over HTTP, EIP-3009 escrow); plumb carries the truth (money moves only

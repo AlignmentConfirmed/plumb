@@ -42,6 +42,7 @@ mod noded {
                     holder: "test-court".into(),
                     bound: BOUND,
                     enforce: false,
+                market: None,
                 };
                 let _ = plumbd::serve(&listener, &layout, &ledger, &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
             });
@@ -255,6 +256,7 @@ mod admission {
                     holder: "test-court".into(),
                     bound: BOUND,
                     enforce: true,
+                market: None,
                 };
                 let _ = plumbd::serve(&listener, &layout, &ledger, &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
             });
@@ -351,6 +353,7 @@ mod session_freshness {
                 holder: "court".into(),
                 bound: BOUND,
                 enforce: true,
+                market: None,
             };
             let _ = plumbd::serve(&listener, &layout, &ledger, &rules, &book2, &Arc::new(Mutex::new(Vec::new())), |_| {});
         });
@@ -458,6 +461,7 @@ mod carrier {
                     holder: "court".into(),
                     bound: BOUND,
                     enforce: true,
+                market: None,
                 };
                 let _ = plumbd::serve(&court_listener, &layout, &ledger, &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
             });
@@ -553,6 +557,7 @@ mod registered_wire {
                     holder: "court".into(),
                     bound: BOUND,
                     enforce: false,
+                market: None,
                 };
                 let _ = plumbd::serve(
                     &listener,
@@ -664,6 +669,7 @@ mod witnessing {
                     holder: "court".into(),
                     bound: BOUND,
                     enforce: false,
+                market: None,
                 };
                 let _ = plumbd::serve(&listener, &layout, &ledger, &rules, &book, &log, |_| {});
             });
@@ -736,5 +742,108 @@ mod witnessing {
             "an intact chain over a non-solution is not a solution"
         );
         assert_eq!(report.observer, statement.observer, "still not bare");
+    }
+}
+
+mod native_market {
+    //! The whole x402 loop with ZERO HTTP: the question announced on
+    //! the session (tag 85), the answer as an ordinary attested
+    //! claim, the signed receipt back on the wire (tag 81), verified
+    //! offline against the chain. The gateway edge exists only for
+    //! payers who cannot speak Plumbline; a native solver never
+    //! touches it.
+
+    use std::net::TcpListener;
+    use std::sync::{Arc, Mutex};
+
+    use datum::bounty::Bounty;
+    use datum::plumbd::{self, MarketPost, SessionRules};
+    use datum::query::{Guarantee, Query};
+    use datum::reward::RewardBook;
+    use isthmus::layout::Layout;
+
+    use super::common::{bind, edge_with, BOUND};
+
+    #[test]
+    fn the_whole_market_loop_natively_no_http_anywhere() {
+        // One key is one party: the solver and the court each bind
+        // their OWN (the first draft shared a key, and holder_of_key
+        // rightly resolved it to only one of them).
+        let key = sig::Keypair::from_seed([6u8; 32]);
+        let court_key = sig::Keypair::from_seed([7u8; 32]);
+        let mut ledger = edge_with("court-a");
+        bind(&mut ledger, "solver-a", &key, 0, u64::MAX);
+        bind(&mut ledger, "court-a", &court_key, 0, u64::MAX);
+        let chain = ledger.clone();
+
+        let query = Query {
+            poser: "court-a".into(),
+            shape: vec![2, 3],
+            domain_tag: 82,
+            guarantee: Guarantee::Rederivation,
+            statement: datum::domains::demo_theta_universe().encode(),
+        };
+        let market = MarketPost {
+            bounty: Bounty {
+                query_id: query.query_id(),
+                max_fuel: 200,
+                max_bytes: 400,
+                base: 1_000,
+                per_saved_fuel: 10,
+                per_saved_byte: 3,
+            },
+            query,
+            court: "court-a".into(),
+            key: sig::Keypair::from_seed([7u8; 32]),
+        };
+
+        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        {
+            let (layout, ledger, book) = (Layout::founding(), ledger.clone(), Arc::clone(&book));
+            std::thread::spawn(move || {
+                let rules = SessionRules {
+                    holder: "court-a".into(),
+                    bound: BOUND,
+                    enforce: true,
+                    market: Some(Arc::new(market)),
+                };
+                let _ = plumbd::serve(
+                    &listener,
+                    &layout,
+                    &ledger,
+                    &rules,
+                    &book,
+                    &Arc::new(Mutex::new(Vec::new())),
+                    |_| {},
+                );
+            });
+        }
+
+        // The solver hears the question, answers leanly, and takes
+        // the receipt — one session, one wire, no HTTP.
+        let answer = assay::complex::DeclaredClaim {
+            transport: 1,
+            complex: datum::domains::demo_theta_universe(),
+            dim: 1,
+            witness: vec![(0, assay::whole(1)), (1, assay::whole(-1))],
+        }
+        .encode();
+        let (heard, signed) = plumbd::solve_market(
+            addr,
+            &Layout::founding(),
+            &edge_with("solver-a"),
+            "solver-a",
+            BOUND,
+            &answer,
+            &key,
+        )
+        .expect("the native loop closes");
+
+        assert_eq!(heard.guarantee, Guarantee::Rederivation, "declared on the wire too");
+        datum::receipt::verify(&signed, &chain).expect("offline verification, same as ever");
+        assert_eq!(signed.receipt.axes, vec![2, 3]);
+        assert_eq!(signed.receipt.query_id, heard.query_id());
     }
 }

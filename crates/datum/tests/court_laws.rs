@@ -1395,3 +1395,72 @@ mod workspace_hygiene {
         );
     }
 }
+
+mod http_quarantine {
+    //! The quarantine, held by a test: HTTP exists ONLY in the
+    //! gateway edge binary. No library a node links may contain one
+    //! byte of it — a source scan in the tradition of assay's
+    //! no-float read.
+
+    #![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
+
+    use std::path::{Path, PathBuf};
+
+    const MARKERS: [&str; 3] = ["HTTP/1.1", "Content-Length", "Payment Required"];
+
+    fn workspace() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .expect("workspace root")
+    }
+
+    fn rust_sources(dir: &Path, exclude_bins: bool, out: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).expect("readable") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                if exclude_bins && path.file_name().is_some_and(|n| n == "bin") {
+                    continue;
+                }
+                rust_sources(&path, exclude_bins, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    #[test]
+    fn no_library_contains_one_byte_of_http() {
+        let crates = workspace().join("crates");
+        let mut sources = Vec::new();
+        for entry in std::fs::read_dir(&crates).expect("crates/") {
+            let src = entry.expect("entry").path().join("src");
+            if src.is_dir() {
+                rust_sources(&src, true, &mut sources);
+            }
+        }
+        assert!(sources.len() > 20, "the scan actually walked the tree");
+        for path in &sources {
+            let text = std::fs::read_to_string(path).expect("reads");
+            for marker in MARKERS {
+                assert!(
+                    !text.contains(marker),
+                    "HTTP escaped the quarantine: {marker:?} in {}",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_edge_actually_holds_what_the_quarantine_confines() {
+        // The scanner must be able to FIND the markers, or a silent
+        // scan reads as a clean one — and the gateway must actually
+        // be where HTTP lives.
+        let gateway = workspace().join("crates/datum/src/bin/gateway.rs");
+        let text = std::fs::read_to_string(gateway).expect("the edge exists");
+        for marker in MARKERS {
+            assert!(text.contains(marker), "the edge lost {marker:?}");
+        }
+    }
+}

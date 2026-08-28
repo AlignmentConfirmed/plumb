@@ -275,6 +275,7 @@ fn main() {
                 holder: config.holder.clone(),
                 bound: config.bound,
                 enforce: config.require_signatures,
+                market: None,
             };
             let witnesses: plumbd::WitnessLog =
                 Arc::new(Mutex::new(Vec::new()));
