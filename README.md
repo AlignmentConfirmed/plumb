@@ -78,14 +78,21 @@ what is verified versus pending builds more trust than delay. The gaps:
    deployment.** Ed25519 over BLAKE3 envelopes (scheme 0x01), keys
    bound to grants on the chain (`Act::Bind`, IS-6/4), and courts
    with `require_signatures = true` refuse forged, stale, and unbound
-   presentations (S1–S7 complete). Remaining honesty: enforcement is
-   a config flag until the testnet genesis turns it on by default,
-   and transport sessions are still unauthenticated pending IS-2 §6.
+   presentations (S1–S7 complete). A stranger with no genesis-time
+   bind can join a live court and get one (`plumbd join`, P2) — no
+   restart, no operator hand-editing a config. Remaining honesty:
+   enforcement and live registration are both config flags until a
+   testnet genesis turns them on by default.
 2. **Transport stands.** `plumbd` runs signed, fresh sessions over
-   TCP (IS-2/2 session challenge — a replayed session's answer covers
-   a dead token) and the court federates durably. Remaining honesty:
-   TCP is the only transport, and there is no NAT traversal or peer
-   discovery — peers are configured, not found.
+   TCP (IS-2/2 session challenge, closed — a replayed session's
+   answer covers a dead token), the court federates durably, and the
+   channel itself can run encrypted (`tls = true`, IS-6/6 — a
+   chain-pinned certificate, no CA, since a court has neither a DNS
+   name nor a CA to answer to) with admission walls (connection caps,
+   a handshake deadline) bounding what an unauthenticated connection
+   can hold. Remaining honesty: TCP is the only transport, TLS is
+   opt-in per court rather than default, and there is no NAT
+   traversal or peer discovery — peers are configured, not found.
 3. **IS-4 witness built (IS-4/1).** The frame (arm ‖ observer ‖
    subject ‖ derivation), the court's witness log, and a watcher held
    to all four prohibitions — may not observe, repair, canonicalize,

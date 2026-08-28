@@ -1,6 +1,8 @@
 # Release — on a version tag: the suite must stand, then the tag
 # becomes a GitHub release. Beta consumers pin these tags (OQ2: no
-# crates.io until public launch).
+# crates.io until public launch). PR6: the release ALSO carries
+# prebuilt plumbd/gateway binaries for linux/mac/windows, so
+# "download and run" is literal for someone who does not have Rust.
 
 name: release
 
@@ -31,3 +33,45 @@ jobs:
           \`plumb-sdk = { git = \"https://github.com/${GITHUB_REPOSITORY}\", tag = \"${GITHUB_REF_NAME}\" }\`
           Protocol revisions and status: see IMPLEMENTATION.md and README → Known gaps at this tag." \
             || echo "release already exists"
+
+  binaries:
+    # A separate job per platform, each on its OS's own native
+    # runner — rustls's `ring` crypto backend and everything else in
+    # the dependency tree gets a real, non-cross-compiled build on
+    # every target this attaches a binary for.
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: plumbd-linux-x86_64.tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset: plumbd-macos-arm64.tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: plumbd-windows-x86_64.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: cargo build --release --locked --bin plumbd --bin gateway --target ${{ matrix.target }}
+      - name: package (linux/mac)
+        if: runner.os != 'Windows'
+        run: |
+          cd "target/${{ matrix.target }}/release"
+          tar -czf "${{ github.workspace }}/${{ matrix.asset }}" plumbd gateway
+      - name: package (windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cd "target/${{ matrix.target }}/release"
+          7z a "${{ github.workspace }}/${{ matrix.asset }}" plumbd.exe gateway.exe
+      - name: attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${GITHUB_REF_NAME}" "${{ matrix.asset }}" --clobber
