@@ -8,6 +8,9 @@
 #   carrier-1 session 9701 → court-a           (forwards unread)
 #   client-1  → carrier-1   fresh odd-cycle work, signed
 #   client-2  → court-b     fresh even-cycle work, signed
+#   kernel-1  → court-a     K4: DERIVES the dihedral market's proof
+#                           itself (plumb-kernel, zero datum in its
+#                           tree) instead of replaying a fixture
 #
 # Federation ring: A→B→C→A. Every court converges on every act; replay
 # refuses everywhere by work identity.
@@ -18,13 +21,14 @@ set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOME_DIR="${PLUMB_SIMNET_DIR:-$HOME/.plumb/simnet}"
 BIN="$ROOT/target/debug/plumbd"
+KERNEL_BIN="$ROOT/target/debug/kernel"
 IDENT="$HOME_DIR/ident"
 # Every signing party in this network gets a REAL identity — drawn
 # from OS entropy by `plumbd keygen`, never a repeated-digit fixture
 # seed hand-typed into a config. Only the parties that actually sign
 # something need one.
-SIGNING_NODES="client-1 client-2 court-a solver-1 witness-1"
-NODES="court-a court-b court-c carrier-1 client-1 client-2 gateway-1"
+SIGNING_NODES="client-1 client-2 court-a solver-1 witness-1 kernel-1"
+NODES="court-a court-b court-c carrier-1 client-1 client-2 gateway-1 kernel-1"
 
 ensure_identities() {
   mkdir -p "$IDENT"
@@ -62,11 +66,13 @@ grant   = client-1
 grant   = client-2
 grant   = solver-1
 grant   = witness-1
+grant   = kernel-1
 bind    = client-1:$(seed_hex_of client-1)
 bind    = client-2:$(seed_hex_of client-2)
 bind    = court-a:$(seed_hex_of court-a)
 bind    = solver-1:$(seed_hex_of solver-1)
 bind    = witness-1:$(seed_hex_of witness-1)
+bind    = kernel-1:$(seed_hex_of kernel-1)
 declare = court-a
 out     = $HOME_DIR/chain.tlv
 EOF
@@ -143,6 +149,16 @@ chain = $HOME_DIR/chain.tlv
 peer = 127.0.0.1:9501
 seed_file = $IDENT/solver-1.seed
 EOF
+  # K4: no `role =` here at all — plumb-kernel is its own binary, not
+  # a plumbd role, and reads its own config format (see crates/kernel).
+  cat > "$HOME_DIR/kernel-1.conf" <<EOF
+holder = kernel-1
+chain = $HOME_DIR/chain.tlv
+peer = 127.0.0.1:9501
+seed_file = $IDENT/kernel-1.seed
+budget = 100000
+interval_secs = 5
+EOF
   cat > "$HOME_DIR/witness-1.conf" <<EOF
 role = witness
 holder = witness-1
@@ -188,6 +204,7 @@ start() {
   fi
   GATEWAY_BIN="$ROOT/target/debug/gateway"
   (cd "$ROOT" && cargo build -q --bin gateway) || { echo "gateway build failed"; exit 1; }
+  (cd "$ROOT" && cargo build -q --bin kernel) || { echo "kernel build failed"; exit 1; }
   for node in $NODES; do
     if [ -f "$HOME_DIR/$node.pid" ] && kill -0 "$(cat "$HOME_DIR/$node.pid")" 2>/dev/null; then
       echo "$node: already running"
@@ -195,6 +212,7 @@ start() {
     fi
     RUN="$BIN"
     [ "$node" = "gateway-1" ] && RUN="$GATEWAY_BIN"
+    [ "$node" = "kernel-1" ] && RUN="$KERNEL_BIN"
     nohup "$RUN" "$HOME_DIR/$node.conf" >> "$HOME_DIR/$node.log" 2>&1 &
     echo $! > "$HOME_DIR/$node.pid"
     echo "$node: started (pid $!)"
@@ -261,6 +279,13 @@ status() {
   echo "  solver-1   native market solutions: $solved   witness-1 records: $witnessed   gateway /query: HTTP $gw402"
   joined=$(grep -c 'joined as' "$HOME_DIR/join-1.log" 2>/dev/null); joined=${joined:-0}
   echo "  join-1     live registrations completed (P2, no genesis edit): $joined"
+  # K4: kernel-1 DERIVES its answer (K2, bounded traversal of the
+  # dihedral market's own licensed 1-cells) instead of replaying a
+  # fixture the way solver-1 does — the line above counts fixture
+  # solves, this one counts genuinely derived-and-settled rounds.
+  derived=$(grep -c 'derived and settled' "$HOME_DIR/kernel-1.log" 2>/dev/null); derived=${derived:-0}
+  refused=$(grep -c 'round refused' "$HOME_DIR/kernel-1.log" 2>/dev/null); refused=${refused:-0}
+  echo "  kernel-1   derived-and-settled rounds: $derived   refused rounds (replay/no-conjecture/etc): $refused"
 }
 
 logs() {

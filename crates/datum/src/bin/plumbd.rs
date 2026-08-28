@@ -1104,14 +1104,17 @@ fn render_status_report(dir: &std::path::Path) -> String {
             continue;
         };
         // A quiet, read-only lookup — NOT the shared `parse()`, which
-        // warns on every key it does not recognize. The gateway binary
-        // has its OWN config shape (no `role =`, `facilitator =`
-        // instead), so running it through plumbd's parser here would
-        // print a stream of "unknown config key" noise for a config
-        // this binary never actually loads.
+        // warns on every key it does not recognize. The gateway and
+        // kernel binaries each have their OWN config shape (no
+        // `role =`; `facilitator =` names a gateway, `budget =` names
+        // a kernel — K3's config, deliberately its own small parser,
+        // not plumbd's), so running either through plumbd's parser
+        // here would print a stream of "unknown config key" noise for
+        // a config neither binary actually loads.
         let role = match quiet_lookup(&text, "role") {
             Some(r) => r,
             None if quiet_lookup(&text, "facilitator").is_some() => "gateway".to_owned(),
+            None if quiet_lookup(&text, "budget").is_some() => "kernel".to_owned(),
             None => "court".to_owned(),
         };
         let listen = quiet_lookup(&text, "listen");
@@ -1335,6 +1338,18 @@ mod tests {
         let gateway_text = "listen = 127.0.0.1:9801\nchain = x\ncourt = court-a\nfacilitator = 0xABC\n";
         assert!(quiet_lookup(gateway_text, "role").is_none());
         assert!(quiet_lookup(gateway_text, "facilitator").is_some());
+    }
+
+    #[test]
+    fn status_labels_a_kernelshaped_config_without_a_role_line() {
+        // plumb-kernel (K3) is its own binary with its own tiny config
+        // format — no `role =`, no `facilitator =`; `budget =` (the
+        // derivation budget, K2) is the tell that distinguishes it
+        // from a plain court config.
+        let kernel_text = "holder = kernel-1\nchain = x\npeer = 127.0.0.1:9501\nbudget = 100000\n";
+        assert!(quiet_lookup(kernel_text, "role").is_none());
+        assert!(quiet_lookup(kernel_text, "facilitator").is_none());
+        assert!(quiet_lookup(kernel_text, "budget").is_some());
     }
 
     #[test]
