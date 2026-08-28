@@ -298,24 +298,30 @@ working board.
 
 ---
 
-## 6c · The kernel (K) — SCOPED 2026-08-28, awaiting ratification
+## 6c · The kernel (K) — SCOPED 2026-08-28, ratified 2026-08-28
 
 **The validation gap it closes:** every producer on the net today
 replays fixtures it was handed — clients walk cycle families, the
-solver answers with a hard-coded lean chain. Nothing SEARCHES. A
+solver answers with a hard-coded lean chain. Nothing DERIVES. A
 kernel — a simplified convergence engine in the netstratum lineage —
 is a producer that finds answers it was not given: posed a conjecture
-in a universe it has never seen, it searches the declared complex for
-a chain closing the target. Production is search; verification stays
-the court's; the asymmetry POWPP §4 describes finally has both sides
-running on one machine.
+in a universe it has never seen, it derives a chain closing the
+target by traversing the declared complex's OWN licensed 1-cells —
+"search" is the wrong word for this, imported from a lineage (generic
+tree/heuristic exploration over an unstructured space) this is not:
+the complex already licenses which single steps exist as cells (SQ3),
+so what a kernel does is walk that licensed step-graph to a
+prescribed boundary, not search an open-ended possibility space.
+Production is derivation; verification stays the court's; the
+asymmetry POWPP §4 describes finally has both sides running on one
+machine.
 
 | ID | task | done when |
 |---|---|---|
-| **K1** | Portable market vocabulary out of the court: `Query` / `Conjecture` / `Receipt`+verify move to a leaf a kernel may import. Ruling to ratify: the SDK may import the LEAVES (isthmus, assay, sig) — leaves are laws, not the court; "sdk never imports datum" stays its law | a kernel crate builds against sdk+leaves with zero datum in its tree |
-| **K2** | The search core: given a declared universe and a target boundary, FIND a witness chain — bounded path search over the 1-cells, iterative deepening, with a search budget distinct from verification fuel (production may be expensive; checking stays cheap) | the kernel derives `bba → abb` in a calculus it was never compiled to know, from the announced query alone |
-| **K3** | The kernel daemon (`crates/kernel`, `plumb-kernel`): attach via sdk, hear query announcements (tag 85), decode the conjecture, search, submit the attested proof, take the receipt (tag 81) — looping, native Plumbline, no HTTP | one binary joins any court and earns by searching |
-| **K4** | Composed localhost validation: the kernel joins the simnet; courts pose conjectures over registered calculi; the kernel finds derivations by search and the books fill with SEARCHED work | `simnet.sh status` shows kernel earnings; the whole economy — courts, carrier, clients, kernel, solver, witness, gateway — on one machine |
+| **K1** | Portable market vocabulary out of the court: `Query` / `Conjecture` / `Receipt`+verify move to a leaf a kernel may import. Ratified: the SDK may import the LEAVES (isthmus, assay, sig) — leaves are laws, not the court; "sdk never imports datum" stays its law | a kernel crate builds against sdk+leaves with zero datum in its tree |
+| **K2** | The derivation core: given a declared universe and a target boundary, FIND a witness chain — bounded traversal of the complex's own licensed 1-cells (iterative deepening over the step-graph, never a heuristic search of an unstructured space), with a derivation budget distinct from verification fuel (production may be expensive; checking stays cheap) | the kernel derives `bba → abb` in a calculus it was never compiled to know, from the announced query alone |
+| **K3** | The kernel daemon (`crates/kernel`, `plumb-kernel`): attach via sdk, hear query announcements (tag 85), decode the conjecture, derive, submit the attested proof, take the receipt (tag 81) — looping, native Plumbline, no HTTP | one binary joins any court and earns by deriving |
+| **K4** | Composed localhost validation: the kernel joins the simnet; courts pose conjectures over registered calculi; the kernel finds derivations by traversal and the books fill with DERIVED work | `simnet.sh status` shows kernel earnings; the whole economy — courts, carrier, clients, kernel, solver, witness, gateway — on one machine |
 
 ---
 
