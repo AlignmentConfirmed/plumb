@@ -23,6 +23,13 @@ name = "datum"
 isthmus = { path = "../isthmus", package = "plumb-isthmus" }
 assay = { path = "../assay", package = "plumb-assay" }
 sig = { path = "../sig", package = "plumb-sig" }
+# K1: Query/Conjecture/Receipt live in the leaf-importable sdk crate
+# now (a kernel may need them without linking the court); datum
+# re-exports `query`/`receipt` so every existing `datum::query::*` /
+# `datum::receipt::*` path keeps resolving unchanged. sdk's own
+# dev-dependency on datum (its in-process example) stays dev-only, so
+# this does not close a cycle.
+sdk = { path = "../sdk", package = "plumb-sdk" }
 num-rational = "0.4"
 num-bigint = "0.4"
 num-traits = "0.2"

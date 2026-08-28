@@ -282,7 +282,8 @@ pub fn handle(method: &str, path: &str, body: &[u8], gateway: &Gateway) -> (u16,
                         &gateway.court,
                         epoch,
                         gateway.query.query_id(),
-                        &answer.credit,
+                        answer.credit.work_id.as_bytes(),
+                        answer.credit.axes.components(),
                         &gateway.key,
                     );
                     (

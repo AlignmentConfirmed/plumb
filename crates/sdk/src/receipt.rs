@@ -15,8 +15,7 @@
 
 use isthmus::deed::Ledger;
 
-use crate::admission;
-use crate::reward::Credit;
+use crate::grant;
 
 /// Why a receipt did not verify.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,21 +125,27 @@ pub struct SignedReceipt {
     pub attestation: sig::Attestation,
 }
 
-/// Issue a receipt for a settled credit, signed by the court's key.
+/// Issue a receipt for a settled work, signed by the court's key.
+///
+/// Takes the settled work identity and per-axis credit as plain
+/// bytes/units rather than a court's own bookkeeping type — the
+/// receipt is portable market vocabulary (X2), and does not need to
+/// know how a court's reward book represents a credit internally.
 #[must_use]
 pub fn issue(
     court: &str,
     epoch: u64,
     query_id: [u8; 32],
-    credit: &Credit,
+    work_id: &[u8],
+    axes: &[u128],
     key: &sig::Keypair,
 ) -> SignedReceipt {
     let receipt = Receipt {
         court: court.to_owned(),
         epoch,
         query_id,
-        work_id: credit.work_id.as_bytes().to_vec(),
-        axes: credit.axes.components().to_vec(),
+        work_id: work_id.to_vec(),
+        axes: axes.to_vec(),
     };
     let attestation = key.attest(&receipt.encode());
     SignedReceipt {
@@ -163,9 +168,8 @@ pub fn verify(signed: &SignedReceipt, chain: &Ledger) -> Result<(), ReceiptRefus
         Err(sig::SigRefused::UnknownScheme(s)) => return Err(ReceiptRefused::UnknownScheme(s)),
         Err(_) => return Err(ReceiptRefused::Forged),
     }
-    let holder =
-        admission::holder_of_key(chain, signed.attestation.scheme, &signed.attestation.signer)
-            .ok_or(ReceiptRefused::Unbound)?;
+    let holder = grant::holder_of_key(chain, signed.attestation.scheme, &signed.attestation.signer)
+        .ok_or(ReceiptRefused::Unbound)?;
     if holder != signed.receipt.court {
         return Err(ReceiptRefused::NotThatCourt);
     }

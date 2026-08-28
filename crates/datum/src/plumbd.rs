@@ -354,7 +354,8 @@ fn credit_value(
                     &market.court,
                     epoch,
                     market.query.query_id(),
-                    &answer.credit,
+                    answer.credit.work_id.as_bytes(),
+                    answer.credit.axes.components(),
                     &market.key,
                 );
                 let mut body = signed.receipt.encode();

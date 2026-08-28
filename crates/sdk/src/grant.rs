@@ -9,6 +9,32 @@
 use isthmus::deed::{Deed, Ledger};
 use isthmus::layout::Tag;
 
+/// Who the chain says a key belongs to.
+///
+/// The reverse of [`Ledger::binding_of`]: identity arrives as a key on
+/// the wire, and the chain answers which holder bound it. Derived from
+/// the acts on demand — last bind per holder wins, exactly as the
+/// forward reading does.
+#[must_use]
+pub fn holder_of_key(ledger: &Ledger, scheme: u8, key: &[u8]) -> Option<String> {
+    // Collect holders that ever bound, then ask each for its CURRENT
+    // binding — so a rotated-away key does not still name its holder.
+    let mut holders: Vec<String> = ledger
+        .acts()
+        .iter()
+        .filter_map(|act| match act {
+            isthmus::deed::Act::Bind { holder, .. } => Some(holder.clone()),
+            _ => None,
+        })
+        .collect();
+    holders.dedup();
+    holders.into_iter().find(|holder| {
+        ledger
+            .binding_of(holder)
+            .is_some_and(|b| b.scheme == scheme && b.key == key)
+    })
+}
+
 /// Every live deed the chain shows for this holder.
 ///
 /// Empty means unattached — a valid state, not an error: it is what a

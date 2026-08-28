@@ -1,11 +1,17 @@
 //! # SDK — the kernel attach surface.
 //!
 //! What an outside kernel needs to join the proof economy, and nothing
-//! it must not have. The SDK imports the substrate only: it builds
-//! declarations, checks grants against chain state, and wraps portable
-//! claim bodies in opaque highway envelopes. It **never verifies a
-//! claim** — verification is the court's act, and a kernel that wants
-//! to verify runs a court.
+//! it must not have. The SDK imports the LEAVES only (K1, ratified
+//! 2026-08-28: isthmus, assay, sig — laws, not the court): it builds
+//! declarations, checks grants against chain state, carries the
+//! portable market vocabulary a kernel derives against
+//! ([`query`]/[`receipt`]), and wraps portable claim bodies in opaque
+//! highway envelopes. It **never verifies a CLAIM** — that a body
+//! closes a boundary is the court's act, and a kernel that wants to
+//! verify claims runs a court. Checking a receipt's signature and
+//! chain-binding ([`receipt::verify`]) is a different, narrower thing
+//! — the same ledger-fact class of check [`grant`] already does — not
+//! claim verification.
 //!
 //! ```text
 //! kernel ──[ attach ]──▶ declared on the edge (IS-5)
@@ -16,7 +22,7 @@
 //!                        court: survey · settle · credit
 //! ```
 //!
-//! ## The three calls
+//! ## The calls
 //!
 //! - [`attach`] — say who you are and what you speak. Revisions
 //!   compare for **equality, never order**: two peers on different
@@ -26,6 +32,10 @@
 //!   for its holder covering the tag it writes.
 //! - [`submit`] — a portable claim body becomes an opaque envelope no
 //!   carrier can read and any court can open.
+//! - [`query`] — X1: the demand-posed problem (and SQ4's conjecture)
+//!   a kernel derives against.
+//! - [`receipt`] — X2: the court's signed settlement statement, and
+//!   the chain-alone check a facilitator (or a kernel) runs on it.
 //!
 //! ## What is deliberately absent
 //!
@@ -37,4 +47,6 @@
 
 pub mod attach;
 pub mod grant;
+pub mod query;
+pub mod receipt;
 pub mod submit;

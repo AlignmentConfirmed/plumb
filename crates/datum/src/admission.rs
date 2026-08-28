@@ -46,31 +46,12 @@ pub enum AdmissionRefused {
     },
 }
 
-/// Who the chain says a key belongs to.
-///
-/// The reverse of [`Ledger::binding_of`]: identity arrives as a key on
-/// the wire, and the chain answers which holder bound it. Derived from
-/// the acts on demand — last bind per holder wins, exactly as the
-/// forward reading does.
-#[must_use]
-pub fn holder_of_key(ledger: &Ledger, scheme: u8, key: &[u8]) -> Option<String> {
-    // Collect holders that ever bound, then ask each for its CURRENT
-    // binding — so a rotated-away key does not still name its holder.
-    let mut holders: Vec<String> = ledger
-        .acts()
-        .iter()
-        .filter_map(|act| match act {
-            isthmus::deed::Act::Bind { holder, .. } => Some(holder.clone()),
-            _ => None,
-        })
-        .collect();
-    holders.dedup();
-    holders.into_iter().find(|holder| {
-        ledger
-            .binding_of(holder)
-            .is_some_and(|b| b.scheme == scheme && b.key == key)
-    })
-}
+// K1: the ledger-fact lookup underneath this (chain key -> bound
+// holder) is leaf-portable — a kernel checking a receipt needs it too
+// — so its canonical copy now lives in `sdk::grant`, alongside the
+// rest of the ledger-fact authorization checks. Re-exported here so
+// every existing `admission::holder_of_key` call site is unchanged.
+pub use sdk::grant::holder_of_key;
 
 /// Admit or refuse one signed envelope. The whole of S4, and — because
 /// it never decodes the payload — the whole of S5.

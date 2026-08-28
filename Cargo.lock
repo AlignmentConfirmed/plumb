@@ -273,6 +273,7 @@ dependencies = [
  "num-traits",
  "plumb-assay",
  "plumb-isthmus",
+ "plumb-sdk",
  "plumb-sig",
  "rcgen",
  "rustls",
@@ -296,6 +297,7 @@ dependencies = [
  "plumb-assay",
  "plumb-datum",
  "plumb-isthmus",
+ "plumb-sig",
 ]
 
 [[package]]

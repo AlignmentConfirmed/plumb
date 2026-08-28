@@ -54,8 +54,12 @@ pub mod merge;
 pub mod negotiation;
 pub mod onramp;
 pub mod plumbd;
-pub mod query;
-pub mod receipt;
+// K1: Query/Conjecture/Receipt now live in the leaf-importable sdk
+// crate (a kernel may need them with zero datum in its tree); the
+// court re-exports them under their original names so every existing
+// `datum::query::*` / `datum::receipt::*` path keeps resolving.
+pub use sdk::query;
+pub use sdk::receipt;
 pub mod registration;
 pub mod registry;
 pub mod reward;
