@@ -545,7 +545,24 @@ Tracked as an ordered, dependency-wired graph (#49–#55):
   **#54**, where the go-live boundary is deliberately moved into the
   greeter; faking a holder here would not have been byte-identical.*
 - **#54 P5-B2** — the greeter + settler two-pool `serve()` with the
-  priority queue between *(needs #53)*.
+  priority queue between *(needs #53)*. **DONE 2026-08-29** — the record
+  loop is factored into `Survey::pump_one` (one per-frame dispatch,
+  shared) so the split is only WHERE the pump runs, never WHAT it does.
+  A **greeter** pool (`greet_session`) TLS-wraps, runs `court_handshake`,
+  and pumps until go-live — capturing the holder the admission
+  attestation authenticated — then enqueues an owned `LiveSession` into a
+  per-**holder** `FairQueue<String, LiveSession>`; a **settler** pool
+  drains it via `drain_records`. Sizing: settlers = `worker_target`
+  (the CPU bound), greeters = `1.max(settlers/2)` (I/O-bound; a greeter
+  blocked on a slow attestation no longer holds a settlement slot). The
+  Phase 1–3 per-IP wall stays in front of the greeter (anti-flood before
+  identity is known); the holder key is the seam #55 weights. Validated:
+  full datum suite passes with *identical* counts (every wire test drives
+  `serve`), and a live simnet credited normally through both pools —
+  court-a/b HEALTHY and advancing, kernel deriving, carrier relaying,
+  and a live **registration** completing across the greeter→settler seam
+  (`join-1`). The holder is known before enqueue, closing the
+  authenticated-seam gap #53 deferred here.
 - **#55 P5-B3** — weighted deficit round-robin in `FairQueue`, wire the
   escrow weight, live-validate two contending producers (one escrowed)
   *(needs #50, #52, #54)*.

@@ -518,70 +518,94 @@ pub fn court_handshake<'a>(
     })
 }
 
-/// The expensive second half: survey every record and settle it against
-/// the shared book. The value is decoded by the book, never here — the
-/// session layer stays payload-blind about everything but the tag.
-pub fn court_settle(state: SessionState) -> Result<SessionReport, NodeBroken> {
-    let SessionState {
-        mut stream,
-        layout,
-        ledger,
-        rules,
-        book,
-        witnesses,
-        challenge_frame,
-        mut buffer,
-    } = state;
-    let enforce = rules.enforce;
-    let bound = rules.bound;
+/// One court session's record loop, factored so the SAME per-record
+/// dispatch runs whether a single worker pumps every frame
+/// ([`court_settle`]) or a greeter pumps until the session goes live and
+/// a settler pumps the rest (Phase 5's two-pool [`serve`]). Byte
+/// behaviour is identical either way: the split is only WHERE the pump
+/// runs, never WHAT it does per frame — so the state that crosses the
+/// greeter→settler seam is exactly this struct.
+#[derive(Default)]
+struct Survey {
+    report: SessionReport,
+    session_live: bool,
+    pending: Option<Vec<u8>>,
+    seen_envelopes: Vec<Vec<u8>>,
+    pending_register: Option<crate::registration::RegisterRequest>,
+    /// The holder the go-live attestation authenticated, captured for
+    /// escrow-weighted scheduling (Phase 5). `None` until the session is
+    /// live, and on a non-enforce court (no attestation) or a live
+    /// registration (a fresh key with no escrow yet) — all of which
+    /// weight at the base floor.
+    holder: Option<String>,
+}
 
-    let mut report = SessionReport::default();
-    let mut session_live = !enforce; // enforcement holds the session until the challenge is answered
-    // Under enforcement a work envelope is held until its attestation
-    // arrives (the next record); an envelope displaced or orphaned
-    // without one is refused, not credited.
-    let mut pending: Option<Vec<u8>> = None;
-    // What this session saw cross, most recent last — the subjects a
-    // session-local watcher can be HANDED (it may not fetch, §6.1).
-    let mut seen_envelopes: Vec<Vec<u8>> = Vec::new();
-    // P2: a register request, held until the attestation proving
-    // possession of ITS key arrives — the same displaced-envelope
-    // discipline a work claim gets, applied to a bind-in-waiting.
-    let mut pending_register: Option<crate::registration::RegisterRequest> = None;
-    while let Some((tag, frame)) = read_record(&mut stream, &mut buffer, layout, bound)? {
+/// Whether the record loop should read the next frame or stop the
+/// session (the refused-registration close).
+enum Flow {
+    Continue,
+    Stop,
+}
+
+impl Survey {
+    fn new(session_live: bool) -> Self {
+        Self {
+            session_live,
+            ..Self::default()
+        }
+    }
+
+    /// Dispatch ONE already-read record. Returns [`Flow::Stop`] only for
+    /// the refused-registration case that closes the session (exactly as
+    /// the single-shot loop's early `return` did); every other outcome
+    /// is [`Flow::Continue`] (a per-frame `continue` or fall-through).
+    #[allow(clippy::too_many_arguments)] // the shared court state a record needs
+    fn pump_one(
+        &mut self,
+        tag: Tag,
+        frame: Vec<u8>,
+        stream: &mut Box<dyn ReadWrite>,
+        layout: &Layout,
+        ledger: &Arc<Mutex<Ledger>>,
+        rules: &SessionRules,
+        book: &Arc<Mutex<RewardBook>>,
+        witnesses: &WitnessLog,
+        challenge_frame: &[u8],
+    ) -> Result<Flow, NodeBroken> {
+        let enforce = rules.enforce;
         if isthmus::work::is_work_tag(tag) && tag != isthmus::work::RECEIPT_TAG {
             if !enforce {
                 let value = frame.get(layout.header()..).unwrap_or(&[]).to_vec();
-                remember(&mut seen_envelopes, frame.clone());
+                remember(&mut self.seen_envelopes, frame.clone());
                 let mut guard = book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
-                credit_value(&mut stream, layout, rules, &mut guard, &value, &mut report)?;
-            } else if !session_live {
-                report.refused += 1; // work before the challenge was answered
+                credit_value(&mut **stream, layout, rules, &mut guard, &value, &mut self.report)?;
+            } else if !self.session_live {
+                self.report.refused += 1; // work before the challenge was answered
             } else {
-                if pending.take().is_some() {
-                    report.refused += 1; // unattested envelope displaced
+                if self.pending.take().is_some() {
+                    self.report.refused += 1; // unattested envelope displaced
                 }
-                pending = Some(frame);
+                self.pending = Some(frame);
             }
         } else if rules.register && tag == crate::registration::REGISTER_TAG {
-            if session_live {
-                report.skipped += 1; // registration is a pre-admission act only
+            if self.session_live {
+                self.report.skipped += 1; // registration is a pre-admission act only
             } else {
                 match crate::registration::RegisterRequest::decode(
                     frame.get(layout.header()..).unwrap_or(&[]),
                 ) {
                     Ok(request) => {
-                        if pending_register.replace(request).is_some() {
-                            report.refused += 1; // a second request displaced the first
+                        if self.pending_register.replace(request).is_some() {
+                            self.report.refused += 1; // a second request displaced the first
                         }
                     }
-                    Err(_) => report.refused += 1,
+                    Err(_) => self.report.refused += 1,
                 }
             }
         } else if enforce && tag == admission::ATTESTATION_TAG {
-            if !session_live {
+            if !self.session_live {
                 let attestation_bytes = frame.get(layout.header()..).unwrap_or(&[]);
-                if let Some(request) = pending_register.take() {
+                if let Some(request) = self.pending_register.take() {
                     // P2: proof of possession over THIS session's own
                     // challenge, then the ledger-level rules — never
                     // the ordinary admission path, which would
@@ -589,7 +613,7 @@ pub fn court_settle(state: SessionState) -> Result<SessionReport, NodeBroken> {
                     let outcome = (|| {
                         crate::registration::verify_possession(
                             &request,
-                            &challenge_frame,
+                            challenge_frame,
                             attestation_bytes,
                         )
                         .map_err(|_| ())?;
@@ -623,8 +647,8 @@ pub fn court_settle(state: SessionState) -> Result<SessionReport, NodeBroken> {
                             )
                             .map_err(|_| NodeBroken::CannotFrame)?;
                             stream.write_all(&wire)?;
-                            session_live = true;
-                            report.registered += 1;
+                            self.session_live = true;
+                            self.report.registered += 1;
                         }
                         // A refused registration closes here, same as
                         // a court that refuses a market answer: the
@@ -635,11 +659,11 @@ pub fn court_settle(state: SessionState) -> Result<SessionReport, NodeBroken> {
                         // would just deadlock a client that is, in
                         // turn, waiting on this ack.
                         Err(()) => {
-                            report.refused += 1;
-                            return Ok(report);
+                            self.report.refused += 1;
+                            return Ok(Flow::Stop);
                         }
                     }
-                    continue;
+                    return Ok(Flow::Continue);
                 }
                 // The first attestation must answer THIS session's
                 // challenge. A stale answer — a replayed session —
@@ -650,17 +674,22 @@ pub fn court_settle(state: SessionState) -> Result<SessionReport, NodeBroken> {
                 };
                 let admitted = {
                     let guard = ledger.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
-                    admission::admit(&guard, epoch, &challenge_frame, attestation_bytes)
+                    admission::admit(&guard, epoch, challenge_frame, attestation_bytes)
                 };
                 match admitted {
-                    Ok(_holder) => session_live = true,
-                    Err(_) => report.refused += 1,
+                    // Go live AND remember who: the holder the escrow
+                    // scheduler will weight this session by (Phase 5).
+                    Ok(holder) => {
+                        self.session_live = true;
+                        self.holder = Some(holder);
+                    }
+                    Err(_) => self.report.refused += 1,
                 }
-                continue;
+                return Ok(Flow::Continue);
             }
-            let Some(envelope) = pending.take() else {
-                report.skipped += 1; // attestation with nothing to attest
-                continue;
+            let Some(envelope) = self.pending.take() else {
+                self.report.skipped += 1; // attestation with nothing to attest
+                return Ok(Flow::Continue);
             };
             let attestation = frame.get(layout.header()..).unwrap_or(&[]);
             let guard = book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
@@ -672,13 +701,13 @@ pub fn court_settle(state: SessionState) -> Result<SessionReport, NodeBroken> {
             match admitted {
                 Ok(_holder) => {
                     let value = envelope.get(layout.header()..).unwrap_or(&[]).to_vec();
-                    remember(&mut seen_envelopes, envelope.clone());
+                    remember(&mut self.seen_envelopes, envelope.clone());
                     drop(guard);
                     let mut relocked =
                         book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
-                    credit_value(&mut stream, layout, rules, &mut relocked, &value, &mut report)?;
+                    credit_value(&mut **stream, layout, rules, &mut relocked, &value, &mut self.report)?;
                 }
-                Err(_) => report.refused += 1,
+                Err(_) => self.report.refused += 1,
             }
         } else if ledger
             .lock()
@@ -701,11 +730,11 @@ pub fn court_settle(state: SessionState) -> Result<SessionReport, NodeBroken> {
                 Ok(_spent) => {
                     let mut guard = book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
                     match guard.credit_claim(value) {
-                        Ok(_) => report.credited += 1,
-                        Err(_) => report.refused += 1,
+                        Ok(_) => self.report.credited += 1,
+                        Err(_) => self.report.refused += 1,
                     }
                 }
-                Err(_) => report.refused += 1,
+                Err(_) => self.report.refused += 1,
             }
         } else if tag == witnessing::WITNESS_TAG {
             // IS-4: a witness put something on the record. The court
@@ -719,14 +748,15 @@ pub fn court_settle(state: SessionState) -> Result<SessionReport, NodeBroken> {
                     // subject crossed THIS session, the court was
                     // handed it — so it watches, and a failed
                     // re-derivation is a dispute on the record.
-                    if let Some(subject) = seen_envelopes
+                    if let Some(subject) = self
+                        .seen_envelopes
                         .iter()
                         .find(|e| witnessing::subject_of(e) == witness.subject)
                     {
                         if let Ok(verdict) = witnessing::watch(&witness, subject) {
-                            report.watched += 1;
+                            self.report.watched += 1;
                             if !verdict.verified {
-                                report.disputed += 1;
+                                self.report.disputed += 1;
                             }
                         }
                     }
@@ -734,18 +764,86 @@ pub fn court_settle(state: SessionState) -> Result<SessionReport, NodeBroken> {
                         .lock()
                         .map_err(|_| NodeBroken::CourtUnreachable)?;
                     log.push(witness);
-                    report.witnessed += 1;
+                    self.report.witnessed += 1;
                 }
-                Err(_) => report.refused += 1,
+                Err(_) => self.report.refused += 1,
             }
         } else {
-            report.skipped += 1;
+            self.report.skipped += 1;
+        }
+        Ok(Flow::Continue)
+    }
+}
+
+/// Pump every remaining record through [`Survey::pump_one`] to the end
+/// of the session, then finalize. Shared by the single-shot
+/// [`court_settle`] and the settler pool: whatever `survey` state it is
+/// handed (fresh, or already advanced past go-live by a greeter), it
+/// drains the rest identically.
+#[allow(clippy::too_many_arguments)] // the shared court state a session needs
+fn drain_records(
+    mut survey: Survey,
+    stream: &mut Box<dyn ReadWrite>,
+    buffer: &mut Vec<u8>,
+    layout: &Layout,
+    ledger: &Arc<Mutex<Ledger>>,
+    rules: &SessionRules,
+    book: &Arc<Mutex<RewardBook>>,
+    witnesses: &WitnessLog,
+    challenge_frame: &[u8],
+) -> Result<SessionReport, NodeBroken> {
+    let bound = rules.bound;
+    while let Some((tag, frame)) = read_record(stream, buffer, layout, bound)? {
+        match survey.pump_one(
+            tag,
+            frame,
+            stream,
+            layout,
+            ledger,
+            rules,
+            book,
+            witnesses,
+            challenge_frame,
+        )? {
+            Flow::Continue => {}
+            Flow::Stop => return Ok(survey.report),
         }
     }
-    if pending.is_some() {
-        report.refused += 1; // session closed on an unattested envelope
+    if survey.pending.is_some() {
+        survey.report.refused += 1; // session closed on an unattested envelope
     }
-    Ok(report)
+    Ok(survey.report)
+}
+
+/// The expensive second half: survey every record and settle it against
+/// the shared book. The value is decoded by the book, never here — the
+/// session layer stays payload-blind about everything but the tag. A
+/// single worker pumps every frame here; the two-pool [`serve`] pumps
+/// the same [`Survey`] from two threads instead (greeter to go-live,
+/// settler for the rest).
+pub fn court_settle(state: SessionState) -> Result<SessionReport, NodeBroken> {
+    let SessionState {
+        mut stream,
+        layout,
+        ledger,
+        rules,
+        book,
+        witnesses,
+        challenge_frame,
+        mut buffer,
+    } = state;
+    let survey = Survey::new(!rules.enforce);
+    drain_records(
+        survey,
+        &mut stream,
+        &mut buffer,
+        layout,
+        ledger,
+        rules,
+        book,
+        witnesses,
+        &challenge_frame,
+    )
 }
 
 /// Serve one inbound session as the court: the handshake then the
@@ -766,10 +864,47 @@ pub fn court_session(
     court_settle(state)
 }
 
-/// Accept sessions forever, one thread per peer, one shared book.
+/// A session past its handshake and (when the court enforces)
+/// authenticated, waiting for a settler. Carries only OWNED state so it
+/// can cross the greeter→settler thread boundary; the settler supplies
+/// the shared court handles from its own clones.
+struct LiveSession {
+    stream: Box<dyn ReadWrite>,
+    challenge_frame: Vec<u8>,
+    buffer: Vec<u8>,
+    survey: Survey,
+    ip: std::net::IpAddr,
+}
+
+/// What the greeter made of one connection.
+enum GreetOutcome {
+    /// Handshake done, session live, holder known — hand it to a settler.
+    /// Boxed: this variant is far larger than the others.
+    Live(Box<LiveSession>),
+    /// The session already ended in the greeter (a refused registration,
+    /// or a peer that closed before going live): nothing to settle, the
+    /// report is final.
+    Done(SessionReport),
+    /// The session errored in the greeter (transport gone, court
+    /// unreachable): log and release, nothing to settle.
+    Errored(NodeBroken),
+    /// TLS setup failed before any session existed (already logged).
+    Failed,
+}
+
+/// Accept sessions forever; two bounded pools serve them, one shared
+/// book. Returns only on listener failure. `on_session` sees each
+/// session's report — the binary logs it; a test asserts on the book.
 ///
-/// Returns only on listener failure. `on_session` sees each session's
-/// report — the binary logs it; a test asserts on the book instead.
+/// The two-stage scheduler (sched Phase 5): a GREETER pool runs the
+/// cheap handshake and reads until the session goes live — learning the
+/// holder — then enqueues the authenticated session into a per-HOLDER
+/// fair queue; a SETTLER pool drains that queue and runs the expensive
+/// survey/credit. The greeter pool sits behind the Phase 1–3 per-IP wall
+/// (anti-flood BEFORE identity is known); the settler queue is keyed by
+/// holder — an economic identity, never the IP — which is the seam an
+/// escrow weight plugs into (#55). Load still decides only who is served
+/// and when, never what work is worth (sched's boundary test).
 pub fn serve(
     listener: &TcpListener,
     layout: &Layout,
@@ -781,17 +916,27 @@ pub fn serve(
 ) -> std::io::Error {
     let on_session = Arc::new(on_session);
 
-    // The scheduler (sched Phases 1–3): a FIXED worker pool sized to
-    // the machine — not a thread per connection — draining a bounded,
-    // per-IP-fair queue. At most `worker_target` sessions run at once,
-    // so a court can never occupy the whole machine however hard it is
-    // hit; a flooding IP is shed (BUSY) before it can starve a quiet
-    // one. None of this touches settlement: load decides who is served
-    // and when, never what work is worth (sched's own boundary test).
     let governor = crate::sched::StaticGovernor::tuned();
-    let queue: Arc<crate::sched::FairQueue<std::net::IpAddr, TcpStream>> = Arc::new(crate::sched::FairQueue::new());
-    for _ in 0..governor.worker_target() {
-        let queue = Arc::clone(&queue);
+    // The settler pool carries the CPU bound: at most `worker_target`
+    // expensive settlements run at once, so a court never pegs the
+    // machine. The greeter pool is smaller and I/O-bound (handshake +
+    // the go-live read); a greeter blocked on a slow attestation no
+    // longer holds a settlement slot — which the single pool could not
+    // say.
+    let settler_count = governor.worker_target();
+    let greeter_count = 1.max(settler_count / 2);
+
+    // Accept → per-IP fair queue (Phase 1–3, anti-flood) → greeter.
+    let greeter_queue: Arc<crate::sched::FairQueue<std::net::IpAddr, TcpStream>> =
+        Arc::new(crate::sched::FairQueue::new());
+    // Greeter → per-HOLDER fair queue (the priority seam #55 weights) →
+    // settler. The empty key is the base lane: a non-enforce court or a
+    // fresh registration has no authenticated holder yet.
+    let settler_queue: Arc<crate::sched::FairQueue<String, LiveSession>> =
+        Arc::new(crate::sched::FairQueue::new());
+
+    for _ in 0..settler_count {
+        let settler_queue = Arc::clone(&settler_queue);
         let layout = layout.clone();
         let ledger = Arc::clone(ledger);
         let rules = rules.clone();
@@ -799,8 +944,66 @@ pub fn serve(
         let witnesses = Arc::clone(witnesses);
         let on_session = Arc::clone(&on_session);
         std::thread::spawn(move || {
-            while let Some((ip, stream)) = queue.take_blocking() {
-                run_session(stream, ip, &layout, &ledger, &rules, &book, &witnesses, &*on_session);
+            while let Some((_holder, live)) = settler_queue.take_blocking() {
+                let LiveSession {
+                    mut stream,
+                    challenge_frame,
+                    mut buffer,
+                    survey,
+                    ip,
+                } = live;
+                let result = drain_records(
+                    survey,
+                    &mut stream,
+                    &mut buffer,
+                    &layout,
+                    &ledger,
+                    &rules,
+                    &book,
+                    &witnesses,
+                    &challenge_frame,
+                );
+                // The wall was charged at accept and held across the
+                // handshake AND the queue wait; release it however the
+                // session ends.
+                release_wall(&rules.connections, ip);
+                match result {
+                    Ok(report) => on_session(&report),
+                    Err(e) => println!("plumbd: session failed: {e:?}"),
+                }
+            }
+        });
+    }
+
+    for _ in 0..greeter_count {
+        let greeter_queue = Arc::clone(&greeter_queue);
+        let settler_queue = Arc::clone(&settler_queue);
+        let layout = layout.clone();
+        let ledger = Arc::clone(ledger);
+        let rules = rules.clone();
+        let book = Arc::clone(book);
+        let witnesses = Arc::clone(witnesses);
+        let on_session = Arc::clone(&on_session);
+        std::thread::spawn(move || {
+            while let Some((ip, stream)) = greeter_queue.take_blocking() {
+                match greet_session(stream, ip, &layout, &ledger, &rules, &book, &witnesses) {
+                    GreetOutcome::Live(live) => {
+                        // Key by the authenticated holder (empty = base
+                        // lane); the settler queue's per-key fairness is
+                        // what #55 upgrades to escrow-weighted priority.
+                        let holder = live.survey.holder.clone().unwrap_or_default();
+                        settler_queue.offer(holder, *live);
+                    }
+                    GreetOutcome::Done(report) => {
+                        release_wall(&rules.connections, ip);
+                        on_session(&report);
+                    }
+                    GreetOutcome::Errored(e) => {
+                        release_wall(&rules.connections, ip);
+                        println!("plumbd: session failed: {e:?}");
+                    }
+                    GreetOutcome::Failed => release_wall(&rules.connections, ip),
+                }
             }
         });
     }
@@ -808,12 +1011,10 @@ pub fn serve(
     loop {
         match listener.accept() {
             Ok((stream, peer)) => {
-                // P3 — the wall: checked and CHARGED before a thread
-                // ever gets spawned. An over-quota connection is
-                // dropped here, at zero cost past the accept itself —
-                // today's behaviour (every accept gets a thread,
-                // unconditionally) is what `max_total_connections = 0`
-                // and `max_connections_per_ip = 0` still mean.
+                // P3 — the wall: checked and CHARGED before the session
+                // is queued. An over-quota connection is dropped here, at
+                // zero cost past the accept itself; `max_total_connections
+                // = 0` / `max_connections_per_ip = 0` opt a wall out.
                 let ip = peer.ip();
                 let admitted = {
                     let Ok(mut counts) = rules.connections.lock() else {
@@ -835,14 +1036,12 @@ pub fn serve(
                 if !admitted {
                     continue; // the connection is simply dropped: no thread, no response
                 }
-                // Past the anti-Sybil wall, the SCHEDULER decides: the
-                // bounded worker pool (not a thread per connection)
-                // serves this if the fair queue has room, else the peer
-                // is told to WAIT with a named BUSY frame — never
-                // dropped in silence, and never allowed to spawn work
-                // past what the machine can hold.
-                match governor.admit(&queue.load(&ip)) {
-                    crate::sched::Admission::Admit => queue.offer(ip, stream),
+                // Past the anti-Sybil wall, the SCHEDULER decides: admit
+                // to the greeter pool if the per-IP queue has room, else
+                // tell the peer to WAIT with a named BUSY frame — never
+                // dropped in silence.
+                match governor.admit(&greeter_queue.load(&ip)) {
+                    crate::sched::Admission::Admit => greeter_queue.offer(ip, stream),
                     crate::sched::Admission::Busy { retry_after_secs } => {
                         let mut wire = Vec::new();
                         if isthmus::frame::put_frame(
@@ -866,12 +1065,12 @@ pub fn serve(
     }
 }
 
-/// Serve one admitted connection to completion — the body that used to
-/// run in a per-connection thread, now called by a bounded worker.
-/// TLS-wraps (P4), runs the session under the handshake deadline (P3),
-/// and releases the admission wall however the session ends.
-#[allow(clippy::too_many_arguments)] // the shared court state a session needs
-fn run_session(
+/// The greeter's job: TLS-wrap (P4), run the handshake under the P3
+/// deadline, then read until the session goes live so the holder is
+/// known before it is enqueued for a settler. A session that ends during
+/// the handshake (refused registration, early close, or error) is
+/// finalized here and never enqueued.
+fn greet_session(
     stream: TcpStream,
     ip: std::net::IpAddr,
     layout: &Layout,
@@ -879,16 +1078,16 @@ fn run_session(
     rules: &SessionRules,
     book: &Arc<Mutex<RewardBook>>,
     witnesses: &WitnessLog,
-    on_session: &(dyn Fn(&SessionReport) + Send + Sync),
-) {
+) -> GreetOutcome {
     // P3's deadline is set on the RAW socket, before P4 might wrap it —
-    // it has to bound a stalled TLS handshake too, not just a stalled
-    // declaration. The clone shares the same underlying fd.
+    // it has to bound a stalled TLS handshake too. The clone shares the
+    // same fd; court_handshake lifts the deadline once the declaration
+    // arrives.
     if let Some(deadline) = rules.handshake_deadline {
         let _ = stream.set_read_timeout(Some(deadline));
     }
     let handshake_socket = stream.try_clone().ok();
-    // P4 — every inbound tag on this listener crosses the same worker,
+    // P4 — every inbound tag on this listener crosses the same greeter,
     // so wrapping here covers all of them with nothing role-specific.
     let wire = match &rules.tls {
         Some(server_tls) => rustls::ServerConnection::new(Arc::clone(server_tls))
@@ -899,21 +1098,56 @@ fn run_session(
     let wire = match wire {
         Ok(wire) => wire,
         Err(e) => {
-            release_wall(&rules.connections, ip);
             println!("plumbd: TLS setup failed: {e}");
-            return;
+            return GreetOutcome::Failed;
         }
     };
-    let result = court_session(wire, handshake_socket, layout, ledger, rules, book, witnesses);
-    // Release the wall regardless of how the session ended — a session
-    // that errors still held a slot.
-    release_wall(&rules.connections, ip);
-    match result {
-        Ok(report) => on_session(&report),
-        // The audit's lesson: a session that dies silently looks
-        // identical to a healthy idle court. Failures say so.
-        Err(e) => println!("plumbd: session failed: {e:?}"),
+    let state =
+        match court_handshake(wire, handshake_socket, layout, ledger, rules, book, witnesses) {
+            Ok(state) => state,
+            Err(e) => return GreetOutcome::Errored(e),
+        };
+    let SessionState {
+        mut stream,
+        challenge_frame,
+        mut buffer,
+        ..
+    } = state;
+    let bound = rules.bound;
+    let mut survey = Survey::new(!rules.enforce);
+    // Pump only until go-live: a non-enforce court is already live and
+    // reads zero frames here (holder stays None → base lane); an
+    // enforcing court reads through the challenge-answering attestation,
+    // which sets the holder. Pre-live `pending` is always empty, so an
+    // early close leaves a final report with nothing to reconcile.
+    while !survey.session_live {
+        match read_record(&mut *stream, &mut buffer, layout, bound) {
+            Ok(Some((tag, frame))) => match survey.pump_one(
+                tag,
+                frame,
+                &mut stream,
+                layout,
+                ledger,
+                rules,
+                book,
+                witnesses,
+                &challenge_frame,
+            ) {
+                Ok(Flow::Continue) => {}
+                Ok(Flow::Stop) => return GreetOutcome::Done(survey.report),
+                Err(e) => return GreetOutcome::Errored(e),
+            },
+            Ok(None) => return GreetOutcome::Done(survey.report),
+            Err(e) => return GreetOutcome::Errored(e),
+        }
     }
+    GreetOutcome::Live(Box::new(LiveSession {
+        stream,
+        challenge_frame,
+        buffer,
+        survey,
+        ip,
+    }))
 }
 
 /// Return one connection's slot to the admission wall (P3), by IP.
