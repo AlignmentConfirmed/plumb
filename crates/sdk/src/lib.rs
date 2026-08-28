@@ -36,6 +36,11 @@
 //!   a kernel derives against.
 //! - [`receipt`] — X2: the court's signed settlement statement, and
 //!   the chain-alone check a facilitator (or a kernel) runs on it.
+//! - [`derivation`] — K2: given a conjecture's universe and target
+//!   boundary alone, walk the complex's own licensed 1-cells until a
+//!   closing chain turns up or the derivation budget runs out. Never
+//!   "search" in the generic sense — the complex already licenses
+//!   which single steps exist; this only ever traverses those.
 //!
 //! ## What is deliberately absent
 //!
@@ -46,6 +51,7 @@
 //! those calls without gaining the right to answer them.
 
 pub mod attach;
+pub mod derivation;
 pub mod grant;
 pub mod query;
 pub mod receipt;
