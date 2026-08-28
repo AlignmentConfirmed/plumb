@@ -385,12 +385,19 @@ fn main() {
             }
             let key = sig::Keypair::from_seed(seed);
             let mut n = config.start_n.max(3);
+            let mut lap: i64 = 1;
+            // The bound-safe ceiling: past this, an envelope would
+            // exceed a default court's record bound — so the client
+            // LAPS, restarting n with a fresh charge. Every lap is
+            // new structure; the record size never grows.
+            let cap: u32 = 900;
             println!(
-                "plumbd: client '{}' — fresh {}-cycle work every {}s, step {}",
-                config.holder, n, config.every, config.step
+                "plumbd: client '{}' — fresh {}-cycle work every {}s, step {}, lap charge {}",
+                config.holder, n, config.every, config.step, lap
             );
             loop {
-                let body = datum::domains::demo_cycle_claim(n, u64::from(n)).encode();
+                let body =
+                    datum::domains::demo_cycle_claim_charged(n, lap, u64::from(n)).encode();
                 let mut envelope = Vec::new();
                 if isthmus::work::put_shape_claim(&body, &mut envelope).is_err() {
                     eprintln!("plumbd: could not frame the {n}-cycle");
@@ -411,6 +418,11 @@ fn main() {
                     }
                 }
                 n = n.saturating_add(config.step.max(1));
+                if n > cap {
+                    n = config.start_n.max(3);
+                    lap = lap.saturating_add(1);
+                    println!("plumbd: lap {lap} — fresh charges, bounded records");
+                }
                 std::thread::sleep(std::time::Duration::from_secs(config.every.max(1)));
             }
         }

@@ -260,6 +260,29 @@ pub fn court_session(
                 }
                 Err(_) => report.refused += 1,
             }
+        } else if ledger.declaration_of(tag).is_some() {
+            // UC4, LIVE: a tag with a registered definition on this
+            // court's chain is judged against that definition — the
+            // discipline the chain taught, applied on the wire. Under
+            // enforcement the attestation rules still apply upstream;
+            // here the claim must inhabit the registered universe and
+            // close in it.
+            let value = frame.get(layout.header()..).unwrap_or(&[]);
+            match crate::domains::verify_registered(
+                ledger,
+                tag,
+                value,
+                assay::complex::DEFAULT_FUEL,
+            ) {
+                Ok(_spent) => {
+                    let mut guard = book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
+                    match guard.credit_claim(value) {
+                        Ok(_) => report.credited += 1,
+                        Err(_) => report.refused += 1,
+                    }
+                }
+                Err(_) => report.refused += 1,
+            }
         } else if tag == witnessing::WITNESS_TAG {
             // IS-4: a witness put something on the record. The court
             // KEEPS it — decoded (refuse-not-repair), never judged
@@ -310,10 +333,12 @@ pub fn serve(
                 let witnesses = Arc::clone(witnesses);
                 let on_session = Arc::clone(&on_session);
                 std::thread::spawn(move || {
-                    if let Ok(report) =
-                        court_session(stream, &layout, &ledger, &rules, &book, &witnesses)
-                    {
-                        on_session(&report);
+                    match court_session(stream, &layout, &ledger, &rules, &book, &witnesses) {
+                        Ok(report) => on_session(&report),
+                        // The audit's lesson: a session that dies
+                        // silently looks identical to a healthy idle
+                        // court. Failures say so.
+                        Err(e) => println!("plumbd: session failed: {e:?}"),
                     }
                 });
             }

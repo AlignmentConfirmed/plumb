@@ -111,12 +111,23 @@ pub fn demo_cycle_universe(n: u32) -> DeclaredComplex {
 /// The full n-cycle claim, which closes.
 #[must_use]
 pub fn demo_cycle_claim(n: u32, transport: u64) -> DeclaredClaim {
+    demo_cycle_claim_charged(n, 1, transport)
+}
+
+/// The n-cycle with charge `k` on every edge — still a perfect cycle,
+/// and a DIFFERENT structure for every `k`. This is how a client
+/// produces unbounded fresh work inside a bounded record size: walk
+/// `n` to a bound-safe cap, then lap with a new charge. (The audit's
+/// lesson: a client that only grows eventually outgrows every bound.)
+#[must_use]
+pub fn demo_cycle_claim_charged(n: u32, charge: i64, transport: u64) -> DeclaredClaim {
     let n = n.max(3);
+    let charge = if charge == 0 { 1 } else { charge };
     DeclaredClaim {
         transport,
         complex: demo_cycle_universe(n),
         dim: 1,
-        witness: (0..n).map(|i| (i, assay::whole(1))).collect(),
+        witness: (0..n).map(|i| (i, assay::whole(charge))).collect(),
     }
 }
 

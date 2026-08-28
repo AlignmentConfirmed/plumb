@@ -140,14 +140,20 @@ status() {
     fi
     printf '  %-10s %s\n' "$node" "$state"
   done
-  echo "  --- courts (credited / refused-as-replay, lifetime) ---"
+  echo "  --- courts: LAST 20 sessions (the audit's lesson: lifetime counts hide a dead economy) ---"
   for court in court-a court-b court-c; do
-    credited=$(grep -c 'credited 1' "$HOME_DIR/$court.log" 2>/dev/null); credited=${credited:-0}
+    recent=$(grep 'session closed' "$HOME_DIR/$court.log" 2>/dev/null | tail -20)
+    ok=$(printf '%s' "$recent" | grep -c 'credited 1'); ok=${ok:-0}
+    dead=$(printf '%s' "$recent" | grep -c 'credited 0, refused 0, skipped 0'); dead=${dead:-0}
+    failed=$(grep -c 'session failed' "$HOME_DIR/$court.log" 2>/dev/null); failed=${failed:-0}
     snap=$(stat -c %s "$HOME_DIR/$court.xdct" 2>/dev/null); snap=${snap:-0}
-    printf '  %-10s credited sessions: %-5s snapshot: %s bytes\n' "$court" "$credited" "$snap"
+    health="HEALTHY"
+    [ "$ok" -eq 0 ] && health="STALLED (no recent credits)"
+    printf '  %-10s recent credited: %-3s empty: %-3s failed-ever: %-4s snapshot: %-9s %s\n' \
+      "$court" "$ok" "$dead" "$failed" "$snap" "$health"
   done
-  carried=$(grep -c 'carried session' "$HOME_DIR/carrier-1.log" 2>/dev/null); carried=${carried:-0}
-  echo "  carrier-1  carried sessions: $carried (all forwarded unread)"
+  carried=$(grep 'carried session' "$HOME_DIR/carrier-1.log" 2>/dev/null | tail -20 | grep -c 'forwarded'); carried=${carried:-0}
+  echo "  carrier-1  recent carried sessions: $carried (all forwarded unread)"
 }
 
 logs() {
