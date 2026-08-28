@@ -34,6 +34,14 @@ use crate::receipt;
 use crate::reward::RewardBook;
 use crate::witnessing;
 
+/// A session's wire, plaintext or TLS — chosen once, at connect or
+/// accept time, never after. Everything downstream (`read_record`,
+/// `send_hello`, the claim loop) reads and writes through this alone,
+/// which is what makes P4 a substitution at the edges rather than a
+/// second copy of the session logic.
+pub trait ReadWrite: Read + Write + Send {}
+impl<T: Read + Write + Send + ?Sized> ReadWrite for T {}
+
 /// The tag a posted query travels under: the court announces its
 /// question right after the session challenge, natively — no HTTP in
 /// the loop. Beside claims (80–82), attestation (83), witness (84).
@@ -86,7 +94,7 @@ impl From<std::io::Error> for NodeBroken {
 /// that is not an error. A close *inside* a record is [`NodeBroken::Io`]:
 /// bytes were promised and never arrived.
 pub fn read_record(
-    stream: &mut TcpStream,
+    stream: &mut dyn ReadWrite,
     buffer: &mut Vec<u8>,
     layout: &Layout,
     bound: usize,
@@ -110,11 +118,19 @@ pub fn read_record(
                     // with unread data in ITS buffer (e.g. a fixture
                     // producer that never reads the market
                     // announcement) — TCP sends RST instead of FIN.
-                    // Between records that is a departure, not a
-                    // failure; inside one it is still an error.
+                    // P4's TLS wrap surfaces the SAME shape of
+                    // departure as `UnexpectedEof` instead: a peer
+                    // that drops the connection without a TLS
+                    // close_notify alert (rustls's own docs call this
+                    // expected when the other side just closes rather
+                    // than shutting down cleanly). Between records
+                    // either is a departure, not a failure; inside one
+                    // either is still an error.
                     Err(e)
-                        if e.kind() == std::io::ErrorKind::ConnectionReset
-                            && buffer.is_empty() =>
+                        if matches!(
+                            e.kind(),
+                            std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::UnexpectedEof
+                        ) && buffer.is_empty() =>
                     {
                         return Ok(None)
                     }
@@ -151,7 +167,7 @@ pub fn hello_tag(ledger: &Ledger, holder: &str) -> Tag {
 
 /// Frame and send this node's declaration.
 pub fn send_hello(
-    stream: &mut TcpStream,
+    stream: &mut dyn ReadWrite,
     layout: &Layout,
     tag: Tag,
     hello: &Hello,
@@ -166,7 +182,7 @@ pub fn send_hello(
 /// Read the peer's declaration — the first record on the edge — and
 /// hold the session to the revisions both sides share.
 pub fn read_hello(
-    stream: &mut TcpStream,
+    stream: &mut dyn ReadWrite,
     buffer: &mut Vec<u8>,
     layout: &Layout,
     ours: &Hello,
@@ -224,6 +240,13 @@ pub struct SessionRules {
     /// this court is holding. Cloning `SessionRules` clones the `Arc`,
     /// not the count: every session thread sees the same wall.
     pub connections: Arc<Mutex<ConnectionCounts>>,
+    /// P4 — this court's own TLS identity. `None` is plaintext, the
+    /// wire exactly as every prior revision left it. `Some` wraps
+    /// every accepted connection in TLS before `court_session` ever
+    /// sees it — every inbound tag (claims, registration, market
+    /// answers, witness records) rides the same encrypted channel,
+    /// since they all cross the SAME accept loop.
+    pub tls: Option<Arc<rustls::ServerConfig>>,
 }
 
 /// How many sessions a court is holding right now: in total, and per
@@ -262,6 +285,7 @@ impl std::fmt::Debug for SessionRules {
             .field("max_total_connections", &self.max_total_connections)
             .field("max_connections_per_ip", &self.max_connections_per_ip)
             .field("handshake_deadline", &self.handshake_deadline)
+            .field("tls", &self.tls.is_some())
             .finish()
     }
 }
@@ -279,7 +303,7 @@ fn remember(seen: &mut Vec<Vec<u8>>, envelope: Vec<u8>) {
 /// inhabits the poser's universe (settling the bounty and returning
 /// the signed receipt on the wire), through the plain book otherwise.
 fn credit_value(
-    stream: &mut TcpStream,
+    stream: &mut dyn ReadWrite,
     layout: &Layout,
     rules: &SessionRules,
     book: &mut RewardBook,
@@ -352,7 +376,8 @@ pub struct SessionReport {
 /// to the shared book. The value is decoded by the book, never here —
 /// the session layer stays payload-blind about everything but the tag.
 pub fn court_session(
-    mut stream: TcpStream,
+    mut stream: Box<dyn ReadWrite>,
+    handshake_socket: Option<TcpStream>,
     layout: &Layout,
     ledger: &Arc<Mutex<Ledger>>,
     rules: &SessionRules,
@@ -372,19 +397,18 @@ pub fn court_session(
         .clone();
     let ours = Hello::of(&opening, holder, u32::try_from(bound).unwrap_or(u32::MAX));
     let mut buffer = Vec::new();
-    // P3 — the handshake wall: a connection that never sends its
-    // declaration ties up a thread forever under today's unbounded
-    // read. Bounded here, lifted the moment a real declaration
-    // arrives — a working session's later idle gaps (a producer
-    // sleeping between claims) are not this wall's concern.
-    if let Some(deadline) = rules.handshake_deadline {
-        let _ = stream.set_read_timeout(Some(deadline));
+    // P3's handshake deadline is set on the raw socket in `serve`,
+    // before this function ever sees the stream — it has to cover a
+    // TLS handshake too, when P4 wraps one, not just the declaration
+    // this function reads. `handshake_socket` is a clone of that same
+    // fd, held only long enough to lift the deadline once the
+    // declaration arrives — a working session's later idle gaps (a
+    // producer sleeping between claims) are not this wall's concern.
+    let _theirs = read_hello(stream.as_mut(), &mut buffer, layout, &ours, bound)?;
+    if let Some(raw) = &handshake_socket {
+        let _ = raw.set_read_timeout(None);
     }
-    let _theirs = read_hello(&mut stream, &mut buffer, layout, &ours, bound)?;
-    if rules.handshake_deadline.is_some() {
-        let _ = stream.set_read_timeout(None);
-    }
-    send_hello(&mut stream, layout, hello_tag(&opening, holder), &ours)?;
+    send_hello(stream.as_mut(), layout, hello_tag(&opening, holder), &ours)?;
 
     // IS-2/2 — the session challenge: eight bytes of entropy, framed,
     // sent once per session right after the declaration. A replayed
@@ -671,18 +695,58 @@ pub fn serve(
                 let on_session = Arc::clone(&on_session);
                 let connections = Arc::clone(&rules.connections);
                 std::thread::spawn(move || {
-                    let result = court_session(stream, &layout, &ledger, &rules, &book, &witnesses);
-                    // Release the wall regardless of how the session
-                    // ended — a session that errors still held a slot.
-                    if let Ok(mut counts) = connections.lock() {
-                        counts.total = counts.total.saturating_sub(1);
-                        if let Some(c) = counts.per_ip.get_mut(&ip) {
-                            *c = c.saturating_sub(1);
-                            if *c == 0 {
-                                counts.per_ip.remove(&ip);
+                    let release_wall = |connections: &Arc<Mutex<ConnectionCounts>>| {
+                        if let Ok(mut counts) = connections.lock() {
+                            counts.total = counts.total.saturating_sub(1);
+                            if let Some(c) = counts.per_ip.get_mut(&ip) {
+                                *c = c.saturating_sub(1);
+                                if *c == 0 {
+                                    counts.per_ip.remove(&ip);
+                                }
                             }
                         }
+                    };
+                    // P3's deadline is set on the RAW socket, before
+                    // P4 might wrap it — it has to bound a stalled TLS
+                    // handshake too, not just a stalled declaration.
+                    // The clone is held only so `court_session` can
+                    // lift it later; it shares the same underlying fd.
+                    if let Some(deadline) = rules.handshake_deadline {
+                        let _ = stream.set_read_timeout(Some(deadline));
                     }
+                    let handshake_socket = stream.try_clone().ok();
+                    // P4 — every inbound tag on this listener (claims,
+                    // registration, market answers, witness records)
+                    // crosses the SAME accept loop, so wrapping here
+                    // covers all of them with nothing role-specific.
+                    let wire = match &rules.tls {
+                        Some(server_tls) => rustls::ServerConnection::new(Arc::clone(server_tls))
+                            .map(|conn| {
+                                Box::new(rustls::StreamOwned::new(conn, stream)) as Box<dyn ReadWrite>
+                            })
+                            .map_err(|e| format!("{e:?}")),
+                        None => Ok(Box::new(stream) as Box<dyn ReadWrite>),
+                    };
+                    let wire = match wire {
+                        Ok(wire) => wire,
+                        Err(e) => {
+                            release_wall(&connections);
+                            println!("plumbd: TLS setup failed: {e}");
+                            return;
+                        }
+                    };
+                    let result = court_session(
+                        wire,
+                        handshake_socket,
+                        &layout,
+                        &ledger,
+                        &rules,
+                        &book,
+                        &witnesses,
+                    );
+                    // Release the wall regardless of how the session
+                    // ended — a session that errors still held a slot.
+                    release_wall(&connections);
                     match result {
                         Ok(report) => on_session(&report),
                         // The audit's lesson: a session that dies
@@ -709,7 +773,7 @@ pub fn produce(
     bound: usize,
     envelopes: &[Vec<u8>],
 ) -> Result<usize, NodeBroken> {
-    produce_inner(addr, layout, ledger, holder, bound, envelopes, None)
+    produce_inner(addr, layout, ledger, holder, bound, envelopes, None, None)
 }
 
 /// [`produce`], signing: each envelope is followed by its attestation
@@ -723,9 +787,68 @@ pub fn produce_signed(
     envelopes: &[Vec<u8>],
     key: &sig::Keypair,
 ) -> Result<usize, NodeBroken> {
-    produce_inner(addr, layout, ledger, holder, bound, envelopes, Some(key))
+    produce_inner(addr, layout, ledger, holder, bound, envelopes, Some(key), None)
 }
 
+/// [`produce_signed`], over TLS when `tls_fingerprint` names one (P4)
+/// — the fingerprint a peer's own `Act::Certify` recorded. `None`
+/// dials plaintext, exactly like [`produce_signed`] — this is the one
+/// a role that might OR might not be talking to a certified court
+/// reaches for, so it is not two separate decisions to wire in.
+#[allow(clippy::too_many_arguments)] // every argument names something the caller must decide independently; a wrapper struct here would group unrelated concerns just to dodge the count
+pub fn produce_signed_over_tls(
+    addr: impl ToSocketAddrs,
+    layout: &Layout,
+    ledger: &Ledger,
+    holder: &str,
+    bound: usize,
+    envelopes: &[Vec<u8>],
+    key: &sig::Keypair,
+    tls_fingerprint: Option<[u8; 32]>,
+) -> Result<usize, NodeBroken> {
+    produce_inner(addr, layout, ledger, holder, bound, envelopes, Some(key), tls_fingerprint)
+}
+
+/// P4 — dial a peer and wrap the socket for TLS if `tls_fingerprint`
+/// names one. The chain-pinned fingerprint IS the whole trust
+/// decision; nothing here validates a hostname or a CA chain, because
+/// nothing in this network has either.
+fn dial(
+    addr: impl ToSocketAddrs,
+    tls_fingerprint: Option<[u8; 32]>,
+) -> Result<Box<dyn ReadWrite>, NodeBroken> {
+    dial_with_timeout(addr, tls_fingerprint, None)
+}
+
+/// [`dial`], setting a read timeout on the RAW socket first — a
+/// timeout has to bound a stalled TLS handshake too, not just a
+/// stalled read afterward, the same reasoning `serve`'s handshake
+/// wall applies on the accept side.
+fn dial_with_timeout(
+    addr: impl ToSocketAddrs,
+    tls_fingerprint: Option<[u8; 32]>,
+    read_timeout: Option<std::time::Duration>,
+) -> Result<Box<dyn ReadWrite>, NodeBroken> {
+    let stream = TcpStream::connect(addr)?;
+    if let Some(timeout) = read_timeout {
+        stream.set_read_timeout(Some(timeout))?;
+    }
+    let Some(fingerprint) = tls_fingerprint else {
+        return Ok(Box::new(stream));
+    };
+    let ip = stream
+        .peer_addr()
+        .map(|a| a.ip())
+        .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
+    let config = Arc::new(crate::tls::client_config(fingerprint));
+    let conn = rustls::ClientConnection::new(config, rustls::pki_types::ServerName::from(ip))
+        .map_err(|e| {
+            NodeBroken::Io(std::io::Error::other(format!("TLS setup failed: {e:?}")))
+        })?;
+    Ok(Box::new(rustls::StreamOwned::new(conn, stream)))
+}
+
+#[allow(clippy::too_many_arguments)] // see produce_signed_over_tls
 fn produce_inner(
     addr: impl ToSocketAddrs,
     layout: &Layout,
@@ -734,8 +857,9 @@ fn produce_inner(
     bound: usize,
     envelopes: &[Vec<u8>],
     key: Option<&sig::Keypair>,
+    tls_fingerprint: Option<[u8; 32]>,
 ) -> Result<usize, NodeBroken> {
-    let mut stream = TcpStream::connect(addr)?;
+    let mut stream = dial(addr, tls_fingerprint)?;
     let ours = Hello::of(ledger, holder, u32::try_from(bound).unwrap_or(u32::MAX));
     send_hello(&mut stream, layout, hello_tag(ledger, holder), &ours)?;
     let mut buffer = Vec::new();
@@ -792,9 +916,10 @@ pub fn register_and_produce(
     bound: usize,
     key: &sig::Keypair,
     envelope: &[u8],
+    tls_fingerprint: Option<[u8; 32]>,
 ) -> Result<crate::registration::RegisterOutcome, NodeBroken> {
     let empty = Ledger::new(Layout::founding());
-    let mut stream = TcpStream::connect(addr)?;
+    let mut stream = dial(addr, tls_fingerprint)?;
     let ours = Hello::of(&empty, holder, u32::try_from(bound).unwrap_or(u32::MAX));
     send_hello(&mut stream, layout, hello_tag(&empty, holder), &ours)?;
     let mut buffer = Vec::new();
@@ -860,16 +985,22 @@ pub fn carrier_session(
     holder: &str,
     bound: usize,
     upstream: impl ToSocketAddrs,
+    upstream_tls_fingerprint: Option<[u8; 32]>,
 ) -> Result<usize, NodeBroken> {
     let ours = Hello::of(ledger, holder, u32::try_from(bound).unwrap_or(u32::MAX));
 
-    // Face the client: hear their declaration, answer with ours.
+    // Face the client: hear their declaration, answer with ours. The
+    // client-facing leg stays plaintext in this pass — P4 covers a
+    // court's own listener and every direct court-facing dial; a
+    // carrier's downstream trust is a narrower, separate concern
+    // (it forwards unread, decodes nothing, and never holds a key).
     let mut client_buf = Vec::new();
     let _client_hello = read_hello(&mut client, &mut client_buf, layout, &ours, bound)?;
     send_hello(&mut client, layout, hello_tag(ledger, holder), &ours)?;
 
-    // Face upstream: declare, hear the court.
-    let mut court = TcpStream::connect(upstream)?;
+    // Face upstream: declare, hear the court. THIS leg is a plain
+    // court-facing dial like any other — it gets TLS the same way.
+    let mut court = dial(upstream, upstream_tls_fingerprint)?;
     send_hello(&mut court, layout, hello_tag(ledger, holder), &ours)?;
     let mut court_buf = Vec::new();
     let _court_hello = read_hello(&mut court, &mut court_buf, layout, &ours, bound)?;
@@ -892,6 +1023,7 @@ pub fn carrier_session(
 }
 
 /// Accept and carry forever, one thread per client session.
+#[allow(clippy::too_many_arguments)] // see produce_signed_over_tls
 pub fn carry(
     listener: &TcpListener,
     layout: &Layout,
@@ -899,6 +1031,7 @@ pub fn carry(
     holder: &str,
     bound: usize,
     upstream: String,
+    upstream_tls_fingerprint: Option<[u8; 32]>,
     on_session: impl Fn(usize) + Send + Sync + 'static,
 ) -> std::io::Error {
     let on_session = Arc::new(on_session);
@@ -911,9 +1044,15 @@ pub fn carry(
                 let upstream = upstream.clone();
                 let on_session = Arc::clone(&on_session);
                 std::thread::spawn(move || {
-                    if let Ok(forwarded) =
-                        carrier_session(stream, &layout, &ledger, &holder, bound, &upstream)
-                    {
+                    if let Ok(forwarded) = carrier_session(
+                        stream,
+                        &layout,
+                        &ledger,
+                        &holder,
+                        bound,
+                        &upstream,
+                        upstream_tls_fingerprint,
+                    ) {
                         on_session(forwarded);
                     }
                 });
@@ -926,6 +1065,7 @@ pub fn carry(
 /// Attach and put witness frames on a court's record (IS-4). The
 /// fourth role: a peer that produces nothing and verifies nothing
 /// still attests to what crossed.
+#[allow(clippy::too_many_arguments)] // see produce_signed_over_tls
 pub fn witness_to(
     addr: impl ToSocketAddrs,
     layout: &Layout,
@@ -934,8 +1074,9 @@ pub fn witness_to(
     bound: usize,
     witnesses: &[isthmus::witness::Witness],
     key: Option<&sig::Keypair>,
+    tls_fingerprint: Option<[u8; 32]>,
 ) -> Result<usize, NodeBroken> {
-    let mut stream = TcpStream::connect(addr)?;
+    let mut stream = dial(addr, tls_fingerprint)?;
     let ours = Hello::of(ledger, holder, u32::try_from(bound).unwrap_or(u32::MAX));
     send_hello(&mut stream, layout, hello_tag(ledger, holder), &ours)?;
     let mut buffer = Vec::new();
@@ -970,6 +1111,7 @@ pub fn witness_to(
 /// and take the signed receipt back on the wire (tag 81). The whole
 /// x402 loop with zero HTTP — the gateway edge exists only for
 /// payers who cannot speak Plumbline.
+#[allow(clippy::too_many_arguments)] // see produce_signed_over_tls
 pub fn solve_market(
     addr: impl ToSocketAddrs,
     layout: &Layout,
@@ -978,12 +1120,12 @@ pub fn solve_market(
     bound: usize,
     body: &[u8],
     key: &sig::Keypair,
+    tls_fingerprint: Option<[u8; 32]>,
 ) -> Result<(Query, receipt::SignedReceipt), NodeBroken> {
-    let mut stream = TcpStream::connect(addr)?;
     // A court that refuses a market answer sends nothing back — so a
     // solver waiting unbounded for its receipt cannot tell refusal
     // from slowness. The deadline makes silence an answer.
-    stream.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
+    let mut stream = dial_with_timeout(addr, tls_fingerprint, Some(std::time::Duration::from_secs(10)))?;
     let ours = Hello::of(ledger, holder, u32::try_from(bound).unwrap_or(u32::MAX));
     send_hello(&mut stream, layout, hello_tag(ledger, holder), &ours)?;
     let mut buffer = Vec::new();

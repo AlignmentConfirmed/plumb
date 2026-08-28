@@ -345,6 +345,28 @@ pub enum Act {
         /// The definition bytes, uninterpreted here.
         definition: Vec<u8>,
     },
+
+    /// A holder's transport certificate, fingerprinted **on the
+    /// record** (`IS-6/6`).
+    ///
+    /// TLS here buys confidentiality of the channel; it does not buy
+    /// identity — that is what `Bind` and an attestation are for. A
+    /// peer with no DNS name and no CA has nothing else to check a
+    /// presented certificate against, so the chain carries the one
+    /// fact that lets it: THIS holder's certificate hashes to THIS.
+    /// A holder connecting to itself needs no round trip — it may
+    /// record its own certify the same way genesis records a bind.
+    ///
+    /// A later certify for the same holder supersedes the earlier —
+    /// certificate rotation is an append, exactly like key rotation.
+    /// Like a bind, a certify covers no ground: safe to append to a
+    /// live chain, and it can never collide with a deed.
+    Certify {
+        /// Whose certificate this is, as the holder names itself.
+        holder: String,
+        /// BLAKE3 of the certificate's exact DER bytes.
+        fingerprint: [u8; 32],
+    },
 }
 
 /// What [`Ledger::binding_of`] answers: the key a holder presents
@@ -431,7 +453,8 @@ impl Act {
             | Act::Open { .. }
             | Act::Anchor { .. }
             | Act::Bind { .. }
-            | Act::Declare { .. } => return None,
+            | Act::Declare { .. }
+            | Act::Certify { .. } => return None,
         };
         if region.len() > axes {
             return None;
@@ -1626,6 +1649,23 @@ impl Ledger {
         })
     }
 
+    /// The certificate fingerprint `holder` last recorded, if any
+    /// (`IS-6/6`). The **last** certify wins, the same rotation rule
+    /// as [`Ledger::binding_of`] — a holder with no certify has
+    /// published no transport certificate at all, which a connecting
+    /// peer must treat as "nothing to check against," never as "skip
+    /// the check."
+    #[must_use]
+    pub fn fingerprint_of(&self, holder: &str) -> Option<[u8; 32]> {
+        self.acts.iter().rev().find_map(|act| match act {
+            Act::Certify {
+                holder: certified,
+                fingerprint,
+            } if certified == holder => Some(*fingerprint),
+            _ => None,
+        })
+    }
+
     /// The definition governing `tag`, if a **current holder** of the
     /// tag ever published one (UC4).
     ///
@@ -1775,6 +1815,9 @@ impl Ledger {
                 // A definition issues nothing: publishing is speech,
                 // not ground.
                 Act::Declare { .. } => {}
+                // A certificate fingerprint issues nothing either —
+                // transport hygiene, not ground.
+                Act::Certify { .. } => {}
                 Act::Issue { holder, .. } | Act::IssueBox { holder, .. } => {
                     let Some(mut region) = act.region(axes_now) else {
                         continue;
@@ -2015,6 +2058,8 @@ impl Ledger {
                 // Likewise a declaration: whether the declarer holds
                 // the tag is the resolver's read-time rule.
                 Act::Declare { .. } => {}
+                // Likewise a certify: it names no ground either.
+                Act::Certify { .. } => {}
                 Act::Retire { holder } => {
                     live.remove(holder);
                 }
@@ -2255,6 +2300,9 @@ pub mod chain {
     /// Tags 1–7 all move this chain's own fold. This one names another
     /// chain, and it is the first record in the format that does.
     pub const ANCHOR: u64 = 8;
+    /// Chain-record tag for an [`Act::Certify`] — the transport
+    /// certificate fingerprint (`IS-6/6`). Additive, same rule.
+    pub const CERTIFY: u64 = 12;
 
     /// A length-framed opaque blob: `LE32(len) ‖ bytes`.
     ///
@@ -2404,6 +2452,14 @@ pub mod chain {
                     put_blob(definition, &mut value);
                     DECLARE
                 }
+                Act::Certify {
+                    holder,
+                    fingerprint,
+                } => {
+                    put_text(holder, &mut value);
+                    value.extend_from_slice(fingerprint);
+                    CERTIFY
+                }
             };
             // The founding layout holds tags 1..=3 and every value here
             // fits its length field; ignoring the Ok is the total path.
@@ -2518,6 +2574,16 @@ pub mod chain {
                         holder,
                         tag,
                         definition,
+                    }
+                }
+                CERTIFY => {
+                    let holder = take_text(&mut reader)?;
+                    let bytes = reader.take(32)?;
+                    let mut fingerprint = [0u8; 32];
+                    fingerprint.copy_from_slice(bytes);
+                    Act::Certify {
+                        holder,
+                        fingerprint,
                     }
                 }
                 found => {

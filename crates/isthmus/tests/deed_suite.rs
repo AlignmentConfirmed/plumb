@@ -2432,6 +2432,13 @@ mod replay_laws {
                     definition: vec![3, 0, 0],
                 },
             ),
+            (
+                chain::CERTIFY,
+                Act::Certify {
+                    holder: "beta".to_owned(),
+                    fingerprint: [9u8; 32],
+                },
+            ),
         ]
     }
 
@@ -2452,6 +2459,7 @@ mod replay_laws {
             Act::Anchor { .. } => chain::ANCHOR,
             Act::Bind { .. } => chain::BIND,
             Act::Declare { .. } => chain::DECLARE,
+            Act::Certify { .. } => chain::CERTIFY,
         }
     }
 

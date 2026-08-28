@@ -34,6 +34,14 @@ ensure_identities() {
       echo "$node: identity generated ($IDENT/$node.seed)"
     fi
   done
+  # court-b runs the wire encrypted (P4) — a real self-signed cert,
+  # generated once, whose fingerprint court-b certifies on its own
+  # chain at startup so a peer never has to be TOLD what to trust.
+  if [ ! -f "$IDENT/court-b.cert.der" ]; then
+    "$BIN" tls-cert court-b "$IDENT/court-b.cert.der" "$IDENT/court-b.key.der" > /dev/null \
+      || { echo "tls-cert failed for court-b"; exit 1; }
+    echo "court-b: TLS identity generated ($IDENT/court-b.cert.der)"
+  fi
 }
 
 seed_hex_of() {
@@ -83,6 +91,9 @@ chain = $HOME_DIR/chain.tlv
 listen = 127.0.0.1:9502
 require_signatures = true
 register = true
+tls = true
+tls_cert_file = $IDENT/court-b.cert.der
+tls_key_file = $IDENT/court-b.key.der
 snapshot = $HOME_DIR/court-b.xdct
 snapshot_secs = 2
 fed_listen = 127.0.0.1:9602
@@ -139,6 +150,7 @@ chain = $HOME_DIR/chain.tlv
 peer = 127.0.0.1:9502
 seed_file = $IDENT/witness-1.seed
 demo = hexagon
+court = court-b
 EOF
   cat > "$HOME_DIR/client-2.conf" <<EOF
 role = client
@@ -149,16 +161,20 @@ seed_file = $IDENT/client-2.seed
 every = 7
 start_n = 4
 step = 2
+court = court-b
 EOF
   # join-1: a STRANGER — no genesis edit, no pre-generated identity.
   # `seed_file` names a path that does not exist yet; `plumbd join`
   # generates it, registers live against court-b, and sends a
-  # proof-of-life claim, all in this one command.
+  # proof-of-life claim, all in this one command — over TLS, since
+  # court-b's fingerprint is right there on the chain join-1 reads.
   cat > "$HOME_DIR/join-1.conf" <<EOF
 role = join
 holder = join-1
 peer = 127.0.0.1:9502
 seed_file = $IDENT/join-1.seed
+chain = $HOME_DIR/chain.tlv
+court = court-b
 EOF
 }
 

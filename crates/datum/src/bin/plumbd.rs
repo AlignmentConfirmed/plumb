@@ -3,6 +3,7 @@
 //! ```text
 //! plumbd <config>
 //! plumbd keygen <path>
+//! plumbd tls-cert <holder> <cert-path> <key-path>
 //! ```
 //!
 //! `keygen` draws a fresh identity from OS entropy and writes ONLY the
@@ -11,6 +12,11 @@
 //! repeated-digit seed as a substitute — a role that needs a key reads
 //! it from a file made this way (`seed_file =`), never pastes it into
 //! a config that might be shared or committed.
+//!
+//! `tls-cert` draws a fresh self-signed Ed25519 certificate (P4,
+//! `IS-6/6`) and writes the cert and key DER to two paths, printing
+//! the fingerprint a `certify =` genesis line — or a live `Act::Certify`
+//! a court records of itself at startup — should carry.
 //!
 //! Config is plain `key = value` lines, no dependency spent on it:
 //!
@@ -26,7 +32,20 @@
 //! max_connections         = 256     # court: total sessions held at once, 0=unwalled
 //! max_connections_per_ip  = 16      # court: sessions held from one IP, 0=unwalled
 //! handshake_deadline_secs = 10      # court: drop a silent connection, 0=unwalled
+//! tls          = true                    # court: encrypt the wire (P4)
+//! tls_cert_file = ident/my-node.cert.der  # from `plumbd tls-cert`
+//! tls_key_file  = ident/my-node.key.der   # from `plumbd tls-cert`
+//! court        = court-a          # client-facing roles: whose Act::Certify to pin
 //! ```
+//!
+//! A client-facing role (producer, client, solver, witness, join,
+//! carrier) dials over TLS automatically whenever BOTH `court =` and
+//! `chain =` are set and the named holder has a live `Act::Certify`
+//! on that chain — the fingerprint comes from the chain, never from a
+//! config line, because the chain is the whole trust anchor here. No
+//! `Act::Certify` on record means no TLS: a stranger with a stale
+//! chain talks plaintext rather than trusting a fingerprint it never
+//! actually read.
 //!
 //! The producer role sends the demo triangle claim and exits — it
 //! exists so two machines can prove the seam. Real producers are
@@ -77,6 +96,10 @@ struct Config {
     max_connections: usize,
     max_connections_per_ip: usize,
     handshake_deadline_secs: u64,
+    tls: bool,
+    tls_cert_file: Option<String>,
+    tls_key_file: Option<String>,
+    court: Option<String>,
 }
 
 fn parse(text: &str) -> Config {
@@ -114,6 +137,10 @@ fn parse(text: &str) -> Config {
         max_connections: 256,
         max_connections_per_ip: 16,
         handshake_deadline_secs: 10,
+        tls: false,
+        tls_cert_file: None,
+        tls_key_file: None,
+        court: None,
     };
     for line in text.lines() {
         let line = line.split('#').next().unwrap_or("").trim();
@@ -155,6 +182,10 @@ fn parse(text: &str) -> Config {
                     config.handshake_deadline_secs = n;
                 }
             }
+            "tls" => config.tls = value == "true",
+            "tls_cert_file" => config.tls_cert_file = Some(value),
+            "tls_key_file" => config.tls_key_file = Some(value),
+            "court" => config.court = Some(value),
             "demo" => config.demo = value,
             "upstream" => config.upstream = Some(value),
             "every" => {
@@ -296,6 +327,16 @@ fn resolve_seed(config: &Config) -> Option<[u8; 32]> {
     })
 }
 
+/// P4 — the fingerprint a client-facing role dials over TLS, IF the
+/// named court has one on record. The chain is the whole trust
+/// anchor: no `court =`, no chain, or no `Act::Certify` on it each
+/// mean the same thing — plaintext, not a guess at a fingerprint
+/// nobody actually read.
+fn expected_fingerprint(config: &Config, ledger: &Ledger) -> Option<[u8; 32]> {
+    let court = config.court.as_deref()?;
+    ledger.fingerprint_of(court)
+}
+
 /// Why `keygen` could not produce or persist an identity.
 #[derive(Debug)]
 enum KeygenBroken {
@@ -368,10 +409,35 @@ fn main() {
         }
         return;
     }
+    if first.as_deref() == Some("tls-cert") {
+        let mut args = std::env::args().skip(2);
+        let (Some(holder), Some(cert_path), Some(key_path)) =
+            (args.next(), args.next(), args.next())
+        else {
+            eprintln!("usage: plumbd tls-cert <holder> <cert-path> <key-path>");
+            std::process::exit(2);
+        };
+        let identity = datum::tls::generate_identity(&holder).unwrap_or_else(|e| {
+            eprintln!("plumbd: tls-cert failed: {e}");
+            std::process::exit(1);
+        });
+        for (path, bytes) in [(&cert_path, &identity.cert_der), (&key_path, &identity.key_der)] {
+            if let Err(e) = std::fs::write(path, bytes) {
+                eprintln!("plumbd: cannot write {path}: {e}");
+                std::process::exit(1);
+            }
+        }
+        println!("plumbd: certificate written to {cert_path}, key to {key_path}");
+        println!(
+            "plumbd: fingerprint {} — a court records this of itself at startup (P4)",
+            hex_encode(&identity.fingerprint())
+        );
+        return;
+    }
     let path = match first {
         Some(p) => p,
         None => {
-            eprintln!("usage: plumbd <config> | plumbd keygen <path>");
+            eprintln!("usage: plumbd <config> | plumbd keygen <path> | plumbd tls-cert <holder> <cert-path> <key-path>");
             std::process::exit(2);
         }
     };
@@ -388,6 +454,7 @@ fn main() {
 
     match config.role.as_str() {
         "court" => {
+            let mut ledger = ledger;
             let listener = match TcpListener::bind(&config.listen) {
                 Ok(l) => l,
                 Err(e) => {
@@ -489,6 +556,53 @@ fn main() {
             if config.register {
                 println!("plumbd: live registration OPEN (P2) — an unbound key that proves possession gets a deed and a bind, no restart");
             }
+            // P4 — a court that turns TLS on certifies ITSELF: it
+            // already holds this ledger, so proving possession over a
+            // wire challenge (P2's proof) is not the question — the
+            // question is just "does the chain know this fingerprint
+            // yet," and the court is the one party that can answer
+            // that by simply recording it.
+            let tls_server_config = if config.tls {
+                let (Some(cert_path), Some(key_path)) =
+                    (&config.tls_cert_file, &config.tls_key_file)
+                else {
+                    eprintln!("plumbd: tls needs `tls_cert_file =` and `tls_key_file =` — see `plumbd tls-cert`");
+                    std::process::exit(2);
+                };
+                let cert_der = std::fs::read(cert_path).unwrap_or_else(|e| {
+                    eprintln!("plumbd: tls_cert_file {cert_path} unreadable: {e}");
+                    std::process::exit(2);
+                });
+                let key_der = std::fs::read(key_path).unwrap_or_else(|e| {
+                    eprintln!("plumbd: tls_key_file {key_path} unreadable: {e}");
+                    std::process::exit(2);
+                });
+                let identity = datum::tls::Identity { cert_der, key_der };
+                let fingerprint = identity.fingerprint();
+                if ledger.fingerprint_of(&config.holder) != Some(fingerprint) {
+                    ledger.record(isthmus::deed::Act::Certify {
+                        holder: config.holder.clone(),
+                        fingerprint,
+                    });
+                    if let Some(path) = &config.chain {
+                        let _ = datum::registration::persist_chain_atomic(
+                            std::path::Path::new(path),
+                            &ledger,
+                        );
+                    }
+                }
+                println!(
+                    "plumbd: TLS ON (P4) — certified fingerprint {}",
+                    hex_encode(&fingerprint)
+                );
+                let server_config = datum::tls::server_config(&identity).unwrap_or_else(|e| {
+                    eprintln!("plumbd: tls setup failed: {e}");
+                    std::process::exit(1);
+                });
+                Some(Arc::new(server_config))
+            } else {
+                None
+            };
             let rules = plumbd::SessionRules {
                 holder: config.holder.clone(),
                 bound: config.bound,
@@ -501,6 +615,7 @@ fn main() {
                 handshake_deadline: (config.handshake_deadline_secs > 0)
                     .then(|| std::time::Duration::from_secs(config.handshake_deadline_secs)),
                 connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
+                tls: tls_server_config,
             };
             let ledger = Arc::new(Mutex::new(ledger));
             let witnesses: plumbd::WitnessLog =
@@ -584,6 +699,7 @@ fn main() {
                 &config.holder,
                 config.bound,
                 upstream,
+                expected_fingerprint(&config, &ledger),
                 |forwarded| println!("plumbd: carried session — {forwarded} frame(s) forwarded, none read"),
             );
             eprintln!("plumbd: carrier failed: {err}");
@@ -599,6 +715,7 @@ fn main() {
                 std::process::exit(2);
             }
             let key = sig::Keypair::from_seed(seed);
+            let tls_fingerprint = expected_fingerprint(&config, &ledger);
             let mut n = config.start_n.max(3);
             let mut lap: i64 = 1;
             // The bound-safe ceiling: past this, an envelope would
@@ -619,7 +736,7 @@ fn main() {
                     std::process::exit(1);
                 }
                 for peer in &config.peers {
-                    match plumbd::produce_signed(
+                    match plumbd::produce_signed_over_tls(
                         peer.as_str(),
                         &layout,
                         &ledger,
@@ -627,6 +744,7 @@ fn main() {
                         config.bound,
                         std::slice::from_ref(&envelope),
                         &key,
+                        tls_fingerprint,
                     ) {
                         Ok(_) => println!("plumbd: {n}-cycle claim -> {peer}"),
                         Err(e) => println!("plumbd: {peer} unreachable ({e:?}); next round"),
@@ -667,6 +785,7 @@ fn main() {
                 config.bound,
                 &body,
                 &key,
+                expected_fingerprint(&config, &ledger),
             ) {
                 Ok((query, receipt)) => {
                     println!(
@@ -715,6 +834,7 @@ fn main() {
                     config.bound,
                     std::slice::from_ref(&witness),
                     key.as_ref(),
+                    expected_fingerprint(&config, &ledger),
                 ) {
                     Ok(sent) => println!("plumbd: {sent} witness(es) on the record at {peer}"),
                     Err(e) => {
@@ -820,6 +940,7 @@ fn main() {
                 config.bound,
                 &key,
                 &envelope,
+                expected_fingerprint(&config, &ledger),
             ) {
                 Ok(outcome) => {
                     println!(

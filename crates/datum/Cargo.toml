@@ -26,6 +26,18 @@ sig = { path = "../sig", package = "plumb-sig" }
 num-rational = "0.4"
 num-bigint = "0.4"
 num-traits = "0.2"
+# PR4 — transport confidentiality (IS-6/6). TLS buys the channel;
+# identity stays the Ed25519 attestation's job, never rustls's — the
+# custom verifier in tls.rs checks a fingerprint against chain state,
+# not a CA chain.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rcgen = "=0.13.2"
+# The signature-verification primitive a custom ServerCertVerifier
+# needs (checking a TLS handshake signature against a cert's embedded
+# key) without pulling in CA/chain validation. rustls already depends
+# on this crate internally; naming it directly gives tls.rs the same
+# public API rustls's own stock verifier is built on.
+webpki = { package = "rustls-webpki", version = "0.103", default-features = false, features = ["alloc", "ring"] }
 
 [lints.rust]
 unsafe_code = "forbid"

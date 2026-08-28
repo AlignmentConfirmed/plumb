@@ -49,6 +49,7 @@ mod noded {
                 max_connections_per_ip: 0,
                 handshake_deadline: None,
                 connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
+                tls: None,
                 };
                 let _ = plumbd::serve(&listener, &layout, &Arc::new(Mutex::new(ledger)), &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
             });
@@ -269,6 +270,7 @@ mod admission {
                 max_connections_per_ip: 0,
                 handshake_deadline: None,
                 connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
+                tls: None,
                 };
                 let _ = plumbd::serve(&listener, &layout, &Arc::new(Mutex::new(ledger)), &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
             });
@@ -372,6 +374,7 @@ mod session_freshness {
             max_connections_per_ip: 0,
             handshake_deadline: None,
             connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
+            tls: None,
             };
             let _ = plumbd::serve(&listener, &layout, &Arc::new(Mutex::new(ledger)), &rules, &book2, &Arc::new(Mutex::new(Vec::new())), |_| {});
         });
@@ -486,6 +489,7 @@ mod carrier {
                 max_connections_per_ip: 0,
                 handshake_deadline: None,
                 connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
+                tls: None,
                 };
                 let _ = plumbd::serve(&court_listener, &layout, &Arc::new(Mutex::new(ledger)), &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
             });
@@ -504,6 +508,7 @@ mod carrier {
                     "carrier",
                     BOUND,
                     court_addr.to_string(),
+                    None,
                     |_| {},
                 );
             });
@@ -588,6 +593,7 @@ mod registered_wire {
                 max_connections_per_ip: 0,
                 handshake_deadline: None,
                 connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
+                tls: None,
                 };
                 let _ = plumbd::serve(
                     &listener,
@@ -706,6 +712,7 @@ mod witnessing {
                 max_connections_per_ip: 0,
                 handshake_deadline: None,
                 connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
+                tls: None,
                 };
                 let _ = plumbd::serve(&listener, &layout, &Arc::new(Mutex::new(ledger)), &rules, &book, &log, |_| {});
             });
@@ -720,6 +727,7 @@ mod witnessing {
             "watcher-1",
             BOUND,
             std::slice::from_ref(&statement),
+            None,
             None,
         )
         .expect("witness session");
@@ -850,6 +858,7 @@ mod native_market {
                 max_connections_per_ip: 0,
                 handshake_deadline: None,
                 connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
+                tls: None,
                 };
                 let _ = plumbd::serve(
                     &listener,
@@ -880,6 +889,7 @@ mod native_market {
             BOUND,
             &answer,
             &key,
+            None,
         )
         .expect("the native loop closes");
 
@@ -950,6 +960,7 @@ mod registered_calculus {
                 max_connections_per_ip: 0,
                 handshake_deadline: None,
                 connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
+                tls: None,
                 };
                 let _ = plumbd::serve(
                     &listener,
@@ -1053,6 +1064,7 @@ mod session_watcher {
                 max_connections_per_ip: 0,
                 handshake_deadline: None,
                 connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
+                tls: None,
                 };
                 let _ = plumbd::serve(
                     &listener,
@@ -1141,6 +1153,7 @@ mod session_watcher {
                 max_connections_per_ip: 0,
                 handshake_deadline: None,
                 connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
+                tls: None,
                 };
                 let _ = plumbd::serve(
                     &listener,
@@ -1162,6 +1175,7 @@ mod session_watcher {
             BOUND,
             &stranger,
             &envelope,
+            None,
         )
         .expect("one connection: register, then send, no restart in between");
         assert!(outcome.high >= outcome.low, "a real deed came back");
@@ -1196,6 +1210,7 @@ mod session_watcher {
                 max_connections_per_ip: 0,
                 handshake_deadline: None,
                 connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
+                tls: None,
                 };
                 let _ = plumbd::serve(
                     &listener,
@@ -1219,6 +1234,7 @@ mod session_watcher {
             BOUND,
             &name_taken,
             &envelope,
+            None,
         );
         assert!(
             matches!(by_name, Err(plumbd::NodeBroken::Unsatisfiable)),
@@ -1234,6 +1250,7 @@ mod session_watcher {
             BOUND,
             &incumbent,
             &envelope,
+            None,
         );
         assert!(
             matches!(by_key, Err(plumbd::NodeBroken::Unsatisfiable)),
@@ -1294,6 +1311,7 @@ mod walls {
             max_connections_per_ip: 0,
             handshake_deadline: None,
             connections: Arc::clone(&connections),
+        tls: None,
         };
         let (addr, _ledger) = walled_court(rules);
 
@@ -1333,6 +1351,7 @@ mod walls {
             max_connections_per_ip: 1, // but only one from any single peer
             handshake_deadline: None,
             connections: Arc::clone(&connections),
+        tls: None,
         };
         let (addr, _ledger) = walled_court(rules);
 
@@ -1367,6 +1386,7 @@ mod walls {
             max_connections_per_ip: 0,
             handshake_deadline: Some(Duration::from_millis(200)),
             connections: Arc::clone(&connections),
+        tls: None,
         };
         let (addr, _ledger) = walled_court(rules);
 
