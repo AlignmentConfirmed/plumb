@@ -428,6 +428,9 @@ pub enum SolveRefused {
     /// is not the same question, and [`crate::snf`]'s whole point is
     /// that gap.
     NoIntegralSolution,
+    /// No RATIONAL chain closes onto this target at all — the
+    /// boundary is genuinely outside `∂_dim`'s image, full stop.
+    NoRationalSolution,
 }
 
 impl DeclaredComplex {
@@ -487,6 +490,49 @@ impl DeclaredComplex {
             .enumerate()
             .filter(|(_, coeff)| !coeff.is_zero())
             .map(|(cell, coeff)| (cell as u32, Exact::from_integer(coeff)))
+            .collect())
+    }
+
+    /// Find the `L₁`-minimal (sparsest, in the Basis-Pursuit sense —
+    /// see [`crate::simplex`]) `dim`-chain closing onto `target`.
+    ///
+    /// Unlike [`DeclaredComplex::solve`], this operates on the exact
+    /// RATIONAL coefficients directly — no LCM scaling, since there is
+    /// no integrality question here at all. That is also its
+    /// limitation, stated rather than hidden: the returned witness may
+    /// carry fractional coefficients, which is not "half a licensed
+    /// step" made meaningful, just the LP relaxation's honest answer.
+    /// A caller that needs an INTEGER sparsest witness has a strictly
+    /// harder problem this does not solve.
+    pub fn solve_sparsest(&self, dim: u32, target: &[(u32, Exact)]) -> Result<Vec<(u32, Exact)>, SolveRefused> {
+        let dim = dim as usize;
+        if dim == 0 {
+            return Err(SolveRefused::NoSuchDimension);
+        }
+        let rows = self.cells.get(dim - 1).copied().ok_or(SolveRefused::NoSuchDimension)?;
+        let cols = self.cells.get(dim).copied().ok_or(SolveRefused::NoSuchDimension)?;
+        let op = self.ops.get(dim - 1).ok_or(SolveRefused::NoSuchDimension)?;
+
+        let mut a = vec![vec![Exact::from_integer(0.into()); cols as usize]; rows as usize];
+        for entry in op {
+            if let Some(row) = a.get_mut(entry.row as usize) {
+                if let Some(slot) = row.get_mut(entry.col as usize) {
+                    *slot += entry.coeff.clone();
+                }
+            }
+        }
+        let mut z = vec![Exact::from_integer(0.into()); rows as usize];
+        for (cell, coeff) in target {
+            if let Some(slot) = z.get_mut(*cell as usize) {
+                *slot += coeff.clone();
+            }
+        }
+
+        let x = crate::simplex::minimize_l1(&a, &z).ok_or(SolveRefused::NoRationalSolution)?;
+        Ok(x.into_iter()
+            .enumerate()
+            .filter(|(_, coeff)| !coeff.is_zero())
+            .map(|(cell, coeff)| (cell as u32, coeff))
             .collect())
     }
 }

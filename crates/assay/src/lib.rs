@@ -84,6 +84,7 @@ pub mod flux;
 pub mod homology;
 pub mod rewrite;
 pub mod shape;
+pub mod simplex;
 pub mod snf;
 pub mod work;
 

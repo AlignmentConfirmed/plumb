@@ -1225,4 +1225,68 @@ mod solve {
         .verify(DEFAULT_FUEL)
         .expect("solve()'s own dimension-2 witness independently verifies");
     }
+
+    /// Task #37: `solve_sparsest` genuinely finds a sparser witness
+    /// than the SNF particular solution `solve` returns — the whole
+    /// reason Basis Pursuit exists, demonstrated on the same
+    /// underdetermined shape `assay::simplex`'s own unit test uses,
+    /// now wired through a real `DeclaredComplex` and independently
+    /// re-verified by `closes_to`, never trusted on `solve_sparsest`'s
+    /// own say-so.
+    #[test]
+    fn solve_sparsest_beats_the_naive_particular_solution() {
+        // 4 nodes, 4 edges: a 3-hop path 0->1->2->3, plus one direct
+        // shortcut edge 0->3. SNF's particular solution (pivot order
+        // is an algebraic accident, not a shortest-path search) picks
+        // up the whole 3-edge path; the sparsest closing chain is the
+        // single shortcut edge alone. Confirmed empirically, not
+        // assumed — this is exactly the gap #37 exists to close.
+        let edge = |from: u32, to: u32, col: u32| {
+            vec![
+                Entry { row: from, col, coeff: whole(-1) },
+                Entry { row: to, col, coeff: whole(1) },
+            ]
+        };
+        let mut op = Vec::new();
+        op.extend(edge(0, 1, 0));
+        op.extend(edge(1, 2, 1));
+        op.extend(edge(2, 3, 2));
+        op.extend(edge(0, 3, 3)); // the shortcut
+        let complex = DeclaredComplex {
+            cells: vec![4, 4],
+            ops: vec![op],
+        };
+        let target = vec![(0u32, whole(-1)), (3u32, whole(1))];
+
+        let naive = complex.solve(1, &target).expect("Q-solvable, and this graph is TU");
+        let sparsest = complex.solve_sparsest(1, &target).expect("feasible");
+
+        complex
+            .closes_to(1, &sparsest, &target, DEFAULT_FUEL)
+            .expect("solve_sparsest's own witness independently verifies");
+
+        assert!(
+            sparsest.len() < naive.len(),
+            "solve_sparsest ({sparsest:?}) must beat the naive particular solution ({naive:?})"
+        );
+        assert_eq!(sparsest, vec![(3, whole(1))], "the shortcut edge alone closes it");
+        assert_eq!(naive, vec![(0, whole(1)), (1, whole(1)), (2, whole(1))]);
+    }
+
+    #[test]
+    fn solve_sparsest_refuses_when_no_rational_solution_exists_at_all() {
+        let op = vec![
+            Entry { row: 0, col: 0, coeff: whole(1) },
+            Entry { row: 1, col: 1, coeff: whole(1) },
+        ];
+        let complex = DeclaredComplex {
+            cells: vec![4, 2], // cells 2,3 touch no declared 1-cell at all
+            ops: vec![op],
+        };
+        let target = vec![(0u32, whole(-1)), (2u32, whole(1))];
+        assert_eq!(
+            complex.solve_sparsest(1, &target),
+            Err(SolveRefused::NoRationalSolution)
+        );
+    }
 }
