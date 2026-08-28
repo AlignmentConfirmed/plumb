@@ -1,15 +1,19 @@
-# plumb — the workspace. Three crates, one law each:
+# plumb — the workspace. One law per crate:
 #
 #     isthmus  ->  nothing              the substrate (carries, never reads)
 #     assay    ->  nothing              the verification physics
-#     datum    ->  isthmus + assay      the court (reads, never carried)
+#     sig      ->  nothing              signature primitives
+#     sdk      ->  isthmus + assay + sig    the kernel attach surface (leaves only)
+#     kernel   ->  sdk + isthmus + assay + sig  a derivation-finding producer (K1-K4);
+#                                        zero datum in its tree, on purpose
+#     datum    ->  isthmus + assay + sig + sdk  the court (reads, never carried)
 #
 # Nothing here reaches outside this directory. Kernel-edge measurements
 # (xylarium, netstratum) live in the lab, which depends on these crates
 # the same way any outsider would.
 [workspace]
 resolver = "2"
-members = ["crates/isthmus", "crates/assay", "crates/datum", "crates/sdk", "crates/sig"]
+members = ["crates/isthmus", "crates/assay", "crates/datum", "crates/sdk", "crates/sig", "crates/kernel"]
 
 [workspace.package]
 license = "MIT OR Apache-2.0"

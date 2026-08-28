@@ -1,0 +1,32 @@
+[package]
+name = "plumb-kernel"
+version = "0.1.0"
+edition = "2021"
+description = "A derivation-finding producer (K1-K4): joins any court and earns by traversing a declared complex's own licensed 1-cells — never links the court itself."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/AlignmentConfirmed/plumb"
+keywords = ["kernel", "protocol", "settlement"]
+
+# K3's whole architectural point: this binary builds against sdk and
+# the LEAVES ONLY. `datum` does not appear here, in any table — a
+# kernel that could only join a court by linking the court's own crate
+# would not be a kernel a stranger could write. See K1 (IMPLEMENTATION.md
+# section 6c) for why the market vocabulary lives in sdk instead of datum.
+[[bin]]
+name = "kernel"
+path = "src/main.rs"
+
+[dependencies]
+isthmus = { path = "../isthmus", package = "plumb-isthmus" }
+assay = { path = "../assay", package = "plumb-assay" }
+sig = { path = "../sig", package = "plumb-sig" }
+sdk = { path = "../sdk", package = "plumb-sdk" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+panic = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"

@@ -290,6 +290,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "plumb-kernel"
+version = "0.1.0"
+dependencies = [
+ "plumb-assay",
+ "plumb-isthmus",
+ "plumb-sdk",
+ "plumb-sig",
+]
+
+[[package]]
 name = "plumb-sdk"
 version = "0.1.0"
 dependencies = [
