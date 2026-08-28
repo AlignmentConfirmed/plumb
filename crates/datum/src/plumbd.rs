@@ -424,27 +424,49 @@ pub struct SessionReport {
     pub registered: usize,
 }
 
-/// Serve one inbound session as the court.
-///
-/// Declaration first, both ways; then every work record's value goes
-/// to the shared book. The value is decoded by the book, never here —
-/// the session layer stays payload-blind about everything but the tag.
-pub fn court_session(
+/// The state a completed [`court_handshake`] hands to [`court_settle`]:
+/// the live stream and everything the record loop reads from, captured
+/// once so the two halves compose EXACTLY as the old single-shot
+/// session did. The read `buffer` crosses the seam on purpose —
+/// `read_hello` may leave residual bytes the first `read_record`
+/// continues from, so framing continuity is preserved. Phase 5's
+/// greeter pool runs the handshake and enqueues this state by weight;
+/// the settler pool drains it.
+pub struct SessionState<'a> {
+    stream: Box<dyn ReadWrite>,
+    layout: &'a Layout,
+    ledger: &'a Arc<Mutex<Ledger>>,
+    rules: &'a SessionRules,
+    book: &'a Arc<Mutex<RewardBook>>,
+    witnesses: &'a WitnessLog,
+    /// The IS-2/2 challenge frame this session issued — the token an
+    /// admission attestation must answer.
+    challenge_frame: Vec<u8>,
+    /// The read buffer, carried across the seam (see the type note).
+    buffer: Vec<u8>,
+}
+
+/// The cheap, bounded first half of a court session: declaration both
+/// ways and the IS-2/2 challenge, plus the native market announcement.
+/// Everything here is covered by `serve`'s handshake deadline; nothing
+/// here surveys or settles. Returns the [`SessionState`] the expensive
+/// half reads from.
+pub fn court_handshake<'a>(
     mut stream: Box<dyn ReadWrite>,
     handshake_socket: Option<TcpStream>,
-    layout: &Layout,
-    ledger: &Arc<Mutex<Ledger>>,
-    rules: &SessionRules,
-    book: &Arc<Mutex<RewardBook>>,
-    witnesses: &WitnessLog,
-) -> Result<SessionReport, NodeBroken> {
-    let (holder, bound, enforce) = (rules.holder.as_str(), rules.bound, rules.enforce);
+    layout: &'a Layout,
+    ledger: &'a Arc<Mutex<Ledger>>,
+    rules: &'a SessionRules,
+    book: &'a Arc<Mutex<RewardBook>>,
+    witnesses: &'a WitnessLog,
+) -> Result<SessionState<'a>, NodeBroken> {
+    let (holder, bound) = (rules.holder.as_str(), rules.bound);
     // A snapshot for framing OUR OWN declaration and challenge tag —
     // read once, at session start, exactly as a per-thread clone did
-    // before this ledger could change live. Admission checks below
-    // re-lock for the CURRENT state on purpose: a registration that
-    // lands mid-session must be visible to that same session's next
-    // claim.
+    // before this ledger could change live. Admission checks in
+    // `court_settle` re-lock for the CURRENT state on purpose: a
+    // registration that lands mid-session must be visible to that same
+    // session's next claim.
     let opening = ledger
         .lock()
         .map_err(|_| NodeBroken::CourtUnreachable)?
@@ -483,6 +505,35 @@ pub fn court_session(
             .map_err(|_| NodeBroken::CannotFrame)?;
         stream.write_all(&announcement)?;
     }
+
+    Ok(SessionState {
+        stream,
+        layout,
+        ledger,
+        rules,
+        book,
+        witnesses,
+        challenge_frame,
+        buffer,
+    })
+}
+
+/// The expensive second half: survey every record and settle it against
+/// the shared book. The value is decoded by the book, never here — the
+/// session layer stays payload-blind about everything but the tag.
+pub fn court_settle(state: SessionState) -> Result<SessionReport, NodeBroken> {
+    let SessionState {
+        mut stream,
+        layout,
+        ledger,
+        rules,
+        book,
+        witnesses,
+        challenge_frame,
+        mut buffer,
+    } = state;
+    let enforce = rules.enforce;
+    let bound = rules.bound;
 
     let mut report = SessionReport::default();
     let mut session_live = !enforce; // enforcement holds the session until the challenge is answered
@@ -695,6 +746,24 @@ pub fn court_session(
         report.refused += 1; // session closed on an unattested envelope
     }
     Ok(report)
+}
+
+/// Serve one inbound session as the court: the handshake then the
+/// settlement, composed exactly as the single-shot session always ran.
+/// Callers that want to schedule between the two halves (Phase 5's
+/// two-pool serve) call [`court_handshake`] and [`court_settle`]
+/// directly; everyone else keeps this one-call surface.
+pub fn court_session(
+    stream: Box<dyn ReadWrite>,
+    handshake_socket: Option<TcpStream>,
+    layout: &Layout,
+    ledger: &Arc<Mutex<Ledger>>,
+    rules: &SessionRules,
+    book: &Arc<Mutex<RewardBook>>,
+    witnesses: &WitnessLog,
+) -> Result<SessionReport, NodeBroken> {
+    let state = court_handshake(stream, handshake_socket, layout, ledger, rules, book, witnesses)?;
+    court_settle(state)
 }
 
 /// Accept sessions forever, one thread per peer, one shared book.

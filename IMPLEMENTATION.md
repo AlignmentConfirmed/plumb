@@ -515,7 +515,24 @@ Tracked as an ordered, dependency-wired graph (#49–#55):
 - **#53 P5-B1** — split `court_session` into handshake + settle stages;
   the **highest-risk** piece (core session logic), done standalone and
   independently validated (byte-identical when called back-to-back)
-  *(independent)*.
+  *(independent)*. **DONE 2026-08-28** — `court_handshake(...) ->
+  SessionState` (declaration both ways + IS-2/2 challenge + market
+  announcement, all under the handshake deadline) and
+  `court_settle(SessionState) -> SessionReport` (the record survey/credit
+  loop, kept textually identical). `court_session` is now literally
+  `court_handshake(..).and_then-composed-with court_settle`, so the
+  single-call surface every caller (`run_session`) uses is unchanged.
+  `SessionState` carries the read `buffer` across the seam (framing
+  continuity) and the challenge frame (admission). Validated: the full
+  datum suite passes with *identical* counts (every wire/session/market
+  test drives the split path), and a live simnet — courts, carrier,
+  clients, kernel, gateway — credited normally through it (court-a/b
+  HEALTHY, credits advancing, no new failure mode). *Honest scope note:
+  the split returns `SessionState`, not `(holder, …)` — the holder is
+  not known after the prologue (no attestation read yet). The
+  authenticated-holder seam (needed to weight the queue) relocates to
+  **#54**, where the go-live boundary is deliberately moved into the
+  greeter; faking a holder here would not have been byte-identical.*
 - **#54 P5-B2** — the greeter + settler two-pool `serve()` with the
   priority queue between *(needs #53)*.
 - **#55 P5-B3** — weighted deficit round-robin in `FairQueue`, wire the
