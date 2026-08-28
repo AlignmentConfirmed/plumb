@@ -381,6 +381,39 @@ the test) drops it to 9/30 credited, confirming the test catches the
 exact bug; with the fix, 30/30. Verified live on the simnet
 afterward, consistent with the regression test.
 
+**A second, deeper bug this same verification pass surfaced:**
+`credit_value`'s "not an answer to the question" fallthrough only
+named `AnswerRefused::NotThePosersUniverse` (the plain-universe
+market's shape of "not even trying to answer"). PR5 switched
+court-a's live market to a CONJECTURE (`bab = aa`), whose equivalent
+cases — `NotAProof`, `NotDeclared` — hit the generic `Err(_)` arm
+instead and were refused outright. Every plain claim court-a ever
+saw (all of client-1's carrier-relayed background traffic) was
+refused from the moment PR5 landed; the carrier fix above only made
+this VISIBLE (it had been silently masquerading as "empty" sessions
+until then). Fixed by folding `NotAProof`/`NotDeclared` into the same
+fallthrough as `NotThePosersUniverse`. A related, more general
+instance of the SAME close-with-unread-data race (not just the
+carrier) was also found and fixed: `produce_inner`, `witness_to`, and
+`register_and_produce` all dropped their connection without draining
+a court's unsolicited market announcement — `finish_politely`
+(shutdown_write + bounded drain) is now shared by all four dialing
+functions and `carrier_session`. Test:
+`crates/datum/tests/wire.rs (mod native_market)
+::ordinary_traffic_still_credits_when_the_posted_market_is_a_conjecture`.
+Verified live: court-a and court-b both settled to 20/20 credited
+over their last 20 sessions; a direct count comparison showed
+client-1's sends == carrier-1's relayed sessions == court-a's carrier
+credits, exactly, with the solver's own direct credit accounted for
+separately — zero drops, zero silent refusals. The O1 yield-rebate
+payout formula was independently hand-computed against the real
+dihedral proof's measured fuel (464) and bytes (8,731) and matched
+the library exactly (20,167) — the arithmetic is correct as
+implemented, though note it is not currently ledgered anywhere
+durable (`Answer.payout` is computed and used to size the immediate
+reply, but no receipt or book field records the number after that
+session ends — a separate, real gap from what this pass was fixing).
+
 ---
 
 ## 7 · Topological signatures — research track, scheme ≥ 0x02
