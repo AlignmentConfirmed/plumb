@@ -488,10 +488,21 @@ Tracked as an ordered, dependency-wired graph (#49–#55):
   RewardAct — the exact violation the isolation test guards. So the two
   mechanisms stay separate: **escrow-weight is local scheduling policy;
   slash-for-fraud is a consensus act triggered only by a
-  cryptographically checkable offence** (attested-but-false proof, double
-  submission, a broken signed commitment). *Open sub-ruling before #50
-  lands: WHICH verifiable offence(s) are slashable — see #49's revised
-  docket.*
+  cryptographically checkable offence.**
+
+  **#56 sub-ruling — RULED 2026-08-29 (operator): all three verifiable
+  offences are slashable** — (a) an **attested-but-false proof** (a
+  holder signs an attestation for a claim that fails the court's exact
+  verification), (b) **double submission / equivocation** (two
+  conflicting signed answers to the same `query_id`), and (c) a **broken
+  signed commitment** (a holder violates a bound it cryptographically
+  committed to). All three are re-checkable by every court, so a slash
+  on any of them is a legitimate consensus act. *(c) needs the
+  commitment primitive defined before its slash path can be wired —
+  heaviest of the three, so #50 implements (a)/(b) first. Slash
+  magnitude and destination (burn vs. redistribute) are the one
+  remaining detail to pin at #50, deliberately small and separable from
+  the offence set decided here.*
 - **#50 P5-A1** — the on-chain economic facts: `Act::Escrow`/`Release`
   (voluntary self-lock of earned balance) plus `Act::Slash` (involuntary,
   consensus-verifiable trigger only), and the balance fold
