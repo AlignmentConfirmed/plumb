@@ -795,6 +795,28 @@ mod refinement {
     }
 
     #[test]
+    fn the_equivalence_guard_refuses_unsettled_names() {
+        // Found by mutation audit: this guard had no direct test —
+        // settle_refinement only records after both sides settle, so
+        // the refusal path never fired. Pinned now: an equivalence
+        // can never advertise work nobody verified.
+        let mut book = RewardBook::new();
+        let settled = fat(1);
+        book.credit_claim(&settled.encode()).expect("settles");
+        let phantom = lean(0).work_id();
+
+        assert!(matches!(
+            book.record_equivalence(phantom.clone(), settled.work_id(), 1, 1),
+            Err(datum::reward::RewardRefused::UnsettledDependency { .. })
+        ), "unsettled OLD refuses");
+        assert!(matches!(
+            book.record_equivalence(settled.work_id(), phantom, 1, 1),
+            Err(datum::reward::RewardRefused::UnsettledDependency { .. })
+        ), "unsettled NEW refuses");
+        assert!(book.refinements_of(&settled.work_id()).is_empty());
+    }
+
+    #[test]
     fn the_equivalence_federates_once_like_everything_else() {
         let (mut book_a, bounty) = settled_original();
         settle_refinement(&bounty, &lean(1).encode(), None, &mut book_a, CEILING)
