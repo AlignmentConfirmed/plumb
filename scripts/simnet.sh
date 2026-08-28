@@ -156,12 +156,14 @@ start() {
   done
   # One-shots: the native solver answers the posted market; the
   # witness puts an attestation on the record. Both are the composed
-  # economy exercising itself at boot.
+  # economy exercising itself at boot. Bounded: on a RESTART the
+  # solver's answer is a replay, the court refuses by silence, and
+  # that must not hang the boot.
   sleep 1
-  "$BIN" "$HOME_DIR/solver-1.conf" >> "$HOME_DIR/solver-1.log" 2>&1 \
+  timeout 20 "$BIN" "$HOME_DIR/solver-1.conf" >> "$HOME_DIR/solver-1.log" 2>&1 \
     && echo "solver-1: solved the native market (one-shot)" \
-    || echo "solver-1: FAILED (see solver-1.log)"
-  "$BIN" "$HOME_DIR/witness-1.conf" >> "$HOME_DIR/witness-1.log" 2>&1 \
+    || echo "solver-1: no receipt (already solved on a prior boot, or see solver-1.log)"
+  timeout 20 "$BIN" "$HOME_DIR/witness-1.conf" >> "$HOME_DIR/witness-1.log" 2>&1 \
     && echo "witness-1: on the record (one-shot)" \
     || echo "witness-1: FAILED (see witness-1.log)"
   echo "simnet up — status: $0 status"

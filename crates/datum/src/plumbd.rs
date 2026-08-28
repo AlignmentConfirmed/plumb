@@ -699,6 +699,10 @@ pub fn solve_market(
     key: &sig::Keypair,
 ) -> Result<(Query, receipt::SignedReceipt), NodeBroken> {
     let mut stream = TcpStream::connect(addr)?;
+    // A court that refuses a market answer sends nothing back — so a
+    // solver waiting unbounded for its receipt cannot tell refusal
+    // from slowness. The deadline makes silence an answer.
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
     let ours = Hello::of(ledger, holder, u32::try_from(bound).unwrap_or(u32::MAX));
     send_hello(&mut stream, layout, hello_tag(ledger, holder), &ours)?;
     let mut buffer = Vec::new();
