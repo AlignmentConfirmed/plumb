@@ -216,3 +216,57 @@ impl Compiled {
         Ok(target)
     }
 }
+
+impl Compiled {
+    /// SQ6 — grow the confluence dimension: one 2-cell per **diamond**
+    /// (a word with two distinct one-step successors that rejoin in
+    /// one step), with boundary `left path − right path`. Squier's
+    /// observation, made byte-checkable: the critical branchings ARE
+    /// cells, and "two derivations of one lemma commute" is exhibited
+    /// by the diamond that fills them — verified as ∂∂ = 0 one
+    /// dimension up, by the same evaluator as everything else.
+    pub fn with_confluences(mut self) -> Result<Compiled, RewriteBroken> {
+        let mut squares: Vec<[usize; 4]> = Vec::new();
+        for (left1, s_left) in self.steps.iter().enumerate() {
+            for (right1, s_right) in self.steps.iter().enumerate() {
+                if left1 >= right1 || s_left.from != s_right.from || s_left.to == s_right.to {
+                    continue;
+                }
+                // A one-step rejoin from both branch tips?
+                let join = self.steps.iter().enumerate().find_map(|(left2, a)| {
+                    if a.from != s_left.to {
+                        return None;
+                    }
+                    self.steps
+                        .iter()
+                        .position(|b| b.from == s_right.to && b.to == a.to)
+                        .map(|right2| (left2, right2))
+                });
+                if let Some((left2, right2)) = join {
+                    squares.push([left1, left2, right1, right2]);
+                }
+            }
+        }
+        let mut op2 = Vec::with_capacity(squares.len().saturating_mul(4));
+        for (col, [l1, l2, r1, r2]) in squares.iter().enumerate() {
+            let col = u32::try_from(col).map_err(|_| RewriteBroken::DegeneratePresentation)?;
+            // ∂(square) = (left1 + left2) − (right1 + right2); a step
+            // shared by both paths cancels.
+            let mut acc: std::collections::BTreeMap<u32, Exact> = std::collections::BTreeMap::new();
+            for (step, sign) in [(l1, 1i64), (l2, 1), (r1, -1), (r2, -1)] {
+                let row = u32::try_from(*step).map_err(|_| RewriteBroken::DegeneratePresentation)?;
+                let slot = acc.entry(row).or_insert_with(|| crate::whole(0));
+                *slot += crate::whole(sign);
+            }
+            for (row, coeff) in acc {
+                if !num_traits::Zero::is_zero(&coeff) {
+                    op2.push(Entry { row, col, coeff });
+                }
+            }
+        }
+        let count = u32::try_from(squares.len()).map_err(|_| RewriteBroken::DegeneratePresentation)?;
+        self.complex.cells.push(count);
+        self.complex.ops.push(op2);
+        Ok(self)
+    }
+}

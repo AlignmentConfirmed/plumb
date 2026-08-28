@@ -133,7 +133,30 @@ pub fn settle_answer(
         if proof.complex != conjecture.universe {
             return Err(AnswerRefused::NotThePosersUniverse);
         }
-        if proof.target != conjecture.target {
+        // SQ5 — the lemma market: cited lemmas CONTRIBUTE their
+        // settled boundaries. A settled lemma's target held (that is
+        // what settling means), so the composite closes iff
+        // ∂(witness) = conjecture.target − Σ(cited targets). The
+        // lemma's boundary is read from its CONTENT ADDRESS — the
+        // ledger stores the structure, never a summary that could
+        // drift — and its derivation is never re-paid (the cache,
+        // spent as a cache).
+        let mut remaining = conjecture.target.clone();
+        for dep in &proof.deps {
+            let cited = WorkId::from_bytes(dep.clone());
+            if !book.seen().contains(&cited) {
+                return Err(AnswerRefused::Book(RewardRefused::UnsettledDependency {
+                    work_id: cited,
+                }));
+            }
+            let lemma = ProofClaim::decode(cited.as_bytes())
+                .map_err(|_| AnswerRefused::NotAProof)?;
+            if lemma.complex != conjecture.universe {
+                return Err(AnswerRefused::NotThePosersUniverse);
+            }
+            remaining = chain_difference(&remaining, &lemma.target);
+        }
+        if proof.target != remaining {
             return Err(AnswerRefused::NotThePosedTheorem);
         }
         proof.verify(bounty.max_fuel).map_err(AnswerRefused::Broken)?

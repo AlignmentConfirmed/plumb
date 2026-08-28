@@ -1032,3 +1032,76 @@ mod rewrite_laws {
         assert!(gappy.verify(DEFAULT_FUEL).is_err(), "half a proof is no proof");
     }
 }
+
+mod confluence {
+    //! SQ6: two derivations of one lemma verifiably commute — the
+    //! diamond is a compiled 2-cell, and the commutation certificate
+    //! is verified by the same evaluator as everything else, one
+    //! dimension up.
+
+    #![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
+
+    use assay::complex::{ProofClaim, DEFAULT_FUEL};
+    use assay::rewrite::Presentation;
+    use assay::whole;
+
+    #[test]
+    fn the_baba_diamond_commutes_by_certificate() {
+        let compiled = Presentation {
+            alphabet: vec![b'a', b'b'],
+            rules: vec![(vec![b'b', b'a'], vec![b'a', b'b'])],
+        }
+        .compile(4)
+        .expect("compiles")
+        .with_confluences()
+        .expect("confluences");
+
+        assert_eq!(compiled.complex.cells.len(), 3, "the third dimension exists");
+        let diamonds = *compiled.complex.cells.get(2).expect("count");
+        assert!(diamonds >= 1, "baba branches and rejoins");
+        compiled.complex.admit(DEFAULT_FUEL).expect("still a complex: dd = 0 held");
+
+        // The two derivations baba → abab, one through abba and one
+        // through baab.
+        let (baba, abba, baab, abab) = (
+            compiled.word(b"baba").expect("w"),
+            compiled.word(b"abba").expect("w"),
+            compiled.word(b"baab").expect("w"),
+            compiled.word(b"abab").expect("w"),
+        );
+        let left = compiled.derive(&[baba, abba, abab]).expect("left path");
+        let right = compiled.derive(&[baba, baab, abab]).expect("right path");
+        assert_ne!(left, right, "genuinely different derivations");
+
+        // Their difference is filled by a compiled diamond: the
+        // commutation certificate, verified as a proof claim one
+        // dimension up.
+        let mut difference: std::collections::BTreeMap<u32, assay::Exact> =
+            std::collections::BTreeMap::new();
+        for (cell, coeff) in &left {
+            *difference.entry(*cell).or_insert_with(|| whole(0)) += coeff.clone();
+        }
+        for (cell, coeff) in &right {
+            *difference.entry(*cell).or_insert_with(|| whole(0)) -= coeff.clone();
+        }
+        let target: Vec<(u32, assay::Exact)> = difference
+            .into_iter()
+            .filter(|(_, c)| !num_traits::Zero::is_zero(c))
+            .collect();
+
+        // Find WHICH diamond fills it by asking the evaluator.
+        let commutes = (0..diamonds).any(|square| {
+            ProofClaim {
+                transport: 0,
+                complex: compiled.complex.clone(),
+                dim: 2,
+                target: target.clone(),
+                witness: vec![(square, whole(1))],
+                deps: Vec::new(),
+            }
+            .verify(DEFAULT_FUEL)
+            .is_ok()
+        });
+        assert!(commutes, "a compiled diamond fills the difference exactly");
+    }
+}

@@ -91,7 +91,7 @@ surface as everything else, no new gatekeeper.
 
 ---
 
-## 2b · Domain 4 — homological proof calculus (SQ, the Squier track)
+## 2b · Domain 4 — homological proof calculus — COMPLETE (SQ1–SQ6, 2026-08-28)
 
 **Docketed 2026-08-27.** Logical deduction as boundary annihilation:
 Squier showed string-rewriting systems carry inherent homology
@@ -135,9 +135,9 @@ decentralized matrix multiplication.
 | **SQ1** | Prescribed-boundary evaluation: $\partial c = z$ (relative closure), fuel-metered | **DONE** — `closes_to`, `ProofClaim` (domain 4), `BoundaryMismatch{cell}` names missing premises and dangling conclusions; $z = \varnothing$ recovers plain closure |
 | **SQ2** | Dependency citation: settled `work_id`s as trusted infrastructure | **DONE** — citations answer to the book: `UnsettledDependency{work_id}` names the missing lemma; citation order is settlement order; citing lemmas costs zero verification fuel; citations are part of proof identity |
 | **SQ3** | The registered calculus | **DONE** — `assay::rewrite`: a presentation compiles into a polygraph where the ONLY 1-cells are rule-licensed rewrites, so an illegal inference fails to EXIST as a cell rather than being refused (the soundness bar, met by construction and swept programmatically over the whole universe); derivations are SQ1 proof claims (∂c = theorem − axiom); `verify_registered` accepts them; measured end to end — the sorting monoid ⟨a,b∣ba→ab⟩ registered by `Act::Declare`, the derivation bba→bab→abb settling over a real socket at a court never compiled to know it. Completeness is bounded and stated (words ≤ max_len) |
-| **SQ4** | Conjecture space: open 1-boundary posted as priced space (with X1 `query_id` when it lands) | an unproven target is visibly open, funded space |
-| **SQ5** | Sublet lemma market: nested conjecture spaces funded from the parent bounty through the moon cascade | a two-solver proof settles from two independently-paid lemmas |
-| **SQ6** | Confluence 3-cells: critical-pair closure (the Squier syzygies) verified as $\partial\partial = 0$ one dimension up | two derivations of one lemma verifiably commute |
+| **SQ4** | Conjecture spaces | **DONE** — `Conjecture` (universe + pinned target) as the query statement: a proof of a different theorem refuses as `NotThePosedTheorem`, a cycle cannot answer a conjecture, the posed theorem settles with its rebate |
+| **SQ5** | The lemma market | **DONE** — cited lemmas CONTRIBUTE their settled boundaries, read from their content addresses (the ledger stores structure, never a summary that could drift): the composite closes iff ∂(witness) = target − Σ(cited targets); two solvers split a theorem, each paid on their own bounty; the cache is measured (citing < re-deriving); a freeloader citing the lemma without the remainder refuses — lemmas contribute boundaries, not absolution |
+| **SQ6** | Confluence | **DONE** — `with_confluences` compiles one 2-cell per diamond (two branches rejoining in one step); the baba diamond commutes BY CERTIFICATE: the two derivations' difference is filled by a compiled square, verified as a proof claim one dimension up by the same evaluator as everything else |
 
 ---
 

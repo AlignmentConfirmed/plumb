@@ -991,3 +991,161 @@ mod conjecture {
         assert!(settled.payout > bounty.base, "yield on the unspent budget");
     }
 }
+
+mod lemma_market {
+    //! SQ5: a theorem settles from independently-paid lemmas. The
+    //! cited lemma's verified boundary is read from its CONTENT
+    //! ADDRESS and contributed to the composite — never re-derived,
+    //! never re-paid. The sublet economics: the parent bounty funds
+    //! the lemma's sub-bounty, and two solvers each take their share.
+
+    use datum::bounty::{settle_answer, AnswerRefused, Bounty};
+    use datum::query::{Conjecture, Guarantee, Query};
+    use datum::reward::RewardBook;
+
+    fn sorting() -> assay::rewrite::Compiled {
+        assay::rewrite::Presentation {
+            alphabet: vec![b'a', b'b'],
+            rules: vec![(vec![b'b', b'a'], vec![b'a', b'b'])],
+        }
+        .compile(3)
+        .expect("compiles")
+    }
+
+    fn conjecture_query(
+        compiled: &assay::rewrite::Compiled,
+        from: &[u8],
+        to: &[u8],
+        poser: &str,
+    ) -> (Query, Bounty, usize, usize) {
+        let axiom = compiled.word(from).expect("axiom");
+        let theorem = compiled.word(to).expect("theorem");
+        let query = Query {
+            poser: poser.into(),
+            shape: vec![15, 5],
+            domain_tag: 82,
+            guarantee: Guarantee::Rederivation,
+            statement: Conjecture {
+                universe: compiled.complex.clone(),
+                target: compiled.target(axiom, theorem).expect("target"),
+            }
+            .encode(),
+        };
+        let bounty = Bounty {
+            query_id: query.query_id(),
+            max_fuel: 500,
+            max_bytes: 2000,
+            base: 6_000,
+            per_saved_fuel: 10,
+            per_saved_byte: 1,
+        };
+        (query, bounty, axiom, theorem)
+    }
+
+    fn proof(
+        compiled: &assay::rewrite::Compiled,
+        path: &[usize],
+        target: Vec<(u32, assay::Exact)>,
+        deps: Vec<Vec<u8>>,
+    ) -> assay::complex::ProofClaim {
+        assay::complex::ProofClaim {
+            transport: 1,
+            complex: compiled.complex.clone(),
+            dim: 1,
+            target,
+            witness: compiled.derive(path).expect("licensed"),
+            deps,
+        }
+    }
+
+    #[test]
+    fn two_solvers_split_a_theorem_through_the_lemma_market() {
+        let compiled = sorting();
+        let mut book = RewardBook::new();
+        let (bba, bab, abb) = (
+            compiled.word(b"bba").expect("w"),
+            compiled.word(b"bab").expect("w"),
+            compiled.word(b"abb").expect("w"),
+        );
+
+        // The PARENT conjecture: bba → abb, funded by hilbert. A
+        // third of its base funds the lemma's sub-bounty — the moon
+        // cascade as arithmetic.
+        let (parent_q, parent_b, _, _) = conjecture_query(&compiled, b"bba", b"abb", "hilbert");
+        let (lemma_q, mut lemma_b, _, _) = conjecture_query(&compiled, b"bba", b"bab", "hilbert-sublet");
+        lemma_b.base = parent_b.base / 3;
+
+        // SOLVER A settles the lemma on its sub-bounty, and is paid.
+        let lemma = proof(
+            &compiled,
+            &[bba, bab],
+            compiled.target(bba, bab).expect("t"),
+            Vec::new(),
+        );
+        let lemma_id = lemma.work_id();
+        let paid_a = settle_answer(&lemma_b, &lemma_q, &lemma.encode(), &mut book)
+            .expect("the lemma settles");
+        assert!(paid_a.payout >= lemma_b.base);
+
+        // SOLVER B settles the THEOREM citing the lemma: witness is
+        // only the remainder (bab → abb), target only the remaining
+        // boundary — the lemma's settled boundary contributes from
+        // its content address.
+        let remainder = proof(
+            &compiled,
+            &[bab, abb],
+            compiled.target(bab, abb).expect("t"),
+            vec![lemma_id.as_bytes().to_vec()],
+        );
+        let paid_b = settle_answer(&parent_b, &parent_q, &remainder.encode(), &mut book)
+            .expect("the theorem settles on the lemma's shoulders");
+        assert!(paid_b.payout > 0);
+
+        // The cache, measured: solver B's verification cost covers
+        // ONE step, not two — the lemma was never re-derived.
+        let solo = proof(
+            &compiled,
+            &[bba, bab, abb],
+            compiled.target(bba, abb).expect("t"),
+            Vec::new(),
+        );
+        let solo_fuel = solo.verify(500).expect("verifies");
+        assert!(
+            paid_b.spent_fuel < solo_fuel,
+            "citing the lemma is cheaper than rederiving it: {} < {}",
+            paid_b.spent_fuel,
+            solo_fuel
+        );
+    }
+
+    #[test]
+    fn a_composite_that_does_not_close_refuses() {
+        let compiled = sorting();
+        let mut book = RewardBook::new();
+        let (bba, bab) = (
+            compiled.word(b"bba").expect("w"),
+            compiled.word(b"bab").expect("w"),
+        );
+        let (parent_q, parent_b, _, _) = conjecture_query(&compiled, b"bba", b"abb", "hilbert");
+
+        // Settle the lemma so it is citable at all.
+        let (lemma_q, lemma_b, _, _) = conjecture_query(&compiled, b"bba", b"bab", "s");
+        let lemma = proof(&compiled, &[bba, bab], compiled.target(bba, bab).expect("t"), Vec::new());
+        let lemma_id = lemma.work_id();
+        settle_answer(&lemma_b, &lemma_q, &lemma.encode(), &mut book).expect("settles");
+
+        // Cite the lemma but bring NO remainder work: the composite
+        // boundary does not reach the theorem.
+        let freeloader = proof(
+            &compiled,
+            &[bba, bab], // same ground as the lemma, not the remainder
+            compiled.target(bba, bab).expect("t"),
+            vec![lemma_id.as_bytes().to_vec()],
+        );
+        assert_eq!(
+            settle_answer(&parent_b, &parent_q, &freeloader.encode(), &mut book),
+            Err(AnswerRefused::NotThePosedTheorem),
+            "lemmas contribute boundaries, not absolution"
+        );
+    }
+}
