@@ -45,6 +45,10 @@ mod noded {
                 market: None,
                 register: false,
                 chain_path: None,
+                max_total_connections: 0,
+                max_connections_per_ip: 0,
+                handshake_deadline: None,
+                connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
                 };
                 let _ = plumbd::serve(&listener, &layout, &Arc::new(Mutex::new(ledger)), &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
             });
@@ -261,6 +265,10 @@ mod admission {
                 market: None,
                 register: false,
                 chain_path: None,
+                max_total_connections: 0,
+                max_connections_per_ip: 0,
+                handshake_deadline: None,
+                connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
                 };
                 let _ = plumbd::serve(&listener, &layout, &Arc::new(Mutex::new(ledger)), &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
             });
@@ -360,6 +368,10 @@ mod session_freshness {
                 market: None,
             register: false,
             chain_path: None,
+            max_total_connections: 0,
+            max_connections_per_ip: 0,
+            handshake_deadline: None,
+            connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
             };
             let _ = plumbd::serve(&listener, &layout, &Arc::new(Mutex::new(ledger)), &rules, &book2, &Arc::new(Mutex::new(Vec::new())), |_| {});
         });
@@ -470,6 +482,10 @@ mod carrier {
                 market: None,
                 register: false,
                 chain_path: None,
+                max_total_connections: 0,
+                max_connections_per_ip: 0,
+                handshake_deadline: None,
+                connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
                 };
                 let _ = plumbd::serve(&court_listener, &layout, &Arc::new(Mutex::new(ledger)), &rules, &book, &Arc::new(Mutex::new(Vec::new())), |_| {});
             });
@@ -568,6 +584,10 @@ mod registered_wire {
                 market: None,
                 register: false,
                 chain_path: None,
+                max_total_connections: 0,
+                max_connections_per_ip: 0,
+                handshake_deadline: None,
+                connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
                 };
                 let _ = plumbd::serve(
                     &listener,
@@ -682,6 +702,10 @@ mod witnessing {
                 market: None,
                 register: false,
                 chain_path: None,
+                max_total_connections: 0,
+                max_connections_per_ip: 0,
+                handshake_deadline: None,
+                connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
                 };
                 let _ = plumbd::serve(&listener, &layout, &Arc::new(Mutex::new(ledger)), &rules, &book, &log, |_| {});
             });
@@ -822,6 +846,10 @@ mod native_market {
                     market: Some(Arc::new(market)),
                 register: false,
                 chain_path: None,
+                max_total_connections: 0,
+                max_connections_per_ip: 0,
+                handshake_deadline: None,
+                connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
                 };
                 let _ = plumbd::serve(
                     &listener,
@@ -918,6 +946,10 @@ mod registered_calculus {
                     market: None,
                 register: false,
                 chain_path: None,
+                max_total_connections: 0,
+                max_connections_per_ip: 0,
+                handshake_deadline: None,
+                connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
                 };
                 let _ = plumbd::serve(
                     &listener,
@@ -1017,6 +1049,10 @@ mod session_watcher {
                     market: None,
                 register: false,
                 chain_path: None,
+                max_total_connections: 0,
+                max_connections_per_ip: 0,
+                handshake_deadline: None,
+                connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
                 };
                 let _ = plumbd::serve(
                     &listener,
@@ -1101,6 +1137,10 @@ mod session_watcher {
                     market: None,
                     register: true,
                     chain_path: None,
+                max_total_connections: 0,
+                max_connections_per_ip: 0,
+                handshake_deadline: None,
+                connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
                 };
                 let _ = plumbd::serve(
                     &listener,
@@ -1152,6 +1192,10 @@ mod session_watcher {
                     market: None,
                     register: true,
                     chain_path: None,
+                max_total_connections: 0,
+                max_connections_per_ip: 0,
+                handshake_deadline: None,
+                connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
                 };
                 let _ = plumbd::serve(
                     &listener,
@@ -1195,5 +1239,146 @@ mod session_watcher {
             matches!(by_key, Err(plumbd::NodeBroken::Unsatisfiable)),
             "an already-bound key refuses under a new name too"
         );
+    }
+}
+
+mod walls {
+    //! P3: the admission wall, checked and charged BEFORE a thread is
+    //! ever spawned — not a session-layer rule, so it gets its own
+    //! module rather than living beside signature admission.
+
+    use std::io::Read;
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    use datum::plumbd::{self, ConnectionCounts, SessionRules};
+    use datum::reward::RewardBook;
+    use isthmus::deed::Ledger;
+    use isthmus::layout::Layout;
+
+    use super::common::{await_true, edge_with, BOUND};
+
+    fn walled_court(rules: SessionRules) -> (std::net::SocketAddr, Ledger) {
+        let layout = Layout::founding();
+        let ledger = edge_with("court");
+        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let court_ledger = ledger.clone();
+        std::thread::spawn(move || {
+            let _ = plumbd::serve(
+                &listener,
+                &layout,
+                &Arc::new(Mutex::new(court_ledger)),
+                &rules,
+                &book,
+                &Arc::new(Mutex::new(Vec::new())),
+                |_| {},
+            );
+        });
+        (addr, ledger)
+    }
+
+    #[test]
+    fn the_total_cap_drops_a_connection_with_no_thread_and_no_bytes() {
+        let connections = Arc::new(Mutex::new(ConnectionCounts::default()));
+        let rules = SessionRules {
+            holder: "court".into(),
+            bound: BOUND,
+            enforce: false,
+            market: None,
+            register: false,
+            chain_path: None,
+            max_total_connections: 1,
+            max_connections_per_ip: 0,
+            handshake_deadline: None,
+            connections: Arc::clone(&connections),
+        };
+        let (addr, _ledger) = walled_court(rules);
+
+        // The first connection occupies the only slot — it sends no
+        // declaration, so the court's read_hello holds it forever.
+        let _holder = TcpStream::connect(addr).expect("first connects");
+        await_true("the wall's one slot is charged", || {
+            connections.lock().expect("counts").total() == 1
+        });
+
+        // Accepted at the TCP level, then dropped: no thread, no
+        // bytes. A held-but-unadmitted session would still be silent
+        // right now — the distinguishing fact is HOW FAST it closes.
+        let mut second = TcpStream::connect(addr).expect("second connects at TCP level");
+        second
+            .set_read_timeout(Some(Duration::from_millis(500)))
+            .expect("timeout");
+        let mut buf = [0u8; 1];
+        assert_eq!(
+            second.read(&mut buf).ok(),
+            Some(0),
+            "the wall closes it immediately — EOF, not a stalled handshake"
+        );
+    }
+
+    #[test]
+    fn the_per_ip_cap_bites_before_the_total_cap_would() {
+        let connections = Arc::new(Mutex::new(ConnectionCounts::default()));
+        let rules = SessionRules {
+            holder: "court".into(),
+            bound: BOUND,
+            enforce: false,
+            market: None,
+            register: false,
+            chain_path: None,
+            max_total_connections: 5, // plenty of ROOM overall
+            max_connections_per_ip: 1, // but only one from any single peer
+            handshake_deadline: None,
+            connections: Arc::clone(&connections),
+        };
+        let (addr, _ledger) = walled_court(rules);
+
+        let _holder = TcpStream::connect(addr).expect("first connects");
+        await_true("the per-ip slot is charged", || {
+            connections.lock().expect("counts").total() == 1
+        });
+
+        let mut second = TcpStream::connect(addr).expect("second connects at TCP level");
+        second
+            .set_read_timeout(Some(Duration::from_millis(500)))
+            .expect("timeout");
+        let mut buf = [0u8; 1];
+        assert_eq!(
+            second.read(&mut buf).ok(),
+            Some(0),
+            "same IP, second connection — the per-ip wall refuses even with total room to spare"
+        );
+    }
+
+    #[test]
+    fn the_handshake_deadline_releases_a_silent_connections_slot() {
+        let connections = Arc::new(Mutex::new(ConnectionCounts::default()));
+        let rules = SessionRules {
+            holder: "court".into(),
+            bound: BOUND,
+            enforce: false,
+            market: None,
+            register: false,
+            chain_path: None,
+            max_total_connections: 1,
+            max_connections_per_ip: 0,
+            handshake_deadline: Some(Duration::from_millis(200)),
+            connections: Arc::clone(&connections),
+        };
+        let (addr, _ledger) = walled_court(rules);
+
+        // A connection that never sends its declaration — under the
+        // OLD unbounded read this thread, and its slot, are held
+        // forever. The deadline is the only thing that frees it.
+        let _silent = TcpStream::connect(addr).expect("connects");
+        await_true("the slot is charged", || {
+            connections.lock().expect("counts").total() == 1
+        });
+        await_true("the deadline fires and the slot is released", || {
+            connections.lock().expect("counts").total() == 0
+        });
     }
 }

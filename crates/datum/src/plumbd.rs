@@ -207,6 +207,47 @@ pub struct SessionRules {
     /// successful registration would not survive a restart; courts
     /// that set `register = true` should set this too.
     pub chain_path: Option<std::path::PathBuf>,
+    /// P3 — the admission wall: no more than this many sessions held
+    /// at once, total. `0` is unwalled (today's behaviour) — every
+    /// connection gets a thread, unconditionally.
+    pub max_total_connections: usize,
+    /// P3 — no more than this many sessions held at once FROM ONE IP.
+    /// `0` is unwalled.
+    pub max_connections_per_ip: usize,
+    /// P3 — a connection that has not sent its declaration within
+    /// this long is dropped before it ever reaches the work loop.
+    /// `None` is unwalled: `read_hello` blocks forever, as it always
+    /// has. A bare TCP accept spawns a thread before ANY check runs —
+    /// this wall bounds what an unauthenticated connection can hold.
+    pub handshake_deadline: Option<std::time::Duration>,
+    /// The live count behind the wall — shared across every session
+    /// this court is holding. Cloning `SessionRules` clones the `Arc`,
+    /// not the count: every session thread sees the same wall.
+    pub connections: Arc<Mutex<ConnectionCounts>>,
+}
+
+/// How many sessions a court is holding right now: in total, and per
+/// peer IP. Checked and updated ONLY at accept time and at a
+/// session's end — never inside a session, which has no reason to
+/// know the wall exists.
+#[derive(Debug, Default)]
+pub struct ConnectionCounts {
+    total: usize,
+    per_ip: std::collections::HashMap<std::net::IpAddr, usize>,
+}
+
+impl ConnectionCounts {
+    /// How many sessions are held right now, across every peer.
+    #[must_use]
+    pub fn total(&self) -> usize {
+        self.total
+    }
+
+    /// How many sessions are held right now from one peer IP.
+    #[must_use]
+    pub fn for_ip(&self, ip: std::net::IpAddr) -> usize {
+        self.per_ip.get(&ip).copied().unwrap_or(0)
+    }
 }
 
 impl std::fmt::Debug for SessionRules {
@@ -218,6 +259,9 @@ impl std::fmt::Debug for SessionRules {
             .field("market", &self.market.is_some())
             .field("register", &self.register)
             .field("chain_path", &self.chain_path)
+            .field("max_total_connections", &self.max_total_connections)
+            .field("max_connections_per_ip", &self.max_connections_per_ip)
+            .field("handshake_deadline", &self.handshake_deadline)
             .finish()
     }
 }
@@ -328,7 +372,18 @@ pub fn court_session(
         .clone();
     let ours = Hello::of(&opening, holder, u32::try_from(bound).unwrap_or(u32::MAX));
     let mut buffer = Vec::new();
+    // P3 — the handshake wall: a connection that never sends its
+    // declaration ties up a thread forever under today's unbounded
+    // read. Bounded here, lifted the moment a real declaration
+    // arrives — a working session's later idle gaps (a producer
+    // sleeping between claims) are not this wall's concern.
+    if let Some(deadline) = rules.handshake_deadline {
+        let _ = stream.set_read_timeout(Some(deadline));
+    }
     let _theirs = read_hello(&mut stream, &mut buffer, layout, &ours, bound)?;
+    if rules.handshake_deadline.is_some() {
+        let _ = stream.set_read_timeout(None);
+    }
     send_hello(&mut stream, layout, hello_tag(&opening, holder), &ours)?;
 
     // IS-2/2 — the session challenge: eight bytes of entropy, framed,
@@ -580,15 +635,55 @@ pub fn serve(
     let on_session = Arc::new(on_session);
     loop {
         match listener.accept() {
-            Ok((stream, _peer)) => {
+            Ok((stream, peer)) => {
+                // P3 — the wall: checked and CHARGED before a thread
+                // ever gets spawned. An over-quota connection is
+                // dropped here, at zero cost past the accept itself —
+                // today's behaviour (every accept gets a thread,
+                // unconditionally) is what `max_total_connections = 0`
+                // and `max_connections_per_ip = 0` still mean.
+                let ip = peer.ip();
+                let admitted = {
+                    let Ok(mut counts) = rules.connections.lock() else {
+                        continue; // a poisoned wall refuses rather than guesses
+                    };
+                    let total_room =
+                        rules.max_total_connections == 0 || counts.total < rules.max_total_connections;
+                    let ip_count = counts.per_ip.get(&ip).copied().unwrap_or(0);
+                    let ip_room =
+                        rules.max_connections_per_ip == 0 || ip_count < rules.max_connections_per_ip;
+                    if total_room && ip_room {
+                        counts.total = counts.total.saturating_add(1);
+                        counts.per_ip.insert(ip, ip_count.saturating_add(1));
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if !admitted {
+                    continue; // the connection is simply dropped: no thread, no response
+                }
                 let layout = layout.clone();
                 let ledger = Arc::clone(ledger);
                 let rules = rules.clone();
                 let book = Arc::clone(book);
                 let witnesses = Arc::clone(witnesses);
                 let on_session = Arc::clone(&on_session);
+                let connections = Arc::clone(&rules.connections);
                 std::thread::spawn(move || {
-                    match court_session(stream, &layout, &ledger, &rules, &book, &witnesses) {
+                    let result = court_session(stream, &layout, &ledger, &rules, &book, &witnesses);
+                    // Release the wall regardless of how the session
+                    // ended — a session that errors still held a slot.
+                    if let Ok(mut counts) = connections.lock() {
+                        counts.total = counts.total.saturating_sub(1);
+                        if let Some(c) = counts.per_ip.get_mut(&ip) {
+                            *c = c.saturating_sub(1);
+                            if *c == 0 {
+                                counts.per_ip.remove(&ip);
+                            }
+                        }
+                    }
+                    match result {
                         Ok(report) => on_session(&report),
                         // The audit's lesson: a session that dies
                         // silently looks identical to a healthy idle

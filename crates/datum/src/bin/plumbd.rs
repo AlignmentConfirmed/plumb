@@ -23,6 +23,9 @@
 //! chain     = ledger/founding.tlv   # optional: replay this founding chain
 //! seed_file = ident/my-node.seed    # from `plumbd keygen` — never inline
 //! register  = true                  # court: accept live registration (P2)
+//! max_connections         = 256     # court: total sessions held at once, 0=unwalled
+//! max_connections_per_ip  = 16      # court: sessions held from one IP, 0=unwalled
+//! handshake_deadline_secs = 10      # court: drop a silent connection, 0=unwalled
 //! ```
 //!
 //! The producer role sends the demo triangle claim and exits — it
@@ -71,6 +74,9 @@ struct Config {
     grants: Vec<String>,
     binds: Vec<(String, String)>,
     declares: Vec<String>,
+    max_connections: usize,
+    max_connections_per_ip: usize,
+    handshake_deadline_secs: u64,
 }
 
 fn parse(text: &str) -> Config {
@@ -101,6 +107,13 @@ fn parse(text: &str) -> Config {
         grants: Vec::new(),
         binds: Vec::new(),
         declares: Vec::new(),
+        // Real defaults, not "off": a court run bare, with no wall
+        // config at all, still has one. `0` disables a given wall for
+        // deployments (the simnet, load tests) that need to say so
+        // explicitly.
+        max_connections: 256,
+        max_connections_per_ip: 16,
+        handshake_deadline_secs: 10,
     };
     for line in text.lines() {
         let line = line.split('#').next().unwrap_or("").trim();
@@ -127,6 +140,21 @@ fn parse(text: &str) -> Config {
             }
             "require_signatures" => config.require_signatures = value == "true",
             "register" => config.register = value == "true",
+            "max_connections" => {
+                if let Ok(n) = value.parse() {
+                    config.max_connections = n;
+                }
+            }
+            "max_connections_per_ip" => {
+                if let Ok(n) = value.parse() {
+                    config.max_connections_per_ip = n;
+                }
+            }
+            "handshake_deadline_secs" => {
+                if let Ok(n) = value.parse() {
+                    config.handshake_deadline_secs = n;
+                }
+            }
             "demo" => config.demo = value,
             "upstream" => config.upstream = Some(value),
             "every" => {
@@ -468,6 +496,11 @@ fn main() {
                 market,
                 register: config.register,
                 chain_path: config.chain.clone().map(std::path::PathBuf::from),
+                max_total_connections: config.max_connections,
+                max_connections_per_ip: config.max_connections_per_ip,
+                handshake_deadline: (config.handshake_deadline_secs > 0)
+                    .then(|| std::time::Duration::from_secs(config.handshake_deadline_secs)),
+                connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
             };
             let ledger = Arc::new(Mutex::new(ledger));
             let witnesses: plumbd::WitnessLog =
