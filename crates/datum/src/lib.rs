@@ -61,4 +61,5 @@ pub mod sample;
 pub mod session;
 pub mod settle;
 pub mod witnessing;
+pub mod x402;
 
