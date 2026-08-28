@@ -74,26 +74,46 @@ fn main() {
     // between "idle, nothing new to earn" and a wedged loop (#43).
     let mut settled: HashSet<[u8; 32]> = HashSet::new();
     let mut idle_announced = false;
+    // Adaptive pacing (sched Phase 4): never a fixed hammer. `base` is
+    // the eager interval; when there is nothing new to do — or the
+    // court is busy, or a round errors — the kernel backs off toward
+    // `cap` instead of reconnecting on a blind clock, and snaps back to
+    // `base` the moment it earns again.
+    let base = config.interval_secs.max(1);
+    let cap = base.saturating_mul(12).max(base);
+    let mut backoff = base;
     loop {
-        match derive_and_settle(&config, &layout, &ledger, &key, &mut settled) {
+        let sleep_secs = match derive_and_settle(&config, &layout, &ledger, &key, &mut settled) {
             Ok(Round::Earned(axes)) => {
                 println!("kernel: derived and settled, credited axes {axes:?}");
                 idle_announced = false;
+                backoff = base;
+                base
             }
             Ok(Round::AlreadySettled) => {
-                // Steady state: every posed query is already earned.
-                // Say so ONCE, then idle quietly rather than spamming.
                 if !idle_announced {
                     println!("kernel: every posed query already settled — idle, watching for new work");
                     idle_announced = true;
                 }
+                let now = backoff;
+                backoff = backoff.saturating_mul(2).min(cap);
+                now
+            }
+            Ok(Round::Busy(secs)) => {
+                println!("kernel: court is shedding load — backing off {secs}s (cooperative)");
+                idle_announced = false;
+                backoff = base;
+                secs.max(1) as u64
             }
             Err(e) => {
                 eprintln!("kernel: round refused: {e:?}");
                 idle_announced = false;
+                let now = backoff;
+                backoff = backoff.saturating_mul(2).min(cap);
+                now
             }
-        }
-        std::thread::sleep(Duration::from_secs(config.interval_secs));
+        };
+        std::thread::sleep(Duration::from_secs(sleep_secs));
     }
 }
 
@@ -105,6 +125,10 @@ enum Round {
     /// resubmission attempted (it would only draw a replay refusal),
     /// no receipt awaited.
     AlreadySettled,
+    /// The court was shedding load and answered with BUSY: back off
+    /// for this many seconds before trying again (cooperative
+    /// backpressure — the kernel WAITS instead of hammering).
+    Busy(u32),
 }
 
 /// This binary's own configuration — a `.conf` file, same `key =
@@ -255,9 +279,21 @@ fn derive_and_settle(
     let wire = sdk::attach::wire(layout, tag, &ours).map_err(|_| KernelRefused::Malformed)?;
     stream.write_all(&wire)?;
 
-    let (_, hello_frame) =
+    let (first_tag, first_frame) =
         read_record(&mut stream, &mut buffer, layout)?.ok_or(KernelRefused::Malformed)?;
-    let theirs = isthmus::hello::Hello::decode(hello_frame.get(layout.header()..).unwrap_or(&[]))
+    // A swamped court answers BUSY instead of its declaration: back off
+    // the amount it asks for rather than proceeding into a session it
+    // will not serve.
+    if first_tag == sdk::submit::BUSY_TAG {
+        let value = first_frame.get(layout.header()..).unwrap_or(&[]);
+        let secs = value
+            .get(..4)
+            .and_then(|b| <[u8; 4]>::try_from(b).ok())
+            .map(u32::from_le_bytes)
+            .unwrap_or(1);
+        return Ok(Round::Busy(secs));
+    }
+    let theirs = isthmus::hello::Hello::decode(first_frame.get(layout.header()..).unwrap_or(&[]))
         .map_err(|_| KernelRefused::Malformed)?;
     sdk::attach::agree(&ours, &theirs).map_err(|_| KernelRefused::NoSharedRevision)?;
 

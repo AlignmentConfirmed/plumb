@@ -24,15 +24,13 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Condvar, Mutex};
 
-use isthmus::layout::Tag;
-
 /// The record tag a court sends when it is shedding load: a producer
 /// that reads this as its first frame backs off for the carried
 /// `retry_after_secs` (LE u32) instead of proceeding into a handshake
-/// that will not be serviced. Distinct from the work band (80–85) and
-/// from any holder's hello (deed-derived, ≥ 64 by construction but
-/// never this reserved value).
-pub const BUSY_TAG: Tag = 86;
+/// that will not be serviced. Canonical home is `sdk::submit` (a leaf
+/// both the court and a datum-free producer share); re-exported here so
+/// `crate::sched::BUSY_TAG` still resolves.
+pub use sdk::submit::BUSY_TAG;
 
 /// What the governor decided for one inbound connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

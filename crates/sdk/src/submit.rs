@@ -17,6 +17,14 @@ pub use isthmus::work::{classify, Envelope, CLAIM_TAG, RECEIPT_TAG, SHAPE_CLAIM_
 /// that never links the court still agree on the byte.
 pub const QUERY_TAG: Tag = 85;
 
+/// The tag a load-shedding court answers with instead of serving a
+/// session: its value is `retry_after_secs` (LE u32). A producer that
+/// reads this as its FIRST frame after connecting backs off for that
+/// long rather than stalling — cooperative backpressure. Canonical
+/// here (not in the court) so a leaf-only producer honors it without
+/// linking `datum`.
+pub const BUSY_TAG: Tag = 86;
+
 /// The tag an attestation record travels under: beside the claim
 /// tags it attests to (80–82), inside the work band (80–127).
 /// Canonical here for the same reason as [`QUERY_TAG`] — a kernel
