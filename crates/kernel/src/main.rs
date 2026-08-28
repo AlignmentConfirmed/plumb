@@ -23,6 +23,7 @@
 //!   interval_secs = 5        # optional, default 5
 //! ```
 
+use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
@@ -64,13 +65,46 @@ fn main() {
     let ledger = Ledger::replay(Layout::founding(), acts);
     let layout = Layout::founding();
 
+    // Query ids this kernel has already settled. A market re-announces
+    // the same conjecture every session, so without this the kernel
+    // would re-derive the identical proof forever — and the court's
+    // (correct, content-addressed) anti-replay would refuse every
+    // resubmission in silence, stalling the kernel on a receipt that
+    // never comes. Remembering what is settled is the difference
+    // between "idle, nothing new to earn" and a wedged loop (#43).
+    let mut settled: HashSet<[u8; 32]> = HashSet::new();
+    let mut idle_announced = false;
     loop {
-        match derive_and_settle(&config, &layout, &ledger, &key) {
-            Ok(axes) => println!("kernel: derived and settled, credited axes {axes:?}"),
-            Err(e) => eprintln!("kernel: round refused: {e:?}"),
+        match derive_and_settle(&config, &layout, &ledger, &key, &mut settled) {
+            Ok(Round::Earned(axes)) => {
+                println!("kernel: derived and settled, credited axes {axes:?}");
+                idle_announced = false;
+            }
+            Ok(Round::AlreadySettled) => {
+                // Steady state: every posed query is already earned.
+                // Say so ONCE, then idle quietly rather than spamming.
+                if !idle_announced {
+                    println!("kernel: every posed query already settled — idle, watching for new work");
+                    idle_announced = true;
+                }
+            }
+            Err(e) => {
+                eprintln!("kernel: round refused: {e:?}");
+                idle_announced = false;
+            }
         }
         std::thread::sleep(Duration::from_secs(config.interval_secs));
     }
+}
+
+/// What one round accomplished.
+enum Round {
+    /// A fresh proof settled; these axes were credited.
+    Earned(Vec<u128>),
+    /// The announced query was already settled by this kernel — no
+    /// resubmission attempted (it would only draw a replay refusal),
+    /// no receipt awaited.
+    AlreadySettled,
 }
 
 /// This binary's own configuration — a `.conf` file, same `key =
@@ -204,7 +238,8 @@ fn derive_and_settle(
     layout: &Layout,
     ledger: &Ledger,
     key: &sig::Keypair,
-) -> Result<Vec<u128>, KernelRefused> {
+    settled: &mut HashSet<[u8; 32]>,
+) -> Result<Round, KernelRefused> {
     let mut stream = TcpStream::connect(&config.peer)?;
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     let mut buffer = Vec::new();
@@ -241,6 +276,16 @@ fn derive_and_settle(
     }
     let query = sdk::query::Query::decode(qframe.get(layout.header()..).unwrap_or(&[]))
         .map_err(|_| KernelRefused::Malformed)?;
+
+    // Already earned this exact question? Then submitting again would
+    // only draw the court's (correct) replay refusal, which it answers
+    // with silence — so we would stall on a receipt that never comes.
+    // Disconnect cleanly instead and idle until a NEW query appears.
+    let query_id = query.query_id();
+    if settled.contains(&query_id) {
+        return Ok(Round::AlreadySettled);
+    }
+
     let conjecture = sdk::query::Conjecture::decode(&query.statement)
         .map_err(|_| KernelRefused::NotAConjecture)?;
 
@@ -290,7 +335,8 @@ fn derive_and_settle(
     };
     sdk::receipt::verify(&signed, ledger).map_err(|_| KernelRefused::Malformed)?;
 
-    Ok(signed.receipt.axes)
+    settled.insert(query_id);
+    Ok(Round::Earned(signed.receipt.axes))
 }
 
 /// Derive a witness for `target` by the court's own incidence algebra
