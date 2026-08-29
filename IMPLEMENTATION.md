@@ -1,8 +1,7 @@
 # IMPLEMENTATION — the program of record
 
-**This document supersedes and retires `decide/`.** Every ruling that
-directory held is restated here as implementation direction; the full
-deliberations live in git history (`decide/*.md`, removed 2026-08-27).
+**This document is the consolidated record of rulings**, each stated
+here as implementation direction.
 One rule carried over: a claim is not done until a named test can fail
 over it.
 
@@ -261,8 +260,7 @@ is bounded at `base + max·rates`; the residue refunds the poser.
 Two hard rules: **units are fuel and bytes, never cpu cycles or
 memory** (machine facts are unverifiable by a federation), and
 **rebates bind only to demand-posed spaces** — on self-posed work a
-rebate is free money; the strand corpus already recorded why: *a node
-authoring its own task solves it for free*.
+rebate is free money: a node authoring its own task solves it for free.
 
 **O2 — the refinement bounty.** A standing bounty targets a settled
 `work_id`: exhibit a chain closing the SAME boundary (SQ1
@@ -302,9 +300,9 @@ working board.
 
 **The validation gap it closes:** every producer on the net today
 replays fixtures it was handed — clients walk cycle families, the
-solver answers with a hard-coded lean chain. Nothing DERIVES. A
-kernel — a simplified convergence engine in the netstratum lineage —
-is a producer that finds answers it was not given: posed a conjecture
+solver answers with a hard-coded lean chain. Nothing derives. A
+kernel — a simplified convergence engine — is a producer that finds
+answers it was not given: posed a conjecture
 in a universe it has never seen, it derives a chain closing the
 target by traversing the declared complex's OWN licensed 1-cells —
 "search" is the wrong word for this, imported from a lineage (generic
@@ -929,8 +927,8 @@ exposition in git history):
   (`Σ = w·x_M·w⁻¹` or cochain sum); verification is invariant
   equality / boundary closure — SNF over ℤ, Garside normal forms.
 - **Requirements:** unique canonical forms before verification
-  (malleability otherwise), size honesty (hundreds of bytes to kB per
-  witness), deterministic hash-to-cycle.
+  (malleability otherwise), bounded witness size (hundreds of bytes to
+  kB per witness), deterministic hash-to-cycle.
 - **The bar for leaving research:** concrete parameter set,
   canonical-form specification with test vectors, and **published
   independent cryptanalysis** — braid crypto's history (Dehornoy
