@@ -17,19 +17,18 @@ name = "isthmus"
 # THERE ARE NO PATH DEPENDENCIES HERE, AND THAT IS THE POINT.
 #
 # An outside title adds this line to its manifest and is done. It does
-# not clone netstratum, it does not clone xylarium, and it does not
-# need either tree on disk.
+# not clone any kernel or mesh, and needs no other tree on disk.
 #
-# `datum` -- the measurement repository -- depends on this crate AND on
-# both kernels, and asserts they agree. That direction is deliberate:
+# `datum` -- the measurement repository -- depends on this crate and on
+# the kernels, and asserts they agree. That direction is deliberate:
 #
 #     isthmus  ->  nothing
 #     kernels  ->  nothing
-#     datum    ->  isthmus + both kernels
+#     datum    ->  isthmus + the kernels
 #
 # The comparison lives in the place that is allowed to know about
 # everything, and the thing an integrator imports knows about nothing.
-# Reverse it and every integrator inherits both kernels.
+# Reverse it and every integrator inherits the kernels.
 #
 # `tests/no_path_dependencies.rs` reads this file and fails if a
 # `path = ` ever appears in a dependency table.

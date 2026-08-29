@@ -27,8 +27,8 @@ name = "assay"
 # a framing tag, and cannot execute a state transition. An engine that
 # could reach the network could be told what to conclude.
 #
-# `tests/isolation.rs` reads this file and fails if `isthmus`, `lith`,
-# `chitin` or any `path = ` ever appears in a dependency table.
+# `tests/isolation.rs` reads this file and fails if `isthmus` or any
+# `path = ` dependency ever appears in a dependency table.
 # ===================================================================
 [dependencies]
 

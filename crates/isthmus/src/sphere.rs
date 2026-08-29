@@ -35,7 +35,7 @@
 //! ```
 //!
 //! A [`Frontier`] is how much of each chain a point in history has
-//! seen: `{datum: 14, strand: 6}`. Two frontiers **join** by taking the
+//! seen: `{datum: 14, peer: 6}`. Two frontiers **join** by taking the
 //! larger height per chain — the **hypersphere envelope** of knowledge:
 //!
 //! ```text

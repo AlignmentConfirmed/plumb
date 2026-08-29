@@ -16,7 +16,7 @@
 //! ```
 //!
 //! This module holds the pure set-algebra of that rule. Courts (datum)
-//! and market edges (xylarium `edge`) apply it; they do not re-derive it.
+//! and market edges apply it; they do not re-derive it.
 //!
 //! ## What this is not
 //!

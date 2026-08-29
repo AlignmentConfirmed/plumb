@@ -44,11 +44,10 @@ use crate::layout::Layout;
 // `MAX_RECORD: usize = 1 << 20` was here, and it did not belong in a
 // protocol crate at all.
 //
-// It was a MEASUREMENT of one deployment's corpus -- "the largest record
-// across 4127 stored netstratum chronicle records is 585 bytes" -- baked
-// into the crate every integrator imports. A title with larger records
-// than netstratum's inherited netstratum's ceiling, and the only way to
-// raise it was to edit this line.
+// It was a measurement of one deployment's corpus -- the largest record
+// observed was 585 bytes -- baked into the crate every integrator
+// imports. A title with larger records than that inherited the ceiling,
+// and the only way to raise it was to edit this line.
 //
 // The protocol says a bound EXISTS and is declared. What the number is
 // belongs to the deployment that measured it. `datum` supplies its own

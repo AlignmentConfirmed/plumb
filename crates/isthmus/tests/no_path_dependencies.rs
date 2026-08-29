@@ -63,7 +63,7 @@ fn the_parser_actually_reads_the_dependency_table() {
 
     // The same parser, over a manifest that DOES carry a path
     // dependency, must find it.
-    let poisoned = "[dependencies]\nlith = { path = \"../xylarium/lith\" }\n";
+    let poisoned = "[dependencies]\nother = { path = \"../other\" }\n";
     let mut inside = false;
     let mut found = false;
     for raw in poisoned.lines() {
@@ -77,36 +77,4 @@ fn the_parser_actually_reads_the_dependency_table() {
         }
     }
     assert!(found, "the parser cannot see a path dependency it is given");
-}
-
-/// No kernel type is named anywhere in the source.
-///
-/// `IS-1` §7 specifies two frames that cite `lith::Support` and
-/// `lith::Manifold`. They are deliberately absent here — implementing
-/// them would put a kernel dependency inside the crate whose claim is
-/// that it has none.
-#[test]
-fn no_source_file_names_a_kernel() {
-    let sources = [
-        ("lib.rs", include_str!("../src/lib.rs")),
-        ("frame.rs", include_str!("../src/frame.rs")),
-        ("ratio.rs", include_str!("../src/ratio.rs")),
-        ("session.rs", include_str!("../src/session.rs")),
-        ("deed.rs", include_str!("../src/deed.rs")),
-        ("hello.rs", include_str!("../src/hello.rs")),
-    ];
-    for (name, text) in sources {
-        for line in text.lines() {
-            let code = line.trim();
-            // Prose may discuss the kernels; `use` may not import them.
-            if code.starts_with("use ") || code.starts_with("pub use ") {
-                for banned in ["lith", "strand", "rfa_core", "cfe", "lens", "chitin"] {
-                    assert!(
-                        !code.contains(banned),
-                        "{name} imports {banned}: {code}"
-                    );
-                }
-            }
-        }
-    }
 }

@@ -786,17 +786,17 @@ mod vertical {
     fn frontiers_join_by_per_chain_max_and_concurrency_is_none() {
         let mut a = Frontier::new();
         a.observe("datum", 10);
-        a.observe("strand", 3);
+        a.observe("peer-b", 3);
 
         let mut b = Frontier::new();
         b.observe("datum", 7);
-        b.observe("strand", 9);
+        b.observe("peer-b", 9);
 
         let j = a.join(&b);
         assert_eq!(j.height_of("datum"), 10);
-        assert_eq!(j.height_of("strand"), 9);
+        assert_eq!(j.height_of("peer-b"), 9);
 
-        // a saw more datum, b saw more strand → concurrent
+        // a saw more datum, b saw more peer-b → concurrent
         assert!(a.concurrent_with(&b));
         assert_eq!(a.compare(&b), None);
 

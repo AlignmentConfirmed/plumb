@@ -31,7 +31,7 @@ use assay::work::WorkId;
 
 use crate::reward::{RewardAct, RewardBook};
 
-/// Magic for xylarium datum court store.
+/// Magic for the datum court store.
 pub const MAGIC: &[u8; 4] = b"XDCT";
 
 /// Current store version. Version 2 added a per-Credited O1 payout

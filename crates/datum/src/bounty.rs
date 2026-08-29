@@ -15,8 +15,8 @@
 //!
 //! The one hard gate: **the universe must be the poser's.** An answer
 //! in any other universe refuses, however beautifully it closes —
-//! on self-posed work a rebate is free money, and the strand corpus
-//! recorded why: *a node authoring its own task solves it for free.*
+//! on self-posed work a rebate is free money: a node authoring its own
+//! task solves it for free.
 
 use assay::complex::{ComplexBroken, DeclaredClaim};
 

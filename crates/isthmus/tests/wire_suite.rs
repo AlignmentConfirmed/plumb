@@ -1053,11 +1053,11 @@ mod hello {
         let mut busy = Ledger::new(Layout::founding());
         busy.encumber(1, 90, "a busier neighbour", "their advert");
 
-        quiet.issue("chitin", 16).expect("room");
-        busy.issue("chitin", 16).expect("room");
+        quiet.issue("kernel-a", 16).expect("room");
+        busy.issue("kernel-a", 16).expect("room");
 
-        let on_quiet = Hello::of(&quiet, "chitin", BOUND);
-        let on_busy = Hello::of(&busy, "chitin", BOUND);
+        let on_quiet = Hello::of(&quiet, "kernel-a", BOUND);
+        let on_busy = Hello::of(&busy, "kernel-a", BOUND);
 
         assert_ne!(
             on_quiet.ranges, on_busy.ranges,
@@ -1112,7 +1112,7 @@ mod hello {
         // Sharing nothing is not an error. The peers still exchange records;
         // each forwards what the other owns.
         let c = Hello {
-            revisions: vec!["NS-9/4".into()],
+            revisions: vec!["MESH-9/4".into()],
             ..Default::default()
         };
         assert!(a.shared_revisions(&c).is_empty());

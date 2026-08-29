@@ -19,8 +19,8 @@
 //!
 //! It holds the physical laws. It does not hold the network or the
 //! game state, and the dependency graph is what enforces that rather
-//! than a convention: **assay imports nothing from `isthmus`, `lith`
-//! or `chitin`.** It cannot read a framing tag, cannot execute a
+//! than a convention: **assay imports nothing from `isthmus` or any
+//! kernel.** It cannot read a framing tag, cannot execute a
 //! kernel state transition, and cannot be told what to conclude by
 //! anything that can.
 //!

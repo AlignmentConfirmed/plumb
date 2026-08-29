@@ -2,11 +2,11 @@
 //!
 //! Converts **public** structure (orbs, edges, exact charges) into an
 //! [`assay::Shape`] and frames it for the highway. Does **not** import
-//! private strand pouw witness types — that monopoly is the measured
+//! private kernel witness types — that monopoly is the measured
 //! gap; the on-ramp is the path that does not need it.
 //!
 //! ```text
-//! lith::Support (public)  ──►  assay::Shape  ──►  body (domain=2)
+//! a kernel's Support     ──►  assay::Shape  ──►  body (domain=2)
 //!                                              ──►  isthmus tag 82 frame
 //! ```
 //!

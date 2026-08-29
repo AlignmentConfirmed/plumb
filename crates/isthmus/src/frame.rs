@@ -11,7 +11,7 @@
 //! > understanding the value."*
 //!
 //! Measured byte-identical in both ancestors before it was written down
-//! here — netstratum `NS-1_DOP.md:47`, xylarium `strand/src/wire.rs:490`.
+//! here.
 
 use crate::layout::{self, Layout, Tag};
 use crate::session::Unsatisfiable;

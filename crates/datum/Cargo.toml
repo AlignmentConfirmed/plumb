@@ -16,9 +16,9 @@ name = "datum"
 # nothing. That is what makes it the datum: a court a kernel can link
 # against is a court a kernel can lobby.
 #
-# This crate is edge-free BY CONSTRUCTION. Kernel-edge measurements
-# (the xylarium and netstratum crossing suites) live in the lab
-# repository, which depends on these crates the way any outsider would.
+# This crate is edge-free by construction. Kernel-edge measurements (the
+# crossing suites) live in a separate lab repository, which depends on
+# these crates the way any outsider would.
 [dependencies]
 isthmus = { path = "../isthmus", package = "plumb-isthmus" }
 assay = { path = "../assay", package = "plumb-assay" }

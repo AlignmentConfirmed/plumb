@@ -293,7 +293,7 @@ mod board {
         let mut proposal =
             survey(&court, &apply("magpie", vec![8], 100)).expect("space exists");
 
-        // Tamper: move the granted run onto lith's estate.
+        // Tamper: move the granted run onto a kernel's estate.
         proposal.acts = vec![Act::Issue {
             holder: "magpie".into(),
             low: 130,
@@ -1203,7 +1203,7 @@ mod block_production {
         isthmus::frame::put_frame(
             &Layout::founding(),
             200,
-            b"strand-dialect-bytes",
+            b"mesh-a-dialect-bytes",
             &mut wire,
         )
         .expect("put");

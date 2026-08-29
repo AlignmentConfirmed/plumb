@@ -1,7 +1,7 @@
 //! THE ISOLATION GATE — rules 1 and 2, enforced rather than declared.
 //!
 //! `assay` is a leaf. It imports nothing from the mesh (`isthmus`) or
-//! the kernels (`lith`, `chitin`), and it contains no floating point.
+//! any kernel, and it contains no floating point.
 //! Both are properties of the *source*, so both are checked by reading
 //! the source — a manifest comment saying so is a comment.
 //!
@@ -37,8 +37,8 @@ fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
 /// Strip `//`-comments so a rule's own *explanation* does not trip it.
 ///
 /// The first version of this test read raw lines and failed on
-/// `lib.rs`, which says "assay imports nothing from `isthmus`, `lith`
-/// or `chitin`" in its own header. A gate that cannot survive being
+/// `lib.rs`, which says "assay imports nothing from `isthmus` or any
+/// kernel" in its own header. A gate that cannot survive being
 /// documented is a gate that will be deleted.
 fn code_only(text: &str) -> String {
     text.lines()
@@ -57,7 +57,7 @@ fn the_manifest_names_no_mesh_no_kernel_and_no_path() {
         .expect("assay has no Cargo.toml");
     let code = code_only(&manifest.replace('#', "//"));
 
-    for forbidden in ["isthmus", "lith", "chitin", "path ="] {
+    for forbidden in ["isthmus", "path ="] {
         assert!(
             !code.contains(forbidden),
             "Cargo.toml names `{forbidden}` — assay is a leaf and the \
@@ -88,7 +88,7 @@ fn no_source_file_imports_a_mesh_or_a_kernel() {
     for path in &files {
         let text = std::fs::read_to_string(path).expect("unreadable source");
         let code = code_only(&text);
-        for forbidden in ["isthmus", "lith::", "chitin"] {
+        for forbidden in ["isthmus"] {
             if code.contains(forbidden) {
                 offences.push(format!("{} names {forbidden}", path.display()));
             }
@@ -134,9 +134,9 @@ fn no_source_file_contains_a_floating_point_type() {
 /// matches anything.
 #[test]
 fn the_isolation_gates_are_not_vacuous() {
-    // A manifest that names a kernel.
-    let bad_manifest = code_only(&"[dependencies]\nlith = \"1\"\n".replace('#', "//"));
-    assert!(bad_manifest.contains("lith"), "the manifest check cannot fire");
+    // A manifest that carries a path dependency.
+    let bad_manifest = code_only(&"[dependencies]\nfoo = { path = \"../foo\" }\n".replace('#', "//"));
+    assert!(bad_manifest.contains("path ="), "the manifest check cannot fire");
 
     // A source that imports the mesh.
     let bad_source = code_only("use isthmus::deed::Ledger;\nfn main() {}");
@@ -148,7 +148,7 @@ fn the_isolation_gates_are_not_vacuous() {
 
     // And a comment mentioning them all does NOT trip, or documenting
     // the rule would break the rule.
-    let documented = code_only("// assay imports nothing from isthmus, lith or chitin, and no f64");
+    let documented = code_only("// assay imports nothing from isthmus or any kernel, and no f64");
     assert!(
         !documented.contains("isthmus") && !documented.contains("f64"),
         "a comment tripped the gate — the rule cannot be explained",

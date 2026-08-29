@@ -596,8 +596,8 @@ mod axis_laws {
         edge_b.encumber(1, 90, "a busier neighbour", "their advert");
         edge_b.open_axis("revision", 7);
 
-        let on_a = edge_a.issue_box("chitin", &[16, 4]).expect("room");
-        let on_b = edge_b.issue_box("chitin", &[16, 4]).expect("room");
+        let on_a = edge_a.issue_box("kernel-a", &[16, 4]).expect("room");
+        let on_b = edge_b.issue_box("kernel-a", &[16, 4]).expect("room");
         assert_ne!(on_a.region, on_b.region, "different histories, same box");
 
         for dt in 0..16u64 {
@@ -651,8 +651,8 @@ mod axis_laws {
         edge_b.encumber(1, 90, "a busier neighbour", "their advert");
         edge_b.open_axis("revision", 7);
 
-        let on_a = edge_a.issue_box("chitin", &[16, 4]).expect("room");
-        let on_b = edge_b.issue_box("chitin", &[16, 4]).expect("room");
+        let on_a = edge_a.issue_box("kernel-a", &[16, 4]).expect("room");
+        let on_b = edge_b.issue_box("kernel-a", &[16, 4]).expect("room");
         assert_ne!(on_a.region, on_b.region, "the trip must actually move");
 
         let mut crossed = 0usize;
@@ -694,8 +694,8 @@ mod axis_laws {
         edge_b.encumber(1, 90, "a busier neighbour", "their advert");
         edge_b.open_axis("revision", 7);
 
-        let on_a = edge_a.issue_box("chitin", &[16, 4]).expect("room");
-        let _on_b = edge_b.issue_box("chitin", &[16, 4]).expect("room");
+        let on_a = edge_a.issue_box("kernel-a", &[16, 4]).expect("room");
+        let _on_b = edge_b.issue_box("kernel-a", &[16, 4]).expect("room");
 
         for dt in 0..16u64 {
             for dr in 0..4u64 {
@@ -759,9 +759,9 @@ mod axis_laws {
             .issue_box("spacer", &[30, 7])
             .expect("the spacer must land or the cycle is degenerate");
 
-        let on_a = node_a.issue_box("chitin", &[16, 4]).expect("room");
-        let on_b = node_b.issue_box("chitin", &[16, 4]).expect("room");
-        let on_c = node_c.issue_box("chitin", &[16, 4]).expect("room");
+        let on_a = node_a.issue_box("kernel-a", &[16, 4]).expect("room");
+        let on_b = node_b.issue_box("kernel-a", &[16, 4]).expect("room");
+        let on_c = node_c.issue_box("kernel-a", &[16, 4]).expect("room");
         assert_ne!(on_a.region, on_b.region);
         assert_ne!(on_b.region, on_c.region);
 
@@ -790,7 +790,7 @@ mod axis_laws {
         // every frame on the cycle.
         let p = vec![on_a.region[0].0 + 5, on_a.region[1].0 + 2];
         let (holder, offsets) = node_a.potential_at(&p).expect("in the deed");
-        assert_eq!(holder, "chitin");
+        assert_eq!(holder, "kernel-a");
         assert_eq!(offsets, vec![5, 2]);
     }
 }
@@ -1632,11 +1632,11 @@ mod deed_laws {
     #[test]
     fn d0c_an_encumbrance_says_where_it_was_read() {
         let mut ledger = Ledger::new(Layout::founding());
-        ledger.encumber(32, 54, "netstratum", "netstratum NS-1 registry");
+        ledger.encumber(32, 54, "external-registry", "external registry");
 
         match ledger.acts().first() {
             Some(Act::Encumber { by, witnessed, .. }) => {
-                assert_eq!(by, "netstratum");
+                assert_eq!(by, "external-registry");
                 assert!(!witnessed.is_empty(), "an observation with no provenance");
             }
             other => panic!("expected an Encumber act, got {other:?}"),
@@ -1750,7 +1750,7 @@ mod deed_laws {
     /// **An encumbered tag is never deeded, whatever the script.**
     ///
     /// This is the failure `IS-3` §5.4 records: a grant table issued 32-47
-    /// over numbers netstratum already claimed, and it was written without
+    /// over numbers an external registry already claimed, and it was written without
     /// checking. Here it is a law rather than a table review.
     #[test]
     fn d3_an_encumbrance_is_never_issued_over() {
@@ -1759,8 +1759,8 @@ mod deed_laws {
             // Deliberately awkward: encumbrances scattered so a naive
             // first-fit that only looks at the front would trip.
             ledger.encumber(1, 31, "ancestral", "both registries");
-            ledger.encumber(60, 60, "netstratum", "NS-1 registry");
-            ledger.encumber(62, 63, "netstratum", "NS-1 registry");
+            ledger.encumber(60, 60, "external-registry", "external registry");
+            ledger.encumber(62, 63, "external-registry", "external registry");
             ledger.encumber(200, 204, "someone else", "their advert");
 
             for (holder, width) in &script {
@@ -1878,8 +1878,8 @@ mod deed_laws {
         edge_a.encumber(1, 31, "ancestral", "both registries");
         edge_b.encumber(1, 90, "a busier neighbour", "their advert");
 
-        let on_a = edge_a.issue("chitin", 16).expect("room on a");
-        let on_b = edge_b.issue("chitin", 16).expect("room on b");
+        let on_a = edge_a.issue("kernel-a", 16).expect("room on a");
+        let on_b = edge_b.issue("kernel-a", 16).expect("room on b");
         assert_ne!(on_a.low(), on_b.low(), "the edges chose the same numbering");
 
         // A frame at the holder's third tag on A is its third tag on B.
@@ -1893,7 +1893,7 @@ mod deed_laws {
             // own range.
             assert_eq!(
                 edge_b.holder_of(there).map(|d| d.holder),
-                Some("chitin".to_string())
+                Some("kernel-a".to_string())
             );
         }
 
@@ -1969,41 +1969,41 @@ mod deed_proper {
     #[test]
     fn a_claim_matures_into_its_claimants_deed_and_nobody_elses() {
         let mut edge = Ledger::new(Layout::founding());
-        edge.encumber(55, 56, "strand", "wire.rs registry, read today");
-        edge.encumber(32, 54, "netstratum", "NS registries");
+        edge.encumber(55, 56, "mesh-a", "external registry, read today");
+        edge.encumber(32, 54, "external-registry", "external registries");
 
         // The admitted arm: the claimant matures their own claim.
-        let deed = edge.mature("strand", 55, 56).expect("the claim is theirs");
+        let deed = edge.mature("mesh-a", 55, 56).expect("the claim is theirs");
         assert_eq!((deed.low(), deed.high()), (55, 56));
-        assert_eq!(edge.standing_of(55), Standing::Deeded { holder: "strand".into() });
-        assert_eq!(edge.standing_of(56), Standing::Deeded { holder: "strand".into() });
+        assert_eq!(edge.standing_of(55), Standing::Deeded { holder: "mesh-a".into() });
+        assert_eq!(edge.standing_of(56), Standing::Deeded { holder: "mesh-a".into() });
         edge.well_formed().expect("maturation is lawful history");
 
         // Potentials now exist over the matured ground — which is the whole
         // point: the gauge-invariant reading needs a deed to read against.
         let (holder, offsets) = edge.potential_at(&[56]).expect("deeded ground");
-        assert_eq!(holder, "strand");
+        assert_eq!(holder, "mesh-a");
         assert_eq!(offsets, vec![1]);
 
         // The refused arms, each named:
         // somebody else's claim is not yours to mature —
         let mut thief = Ledger::new(Layout::founding());
-        thief.encumber(55, 56, "strand", "their claim");
+        thief.encumber(55, 56, "mesh-a", "their claim");
         assert!(matches!(
-            thief.mature("chitin", 55, 56),
+            thief.mature("kernel-a", 55, 56),
             Err(Refused::NotYourClaim { .. })
         ));
         // open ground is not a claim at all —
         assert!(matches!(
-            thief.mature("strand", 200, 207),
+            thief.mature("mesh-a", 200, 207),
             Err(Refused::NotYourClaim { .. })
         ));
         // and H1 is not suspended for maturation.
         let mut greedy = Ledger::new(Layout::founding());
-        greedy.encumber(55, 56, "strand", "claim");
-        greedy.issue("strand", 8).expect("room");
+        greedy.encumber(55, 56, "mesh-a", "claim");
+        greedy.issue("mesh-a", 8).expect("room");
         assert!(matches!(
-            greedy.mature("strand", 55, 56),
+            greedy.mature("mesh-a", 55, 56),
             Err(Refused::AlreadyHeld { .. })
         ));
     }
@@ -2013,16 +2013,16 @@ mod deed_proper {
     #[test]
     fn well_formed_admits_maturation_and_still_refuses_squatting() {
         let mut matured = Ledger::new(Layout::founding());
-        matured.encumber(55, 56, "strand", "claim");
+        matured.encumber(55, 56, "mesh-a", "claim");
         matured.record(isthmus::deed::Act::Issue {
-            holder: "strand".into(),
+            holder: "mesh-a".into(),
             low: 55,
             high: 56,
         });
         matured.well_formed().expect("a matured claim is lawful");
 
         let mut squatted = Ledger::new(Layout::founding());
-        squatted.encumber(55, 56, "strand", "claim");
+        squatted.encumber(55, 56, "mesh-a", "claim");
         squatted.record(isthmus::deed::Act::Issue {
             holder: "squatter".into(),
             low: 55,
@@ -2078,13 +2078,13 @@ mod deed_proper {
     #[test]
     fn the_seam_recognises_deeded_tags_and_degrades_without_a_court() {
         let mut court = Ledger::new(Layout::founding());
-        court.encumber(55, 56, "strand", "claim");
-        court.mature("strand", 55, 56).expect("the deed proper");
+        court.encumber(55, 56, "mesh-a", "claim");
+        court.mature("mesh-a", 55, 56).expect("the deed proper");
 
         let mine = |tag: u64| (64..=79).contains(&tag);
         let bound = 1 << 16;
 
-        // A record under strand's deed, framed whole.
+        // A record under mesh-a's deed, framed whole.
         let mut wire = Vec::new();
         isthmus::frame::put_frame(&Layout::founding(), 56, &[0xAA, 0xBB], &mut wire)
             .expect("fits");
@@ -3899,8 +3899,8 @@ mod invariant_theorems {
         // ancestors claim the frozen band, and the founding chain records
         // both. The checker must admit this or it refuses the real court.
         let mut observed = Ledger::new(Layout::founding());
-        observed.encumber(1, 31, "netstratum", "NS registries");
-        observed.encumber(1, 31, "strand", "wire.rs header");
+        observed.encumber(1, 31, "external-registry", "external registries");
+        observed.encumber(1, 31, "mesh-a", "external header");
         assert!(observed.well_formed().is_ok());
     }
 

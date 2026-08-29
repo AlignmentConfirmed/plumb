@@ -9,8 +9,8 @@
 #     datum    ->  isthmus + assay + sig + sdk  the court (reads, never carried)
 #
 # Nothing here reaches outside this directory. Kernel-edge measurements
-# (xylarium, netstratum) live in the lab, which depends on these crates
-# the same way any outsider would.
+# live in a separate lab repository, which depends on these crates the
+# same way any outsider would.
 [workspace]
 resolver = "2"
 members = ["crates/isthmus", "crates/assay", "crates/datum", "crates/sdk", "crates/sig", "crates/kernel"]

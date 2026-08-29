@@ -22,9 +22,9 @@
 //! - **Observations** — both ancestors' registry claims, one
 //!   [`Act::Encumber`] per claimed run, each carrying where it was read.
 //!   Someone else's claim with provenance. Never our own documents.
-//! - **Historical issuances** — the four standing deeds (`isthmus`,
-//!   `assay`, `lith`, `chitin`), recorded with the ranges they already
-//!   hold. Recording is transcription; the fold validates it.
+//! - **Historical issuances** — the standing deeds (`isthmus`, `assay`,
+//!   and the reserved kernel ranges), recorded with the ranges they
+//!   already hold. Recording is transcription; the fold validates it.
 //!
 //! `IS-3` §5's table is a **rendering** of this chain. If they disagree,
 //! the document is stale — that direction, never the reverse.

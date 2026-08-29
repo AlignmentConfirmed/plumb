@@ -45,9 +45,8 @@ pub enum RewardRefused {
     },
     /// ARC-class domain is forged curriculum — never mintable (directive I).
     ///
-    /// Present when a xylarium on-ramp presents
-    /// `strand::pouw::issuance::TaskDomain::Forged`. Shape-domain bodies
-    /// (assay domain byte 2) never take this path.
+    /// Present when an on-ramp presents a forged-curriculum task.
+    /// Shape-domain bodies (assay domain byte 2) never take this path.
     ForgedDomain,
 }
 
@@ -78,7 +77,7 @@ impl Credit {
     /// Neutral dual-claim event for edge + game sinks (diamond ♦1).
     ///
     /// Schema is tollway-agnostic: same [`CreditEvent`] whether the body
-    /// arrived from strand, NS, or another portable Shape path.
+    /// arrived from any portable Shape path.
     pub fn to_event(&self) -> CreditEvent {
         CreditEvent::with_classes(
             self.work_id.clone(),

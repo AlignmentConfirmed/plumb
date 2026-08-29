@@ -98,8 +98,8 @@ impl Layout {
 
     /// The layout both ancestors already speak.
     ///
-    /// `tag u8 ‖ LE32(length)` — measured byte-identical in netstratum
-    /// and xylarium before it was written down. It is the founding
+    /// `tag u8 ‖ LE32(length)` — byte-identical across implementations
+    /// before it was written down. It is the founding
     /// edge's layout, not the protocol's only one.
     pub fn founding() -> Self {
         Self::with_tag_width(1)

@@ -659,7 +659,7 @@ impl Deed {
     ///
     /// ## The defect this replaces
     ///
-    /// `netstratum`'s mesh writes `MESH_HEAD_TAG: u8 = 64`. `IS-3` §5
+    /// Another mesh writes `MESH_HEAD_TAG: u8 = 64`. `IS-3` §5
     /// grants 64–79 to `isthmus`. Two substrate-layer protocols, each
     /// written without knowledge of the other, both reached for the
     /// same byte — and neither was wrong, because **each was choosing a
@@ -686,7 +686,7 @@ impl Deed {
     ///    same edge, with nothing exchanged.
     /// 2. **Collision-free across holders, structurally.** Deeds are
     ///    disjoint (`H2′`), so a tag derived inside one deed cannot
-    ///    land inside another. `netstratum`'s `head` and `isthmus`'s
+    ///    land inside another. A second mesh's `head` and `isthmus`'s
     ///    `hello` cannot collide once both are derived, whatever they
     ///    are called.
     /// 3. **Stable under growth.** It does not depend on what *else*
@@ -2346,7 +2346,7 @@ impl Ledger {
 ///
 /// The verifier is deliberately not the transducer. [`Ledger::translate_at`]
 /// maps; this checks; a defect in the map cannot hide in a check that
-/// re-derives nothing through it — the same separation `lith`'s verify
+/// re-derives nothing through it — the same separation a kernel's verify
 /// keeps from its prover's reduction.
 pub fn cocycle(a: &Ledger, p: &[Tag], b: &Ledger, q: &[Tag]) -> bool {
     match (a.potential_at(p), b.potential_at(q)) {

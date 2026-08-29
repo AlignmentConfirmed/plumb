@@ -14,7 +14,7 @@
 //!
 //! Schema is **tollway-agnostic**: the court verifies multi-axial closure
 //! and issues credit; it does not encode which domain mesh produced the
-//! geometry (strand, NS, …).
+//! geometry (any portable Shape path).
 //!
 //! This module lives in assay so court, edge, and game share one type
 //! without cyclic crate deps. No mesh, no venue, no game imports.

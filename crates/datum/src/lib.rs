@@ -7,13 +7,13 @@
 //!         │
 //!    DATUM    this crate     (authority: deeds, rewards, measurements)
 //!         ▲
-//!    tollways: strand (xylarium) · netstratum mesh · future meshes
+//!    tollways: domain meshes
 //!         │
-//!    kernels: lith · chitin · …
+//!    kernels: verification engines
 //! ```
 //!
-//! **Superhighway, not a domain mesh.** `strand` is xylarium's local
-//! tollway (kernel-specific instructions). `isthmus` is the up-level
+//! **Superhighway, not a domain mesh.** A tollway is a mesh's local,
+//! kernel-specific instructions. `isthmus` is the up-level
 //! substrate every mesh and kernel can link into. **datum** is not a
 //! mesh node everyone must run: it holds the founding chain, prices
 //! estates, credits multi-axial POW++ work, and measures that tollways

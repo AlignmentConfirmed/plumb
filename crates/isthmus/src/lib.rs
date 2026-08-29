@@ -1,9 +1,9 @@
 //! # Isthmus — THE ISSUER (superhighway substrate)
 //!
 //! The up-level mesh wire: generalized frames for **all content, all
-//! kernels, mesh-to-mesh connectivity**. Domain meshes (e.g. xylarium
-//! `strand`, netstratum's chronicle mesh) are **tollways** — they carry
-//! kernel-specific instructions and on-ramp into this highway.
+//! kernels, mesh-to-mesh connectivity**. Domain meshes are **tollways**
+//! — they carry kernel-specific instructions and on-ramp into this
+//! highway.
 //!
 //! ```text
 //! independent nodes ──► ISTHMUS (this crate) ──► nodes | tollways | kernels
@@ -53,7 +53,7 @@
 //! It is not a kernel and it names no kernel type.
 //!
 //! `IS-1` §7 specifies two frames — the relation, tag 1, and the
-//! manifold, tag 5 — that cite `lith::Support` and `lith::Manifold`.
+//! manifold, tag 5 — that cite a kernel's `Support` and `Manifold`.
 //! Those frames are **absent here on purpose**. A frame that names a
 //! kernel type carries a dependency on that type, so implementing it
 //! here would put a kernel dependency inside the crate whose entire
@@ -143,8 +143,8 @@ pub use session::Step;
 ///
 /// `IS-1/2` and not `IS-1/1`: this crate refuses negative zero, a
 /// refusal **neither ancestor produces**. It was found by writing this
-/// crate — see [`frame::Malformed::NegativeZero`] — so `strand` still
-/// implements `IS-1/1` and accepts a byte string this rejects. That
+/// crate — see [`frame::Malformed::NegativeZero`] — so an `IS-1/1`
+/// implementation accepts a byte string this rejects. That
 /// disagreement is visible in the declaration rather than hidden, which
 /// is what revision strings are for.
 ///
