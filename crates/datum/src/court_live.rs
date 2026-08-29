@@ -18,13 +18,17 @@ use std::thread;
 use std::time::Duration;
 
 use crate::court_store::{self, StoreBroken};
+use crate::geometry::GradeShape;
 use crate::reward::RewardBook;
+use crate::section::{GradeId, Section, SectionBroken};
 
 /// Why live court federation refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CourtLiveRefused {
     /// Durable store decode failed.
     Store(StoreBroken),
+    /// Convergence-section decode failed.
+    Section(SectionBroken),
     /// Transport IO.
     Io,
     /// Empty snapshot.
@@ -36,6 +40,12 @@ pub enum CourtLiveRefused {
 impl From<StoreBroken> for CourtLiveRefused {
     fn from(e: StoreBroken) -> Self {
         CourtLiveRefused::Store(e)
+    }
+}
+
+impl From<SectionBroken> for CourtLiveRefused {
+    fn from(e: SectionBroken) -> Self {
+        CourtLiveRefused::Section(e)
     }
 }
 
@@ -165,4 +175,93 @@ pub fn federate_loopback_ab(
     let added_a = import_merge(book_a, &bytes_for_a)?;
 
     Ok((added_b, added_a))
+}
+
+/// Export the convergence section as durable bytes — the relay payload
+/// (#72); a peer applies [`Section::merge`] (#67) after decoding.
+#[must_use]
+pub fn export_section(section: &Section) -> Vec<u8> {
+    section.encode()
+}
+
+/// Decode a remote section and merge it into the local one. `shape_of`
+/// supplies each grade's torsion moduli. Two courts that relay their
+/// sections converge to the same committed anchor (#65) — the live form of
+/// the #67 confluence. Exactly-once stays the book's guard; the relay
+/// carries each peer's contribution.
+pub fn import_merge_section(
+    local: &mut Section,
+    bytes: &[u8],
+    shape_of: impl Fn(GradeId) -> GradeShape,
+) -> Result<(), CourtLiveRefused> {
+    let remote = Section::decode(bytes)?;
+    local.merge(&remote, shape_of);
+    Ok(())
+}
+
+/// Send one length-prefixed section on a stream (the same envelope the
+/// book snapshot uses).
+pub fn send_section(stream: &mut TcpStream, section: &Section) -> Result<(), CourtLiveRefused> {
+    let bytes = export_section(section);
+    if bytes.len() > u32::MAX as usize {
+        return Err(CourtLiveRefused::Malformed);
+    }
+    stream.write_all(&(bytes.len() as u32).to_le_bytes())?;
+    stream.write_all(&bytes)?;
+    stream.flush()?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::section::AxialCredit;
+
+    fn shape(free_rank: usize, torsion: &[u64]) -> GradeShape {
+        GradeShape {
+            free_rank,
+            torsion: torsion.to_vec(),
+        }
+    }
+
+    #[test]
+    fn two_sections_federate_over_tcp_and_converge() {
+        // #72: the section relay. Two courts hold disjoint settlements;
+        // after exchanging sections over a real socket and merging, the
+        // receiver commits to the same anchor as one node that saw both —
+        // the live form of the #67 path-independent limit.
+        let shape_of = |g: GradeId| match g {
+            (100, 0) => shape(1, &[6]),
+            (200, 0) => shape(0, &[5]),
+            _ => shape(0, &[]),
+        };
+        let mut a = Section::new();
+        a.deposit((100, 0), &shape_of((100, 0)), &AxialCredit::of(vec![5], vec![4]));
+        let mut b = Section::new();
+        b.deposit((200, 0), &shape_of((200, 0)), &AxialCredit::of(vec![], vec![3]));
+
+        // The limit: one node that saw both partitions.
+        let mut combined = a.clone();
+        combined.merge(&b, shape_of);
+        let target = combined.anchor();
+
+        // A relays its section to B over loopback TCP.
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let handle = thread::spawn(move || -> Vec<u8> {
+            let (mut s, _) = listener.accept().expect("accept");
+            recv_snapshot(&mut s).expect("recv")
+        });
+        thread::sleep(Duration::from_millis(15));
+        let mut client = TcpStream::connect(addr).expect("connect");
+        send_section(&mut client, &a).expect("send");
+        let for_b = handle.join().expect("join");
+        import_merge_section(&mut b, &for_b, shape_of).expect("merge");
+
+        assert_eq!(
+            b.anchor(),
+            target,
+            "B merged A's relayed section → the same committed anchor"
+        );
+    }
 }
