@@ -21,7 +21,7 @@
 //! - [`BUSY_TAG`] — the wire tag a swamped court answers with, so a
 //!   producer *waits* cooperatively instead of stalling on a timeout.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::{Condvar, Mutex};
 
 /// The record tag a court sends when it is shedding load: a producer
@@ -248,43 +248,69 @@ impl EscrowWeight {
     }
 }
 
+/// One coordinate of the fibre: a generator (a basis vector / cell of the
+/// combinatorial complex) together with the homological dimension it lives
+/// in. The two indices play distinct roles and are never conflated —
+/// collapsing them was the dimensional loss #57–#59 remediate:
+/// - `gen` is the fibre coordinate: the axis the generator's deficit
+///   transports along, and the axis by which **congestion couples** (the
+///   diagonal connection is indexed by `gen`).
+/// - `dim` is the homological grade `k`: it selects the graded torsion
+///   `T_k` that **lifts this axis's quantum**, and nothing else — an `H_1`
+///   lift never perturbs an `H_0` axis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Axis {
+    /// The generator's identity in the global vector space.
+    pub gen: u32,
+    /// The homological dimension `k` of the generator (which `C_k` it
+    /// spans). Selects the graded torsion `T_k`.
+    pub dim: u32,
+}
+
+impl Axis {
+    /// A generator axis at homological grade `dim`.
+    #[must_use]
+    pub fn new(gen: u32, dim: u32) -> Self {
+        Self { gen, dim }
+    }
+}
+
 /// The transport physics of the scheduling fibre (Phase 5, #55).
 ///
-/// The scheduler is a vector bundle π: E → M. The base `M` is the
-/// ledger's exact incidence geometry; the fibre `E_x` is a solver's
-/// ephemeral transit state. This type computes the three integer
-/// quantities that move a claim across the fibre, and nothing else —
-/// it reads no settlement book and names no settlement type, the same
-/// boundary the module's source-scan test holds.
+/// The scheduler is a vector bundle π: E → M. The base `M` is the ledger's
+/// exact incidence geometry; the fibre `E_x` is a solver's ephemeral
+/// transit state — a **sparse vector over generator-space**, never a
+/// scalar (a scalar collapse would contaminate orthogonal axes; #57–#59).
+/// This type computes the two integer quantities that move a claim across
+/// the fibre, per axis, and nothing else — it reads no settlement book and
+/// names no settlement type, the boundary the module's source-scan holds.
 ///
-/// - **Quantum** `Q(escrow, torsion) = EscrowWeight::of(escrow)·(1+torsion)`,
-///   capped. The escrow term is the static base point on `M` (concave,
-///   floored, bounded — see [`EscrowWeight`]); the `(1+torsion)` factor is
-///   the torsion of the *open boundary currently in the fibre* (#58,
-///   Directive 1). Because the lift attaches to the active claim and not
-///   the actor, a solver working a **flat domain** (`torsion = 0`) has the
-///   quantum collapse to its bare escrow floor — priority follows the
-///   geometry a solver is transporting right now, never accumulated
-///   history. This is what closes incumbent-farming while preserving
-///   "not a name."
-/// - **Curvature** `Γ = |supp(C) ∩ contending|` (#59, Directive 2): the
-///   cardinality of the shared algebraic support between a claim and the
-///   generators of the concurrently active domains. A monotone integer
-///   upper bound on the homological intersection (disjoint supports force
-///   `Γ = 0` exactly), computed as an O(N) set intersection rather than a
-///   matrix reduction on the hot path.
-/// - **Cost** `1 + Γ` (Directive 1, flat unit cost): every serve is one
-///   unit of discrete transit time, dilated only by the curvature it
-///   meets. Chain magnitude does *not* enter — that is a spatial property
-///   already priced at consensus; charging it here would double-charge
-///   spatial complexity and drag the velocity vector that escrow and
-///   torsion alone are meant to set.
+/// - **Quantum** `Q(escrow, T_k) = EscrowWeight::of(escrow)·(1 + T_k)`,
+///   capped, granted to **each active axis** of homological grade `k`. The
+///   escrow term is the static base point on `M` (concave, floored,
+///   bounded — see [`EscrowWeight`]); the `(1 + T_k)` factor is the graded
+///   torsion of the *open boundary currently in the fibre* (#58), applied
+///   strictly to that grade's generators. A **flat** boundary (`T_k = 0`)
+///   lifts by ×1 — the quantum collapses to the bare escrow floor, so
+///   priority follows the geometry a solver transports right now, never
+///   accumulated history. Closes incumbent-farming; preserves "not a name."
+/// - **Cost** `cost[g] = 1 + inflight[g]` (#59, Directive 2): the
+///   **diagonal connection** over generator-space. Transporting a claim
+///   spends, on each of its axes `g`, one unit of transit dilated by the
+///   multiplicity of concurrently active claims congesting *that* axis.
+///   Off-diagonal coupling is deliberately absent: independent generators
+///   are causally disjoint propositions, and entangling them would
+///   violate the algebraic independence of the basis. Uncontested axes
+///   (`inflight[g] = 0`) transport at the un-dilated floor of 1 — and
+///   breadth is **not** charged (a claim on ten orthogonal axes still
+///   costs ten units of *floor*, never a magnitude penalty; size is priced
+///   at consensus, not here).
 ///
-/// Curvature is a **read-only kinematic variable**: it reorders transit,
-/// it never modulates yield. A solver that pivots to a novel generator
-/// meets `Γ = 0` and is handed maximum un-dilated velocity — the reward
-/// for orthogonality is throughput, paid by the physics of the fibre, not
-/// a number minted on the manifold (which would violate the invariant).
+/// Cost is a **read-only kinematic variable**: it reorders transit, it
+/// never modulates yield. A pivot to a novel generator meets `inflight = 0`
+/// and is handed maximum un-dilated velocity — the reward for orthogonality
+/// is throughput, paid by the physics of the fibre, not a number minted on
+/// the manifold (which would violate the invariant).
 #[derive(Debug, Clone, Copy)]
 pub struct Transport {
     weight: EscrowWeight,
@@ -292,9 +318,9 @@ pub struct Transport {
 }
 
 impl Transport {
-    /// A tuned transport: the tuned escrow weight, quantum capped at 4096
-    /// (the escrow ceiling of 64 lifted by a torsion factor of up to 64),
-    /// so no boundary, however knotted, buys unbounded velocity.
+    /// A tuned transport: the tuned escrow weight, per-axis quantum capped
+    /// at 4096 (the escrow ceiling of 64 lifted by a torsion grade of up
+    /// to 64), so no boundary, however knotted, buys unbounded velocity.
     #[must_use]
     pub fn tuned() -> Self {
         Self {
@@ -312,88 +338,93 @@ impl Transport {
         }
     }
 
-    /// The per-round serving quantum for a holder staking `escrow`,
-    /// transporting a boundary of torsion `torsion`. Saturating and
-    /// capped: never panics, never exceeds the ceiling. A flat boundary
-    /// (`torsion = 0`) lifts by ×1, collapsing the quantum to the bare
-    /// escrow weight.
+    /// The per-axis serving quantum for a holder staking `escrow`,
+    /// transporting an axis whose homological grade carries torsion
+    /// `torsion_k`. Saturating and capped: never panics, never exceeds the
+    /// ceiling. A flat grade (`torsion_k = 0`) lifts by ×1, collapsing the
+    /// quantum to the bare escrow weight.
     #[must_use]
-    pub fn quantum(&self, escrow: u128, torsion: u64) -> u64 {
+    pub fn quantum(&self, escrow: u128, torsion_k: u64) -> u64 {
         let base = self.weight.of(escrow);
-        let lift = torsion.saturating_add(1); // flat domain → ×1
+        let lift = torsion_k.saturating_add(1); // flat grade → ×1
         base.saturating_mul(lift).min(self.ceiling)
     }
 
-    /// The curvature `Γ` a claim meets in a fibre already carrying the
-    /// `contending` generators: `Γ = |supp(C) ∩ contending|`. `support`
-    /// is the claim's non-zero basis vectors (declared axioms, sublet
-    /// indices, vocabulary tags), assumed deduplicated. O(N) in the
-    /// support size; the `contending` set is a [`BTreeSet`] so membership
-    /// is a log-time probe, and iteration order never enters the count.
+    /// The diagonal transport cost of one serve along an axis congested by
+    /// `inflight` concurrently active claims: exactly `1 + inflight`. An
+    /// uncontested axis (`inflight = 0`) costs the un-dilated floor of 1;
+    /// each concurrent claim on the *same* generator dilates the cost — and
+    /// so the transit time — by one. Saturating, so pathological congestion
+    /// cannot wrap.
     #[must_use]
-    pub fn curvature(support: &[u32], contending: &BTreeSet<u32>) -> u64 {
-        let hits = support.iter().filter(|g| contending.contains(g)).count();
-        u64::try_from(hits).unwrap_or(u64::MAX)
-    }
-
-    /// The discrete transport cost of one serve at curvature `gamma`:
-    /// exactly `1 + Γ`. Orthogonal transit (`Γ = 0`) costs the
-    /// mathematical floor of 1; overlap with concurrently active domains
-    /// dilates the cost — and so the transit time — linearly in the
-    /// interference. Saturating, so pathological curvature cannot wrap.
-    #[must_use]
-    pub fn cost(gamma: u64) -> u64 {
-        gamma.saturating_add(1)
+    pub fn cost(inflight: u32) -> u64 {
+        u64::from(inflight).saturating_add(1)
     }
 }
 
-/// The kinematic fibre `E_x` over one holder: its deficit, carried across
-/// rounds. This is the **entire** persistent scheduler state for a holder.
-/// The base coordinate — escrow — is projected from the ledger at
-/// section-time via `escrow_of`, never shadowed here (#57): no holder
-/// identity, no escrow amount, no settlement of any kind lives in this
-/// cell, only ephemeral integer transit credit.
-#[derive(Debug, Clone, Copy, Default)]
+/// The kinematic fibre `E_x` over one holder: a **sparse deficit vector**
+/// `V: generator → ℤ`, carried across rounds. This is the entire
+/// persistent scheduler state for a holder; the base coordinate — escrow —
+/// is projected from the ledger at section-time (#57), never shadowed. No
+/// holder identity, no escrow amount, no settlement lives here — only
+/// ephemeral per-axis transit credit.
+///
+/// Indexing by generator (not by homological dimension) is deliberate
+/// (#57, Directive 1): projecting the fibre onto `k` would collapse
+/// independent basis vectors into a degenerate scalar class, and orthogonal
+/// axes could no longer transport without contaminating one another.
+#[derive(Debug, Clone, Default)]
 pub struct Fibre {
-    deficit: u64,
+    deficit: BTreeMap<u32, i64>,
 }
 
 impl Fibre {
-    /// A fresh fibre with zero deficit.
+    /// A fresh fibre with an empty deficit vector.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Grant this fibre its quantum at the start of a turn: `V += Q`.
-    /// Saturating, so an unbounded run of turns cannot overflow the cell.
-    pub fn grant(&mut self, quantum: u64) {
-        self.deficit = self.deficit.saturating_add(quantum);
+    /// Grant `quantum` of transit credit to a single generator axis at the
+    /// start of a turn: `V[gen] += Q`. Saturating, so an unbounded run of
+    /// turns cannot overflow the coordinate.
+    pub fn grant(&mut self, gen: u32, quantum: u64) {
+        let credit = i64::try_from(quantum).unwrap_or(i64::MAX);
+        let v = self.deficit.entry(gen).or_insert(0);
+        *v = v.saturating_add(credit);
     }
 
-    /// Attempt one serve at transport `cost`. If the carried deficit
-    /// covers it, spend it and return `true`; otherwise leave the deficit
-    /// intact — it carries into the next round — and return `false`.
-    ///
-    /// Carrying the remainder forward is the anti-starvation guarantee:
-    /// the quantum is floored at ≥ 1, so after enough rounds the deficit
-    /// clears any finite `1 + Γ`. Even a maximally congested solver is
-    /// served — later, never *never*. (Contrast a hard priority cap, which
-    /// would wall the congested solver out entirely.)
+    /// Whether the carried deficit covers `costs` on **every** axis — the
+    /// transport is all-or-nothing across a claim's support, since a claim
+    /// moves as one rigid body through the fibre. `costs` is `(gen, cost)`
+    /// per support axis.
     #[must_use]
-    pub fn try_serve(&mut self, cost: u64) -> bool {
-        if self.deficit >= cost {
-            self.deficit -= cost;
-            true
-        } else {
-            false
+    pub fn can_transport(&self, costs: &[(u32, u64)]) -> bool {
+        costs.iter().all(|&(gen, cost)| {
+            self.deficit.get(&gen).copied().unwrap_or(0) >= i64::try_from(cost).unwrap_or(i64::MAX)
+        })
+    }
+
+    /// Spend the transport cost along each axis: `V[gen] -= cost`. The
+    /// caller must have checked [`Fibre::can_transport`] first; the
+    /// remainder on each axis carries into the next round.
+    ///
+    /// Carrying the per-axis remainder forward is the anti-starvation
+    /// guarantee: each active axis is granted a quantum ≥ 1 per round, so
+    /// after enough rounds its deficit clears any finite `1 + inflight`.
+    /// Even a maximally congested axis transports — later, never *never*.
+    pub fn transport(&mut self, costs: &[(u32, u64)]) {
+        for &(gen, cost) in costs {
+            if let Some(v) = self.deficit.get_mut(&gen) {
+                *v = v.saturating_sub(i64::try_from(cost).unwrap_or(i64::MAX));
+            }
         }
     }
 
-    /// The current carried deficit — the fibre's transit credit.
+    /// The carried deficit on one generator axis (0 if untouched).
     #[must_use]
-    pub fn deficit(&self) -> u64 {
-        self.deficit
+    pub fn deficit_of(&self, gen: u32) -> i64 {
+        self.deficit.get(&gen).copied().unwrap_or(0)
     }
 }
 
@@ -517,14 +548,26 @@ pub struct Claim<T> {
     /// key. An empty string is the base lane (an unauthenticated or
     /// unstaked session), served at the escrow floor.
     pub holder: String,
-    /// The claim's declared non-zero basis vectors (generators / axioms /
-    /// sublet indices), assumed deduplicated. Read for curvature only.
-    pub support: Box<[u32]>,
-    /// The declared torsion of the open boundary — lifts the holder's
-    /// quantum while this claim sits at the head of the fibre (#58).
-    pub torsion: u64,
+    /// The claim's declared support: the generator axes it transports,
+    /// each graded by homological dimension ([`Axis`]), assumed
+    /// deduplicated by `gen`. Read for the diagonal connection (by `gen`)
+    /// and the graded quantum lift (by `dim`) — never to settle.
+    pub support: Box<[Axis]>,
+    /// The declared graded torsion `T_k = Tor(H_{k-1}(C))`: `torsion[k]`
+    /// lifts the quantum of every support axis of dimension `k` (#58). An
+    /// absent grade (index past the end) is `T_k = 0` (a flat grade, ×1
+    /// lift). A wholly flat boundary is the empty vector.
+    pub torsion: Box<[u64]>,
     /// The settlement work itself, opaque to the scheduler.
     pub payload: T,
+}
+
+impl<T> Claim<T> {
+    /// The torsion at homological grade `dim`, or 0 if the boundary is
+    /// flat there (index at or past the end of the graded vector).
+    fn torsion_at(&self, dim: u32) -> u64 {
+        self.torsion.get(dim as usize).copied().unwrap_or(0)
+    }
 }
 
 struct TransitInner<T> {
@@ -538,10 +581,13 @@ struct TransitInner<T> {
     /// Holders whose quantum has already been granted for their current
     /// turn (so a burst of serves within one turn is not re-granted).
     open_turn: HashSet<String>,
-    /// The live congestion field: a multiset of the generators touched by
-    /// claims currently **in flight** (taken, not yet completed). The sole
-    /// source of curvature `Γ`, and the reason `Γ` is a runtime hint that
-    /// never touches consensus — it is literally who-else-is-working-now.
+    /// The live congestion field: a multiset over generators, `inflight[g]`
+    /// = how many claims currently **in flight** (taken, not yet completed)
+    /// touch generator `g`. The diagonal connection reads it directly —
+    /// `cost[g] = 1 + inflight[g]` — so a generator congested by three
+    /// concurrent claims dilates transit along that axis three-fold. A
+    /// runtime hint that never touches consensus: it is literally
+    /// who-else-is-working-on-this-generator-right-now.
     inflight: BTreeMap<u32, u32>,
     /// Total pending claims across all holders.
     total: usize,
@@ -555,11 +601,12 @@ struct TransitInner<T> {
 ///
 /// Dispatch is deterministic given the sequence of `offer`/`take`/
 /// `complete` calls and the projected escrow at each `take`: a pure
-/// integer state machine (deficit round-robin with cost `1 + Γ` and
-/// quantum `EscrowWeight(escrow)·(1 + torsion)`). Two courts will diverge
-/// in turn-order because their in-flight fields differ by live timing —
-/// that is the fibre, and it is exactly what A4 permits, because none of
-/// it reaches a settlement. The module's source-scan test holds that line
+/// integer state machine (per-axis deficit round-robin with diagonal cost
+/// `cost[g] = 1 + inflight[g]` and graded quantum
+/// `EscrowWeight(escrow)·(1 + T_k)` per axis). Two courts will diverge in
+/// turn-order because their in-flight fields differ by live timing — that
+/// is the fibre, and it is exactly what A4 permits, because none of it
+/// reaches a settlement. The module's source-scan test holds that line
 /// over this type too.
 pub struct Transit<T> {
     transport: Transport,
@@ -617,28 +664,31 @@ impl<T> Transit<T> {
         self.inner.lock().map_or(0, |inner| inner.total)
     }
 
-    /// The curvature a claim of `support` meets against the current
-    /// in-flight field: `Γ = |supp ∩ {generators in flight}|`. The field
-    /// is a multiset, but curvature counts a shared *generator* once — one
-    /// congested axis is one unit of interference however many claims ride
-    /// it — so the probe is presence (`count > 0`), matching
-    /// [`Transport::curvature`]'s set semantics.
-    fn curvature_inflight(support: &[u32], inflight: &BTreeMap<u32, u32>) -> u64 {
-        let hits = support
+    /// The diagonal transport cost of a claim's support against the current
+    /// in-flight field: `(gen, 1 + inflight[gen])` per support axis. Each
+    /// axis is priced independently — the connection is diagonal, so a
+    /// congested generator dilates only its own coordinate, never a
+    /// causally disjoint one.
+    fn axis_costs(support: &[Axis], inflight: &BTreeMap<u32, u32>) -> Vec<(u32, u64)> {
+        support
             .iter()
-            .filter(|g| inflight.get(g).is_some_and(|&c| c > 0))
-            .count();
-        u64::try_from(hits).unwrap_or(u64::MAX)
+            .map(|axis| {
+                let congestion = inflight.get(&axis.gen).copied().unwrap_or(0);
+                (axis.gen, Transport::cost(congestion))
+            })
+            .collect()
     }
 
     /// Advance the DRR state machine by exactly one served claim, or
-    /// `None` if nothing is pending. Grants a holder its quantum once at
-    /// the start of its turn; serves from the carried deficit while it
-    /// covers the `1 + Γ` cost of the head claim; rotates and carries the
-    /// remainder when it cannot. Guaranteed to terminate while `total > 0`:
-    /// the in-flight field is fixed under the lock, so costs are fixed,
-    /// and each rotation re-grants a quantum ≥ 1, so some deficit clears
-    /// its cost within a bounded number of passes.
+    /// `None` if nothing is pending. Grants a holder its per-axis quantum
+    /// once at the start of its turn (each support generator lifted by the
+    /// graded torsion of its own dimension); serves the head claim while
+    /// its deficit covers the diagonal cost on **every** support axis;
+    /// rotates and carries the per-axis remainder when it cannot.
+    /// Guaranteed to terminate while `total > 0`: the in-flight field is
+    /// fixed under the lock, so per-axis costs are fixed, and each rotation
+    /// re-grants a quantum ≥ 1 on every axis, so a claim's deficits clear
+    /// their costs within a bounded number of passes.
     fn dispatch_locked(
         transport: &Transport,
         inner: &mut TransitInner<T>,
@@ -654,43 +704,58 @@ impl<T> Transit<T> {
                 inner.open_turn.remove(&key);
                 continue;
             }
-            // Grant the quantum once, at the start of this holder's turn.
-            // The lift is the torsion of the claim currently at the head —
-            // the boundary in the fibre right now, not the actor's past.
+            // Grant the quantum once, at the start of this holder's turn,
+            // to each generator axis of the head claim — lifted by the
+            // graded torsion of that axis's own dimension (an H_1 lift
+            // never perturbs an H_0 axis). The head is the boundary in the
+            // fibre right now, not the actor's past.
             if !inner.open_turn.contains(&key) {
-                let torsion = inner
+                let escrow = escrow_of(&key);
+                let grants: Vec<(u32, u64)> = inner
                     .queues
                     .get(&key)
                     .and_then(VecDeque::front)
-                    .map_or(0, |c| c.torsion);
-                let quantum = transport.quantum(escrow_of(&key), torsion);
-                inner.fibres.entry(key.clone()).or_default().grant(quantum);
+                    .map(|head| {
+                        head.support
+                            .iter()
+                            .map(|axis| {
+                                (axis.gen, transport.quantum(escrow, head.torsion_at(axis.dim)))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let fibre = inner.fibres.entry(key.clone()).or_default();
+                for (gen, quantum) in grants {
+                    fibre.grant(gen, quantum);
+                }
                 inner.open_turn.insert(key.clone());
             }
-            // Cost is the live curvature the head meets against everyone
-            // else in flight — recomputed per serve, since the field moves.
-            let gamma = {
+            // Diagonal cost: each support axis dilated by its own live
+            // congestion, recomputed per serve since the field moves.
+            let costs = {
                 let head = inner.queues.get(&key).and_then(VecDeque::front)?;
-                Self::curvature_inflight(&head.support, &inner.inflight)
+                Self::axis_costs(&head.support, &inner.inflight)
             };
-            let cost = Transport::cost(gamma);
             let afford = inner
                 .fibres
-                .get_mut(&key)
-                .is_some_and(|f| f.try_serve(cost));
+                .get(&key)
+                .is_some_and(|f| f.can_transport(&costs));
             if !afford {
-                // Turn over: carry the deficit, re-grant on the next visit.
+                // Turn over: carry the per-axis deficit, re-grant next visit.
                 inner.open_turn.remove(&key);
                 inner.order.pop_front();
                 inner.order.push_back(key);
                 continue;
             }
+            if let Some(fibre) = inner.fibres.get_mut(&key) {
+                fibre.transport(&costs);
+            }
             let claim = inner.queues.get_mut(&key)?.pop_front()?;
             inner.total = inner.total.saturating_sub(1);
-            // The served claim joins the in-flight field: it now congests
-            // whoever is dispatched next until `complete` clears it.
-            for &g in &claim.support {
-                *inner.inflight.entry(g).or_insert(0) += 1;
+            // The served claim joins the in-flight field: each of its
+            // generators now congests that axis until `complete` clears it.
+            for axis in &claim.support {
+                *inner.inflight.entry(axis.gen).or_insert(0) += 1;
             }
             if inner.queues.get(&key).is_none_or(VecDeque::is_empty) {
                 // Drained: drop the holder and forfeit its idle deficit.
@@ -728,18 +793,18 @@ impl<T> Transit<T> {
         }
     }
 
-    /// Signal that an in-flight claim has settled: remove its `support`
-    /// from the congestion field, so it no longer dilates the transit of
-    /// claims dispatched after it. A worker MUST call this once per taken
-    /// claim (settled or failed) — an uncompleted claim would congest the
-    /// field forever. `support` is the taken claim's own support slice.
-    pub fn complete(&self, support: &[u32]) {
+    /// Signal that an in-flight claim has settled: decrement each of its
+    /// generators from the congestion field, so they no longer dilate the
+    /// transit of claims dispatched after it. A worker MUST call this once
+    /// per taken claim (settled or failed) — an uncompleted claim would
+    /// congest its axes forever. `support` is the taken claim's own support.
+    pub fn complete(&self, support: &[Axis]) {
         if let Ok(mut inner) = self.inner.lock() {
-            for &g in support {
-                if let Some(count) = inner.inflight.get_mut(&g) {
+            for axis in support {
+                if let Some(count) = inner.inflight.get_mut(&axis.gen) {
                     *count -= 1;
                     if *count == 0 {
-                        inner.inflight.remove(&g);
+                        inner.inflight.remove(&axis.gen);
                     }
                 }
             }
@@ -808,16 +873,19 @@ mod tests {
         assert!(w.of(0) > 0);
     }
 
-    /// A single solver's throughput: run `rounds` deficit round-robin
-    /// turns, granted `quantum` each round and paying `cost` per serve,
-    /// carrying the deficit across rounds. Returns items settled — the
-    /// solver's transit velocity integrated over the window.
+    /// A single axis's throughput: run `rounds` per-axis DRR turns on one
+    /// generator, granted `quantum` each round and paying `cost` per serve,
+    /// carrying the deficit. Returns items settled — the axis's transit
+    /// velocity integrated over the window.
     fn throughput(quantum: u64, cost: u64, rounds: u64) -> u64 {
+        let g = 7; // an arbitrary generator axis
+        let costs = [(g, cost)];
         let mut fibre = Fibre::new();
         let mut served = 0;
         for _ in 0..rounds {
-            fibre.grant(quantum);
-            while fibre.try_serve(cost) {
+            fibre.grant(g, quantum);
+            while fibre.can_transport(&costs) {
+                fibre.transport(&costs);
                 served += 1;
             }
         }
@@ -825,13 +893,43 @@ mod tests {
     }
 
     #[test]
+    fn the_diagonal_connection_prices_each_axis_by_its_own_congestion() {
+        // cost[g] = 1 + inflight[g]. An uncontested (novel) axis is the
+        // un-dilated floor; each concurrent claim on the SAME generator
+        // adds one. Multiplicity COUNTS — the presence-collapse (where any
+        // congestion was a flat "+1") is gone: cost(4) is 5, not 2.
+        assert_eq!(Transport::cost(0), 1, "uncontested / novel axis: floor 1");
+        assert_eq!(Transport::cost(1), 2, "one concurrent claim: +1");
+        assert_eq!(Transport::cost(4), 5, "four concurrent claims: +4, not +1");
+    }
+
+    #[test]
+    fn fibre_orthogonal_axes_transport_independently() {
+        // THE anti-collapse guarantee (#57): a deficit on generator 7 is
+        // untouched by spending on generator 12. Under the old scalar
+        // fibre a single pool served both, so congestion on one starved the
+        // other; the vector fibre gives each axis its own volume.
+        let mut f = Fibre::new();
+        f.grant(7, 10);
+        f.grant(12, 10);
+        let hot = [(7u32, 5u64)]; // 7 is congested: cost 5
+        let cold = [(12u32, 1u64)]; // 12 is orthogonal: cost 1
+        assert!(f.can_transport(&hot));
+        f.transport(&hot); // V[7]: 10 → 5
+        f.transport(&hot); // V[7]: 5 → 0
+        assert!(!f.can_transport(&hot), "generator 7 is drained");
+        // Generator 12 is completely unperturbed — still full velocity.
+        assert_eq!(f.deficit_of(12), 10, "orthogonal axis uncontaminated");
+        assert!(f.can_transport(&cold));
+    }
+
+    #[test]
     fn orthogonal_transit_costs_the_unit_floor() {
         let t = Transport::tuned();
-        // Unstaked solver on a flat domain: the bare floor quantum.
+        // Unstaked solver on a flat grade: the bare floor quantum.
         let q = t.quantum(0, 0);
         assert_eq!(q, 1, "unstaked + flat → unit quantum");
-        assert_eq!(Transport::cost(0), 1, "Γ=0 transit is the unit floor");
-        // One serve per round, exactly: cost 1, quantum 1.
+        assert_eq!(Transport::cost(0), 1, "uncontested axis is the unit floor");
         assert_eq!(throughput(q, Transport::cost(0), 10), 10);
     }
 
@@ -842,110 +940,103 @@ mod tests {
         let rounds = 100;
         let orthogonal = throughput(q, Transport::cost(0), rounds);
         let congested = throughput(q, Transport::cost(3), rounds);
-        // Velocity is quantum/(1+Γ): 4× the cost → a quarter the
-        // throughput in the same wall-time. This is the whole point — and
-        // it is exactly what fails if `cost` is pinned to a constant 1
-        // (dropping Γ), which collapses congested == orthogonal.
-        assert!(congested < orthogonal, "curvature dilates transit time");
+        // Velocity is quantum/(1+inflight): 4× the cost → a quarter the
+        // throughput in the same wall-time. Pinning cost to a constant
+        // (dropping the congestion term) collapses congested == orthogonal.
+        assert!(congested < orthogonal, "congestion dilates transit time");
         assert_eq!(orthogonal, q * rounds);
         assert_eq!(congested, q * rounds / 4);
     }
 
     #[test]
-    fn torsion_lifts_the_quantum_and_flat_domains_collapse_to_the_escrow_floor() {
+    fn torsion_lifts_the_quantum_and_flat_grades_collapse_to_the_escrow_floor() {
         let t = Transport::tuned();
         let escrow = 10_000; // escrow weight caps at 64
         let flat = t.quantum(escrow, 0);
         let knotted = t.quantum(escrow, 3);
-        assert_eq!(flat, 64, "flat boundary → bare escrow weight");
+        assert_eq!(flat, 64, "flat grade → bare escrow weight");
         assert_eq!(knotted, 64 * 4, "torsion 3 lifts the quantum ×(1+3)");
-        // Directive 1: the lift is a property of the active claim, so the
-        // instant a solver reverts to a flat domain its priority collapses
-        // back to the escrow base point. Removing the `(1+torsion)` factor
-        // makes knotted == flat and fails this.
+        // Directive 1: the lift is a property of the active grade, so the
+        // instant a solver reverts to a flat grade its priority collapses
+        // back to the escrow base point.
         assert!(knotted > flat);
     }
 
     #[test]
-    fn a_novel_generator_meets_zero_curvature() {
-        // supp(C) disjoint from every concurrently active support → Γ=0,
-        // the orthogonal floor: minting a brand-new generator is the most
-        // orthogonal move on the board, and the physics hands it maximum
-        // un-dilated velocity — no ledger bonus required.
-        let contending: BTreeSet<u32> = [1, 2, 3, 5, 8].into_iter().collect();
-        assert_eq!(Transport::curvature(&[99], &contending), 0, "novel generator");
-        assert_eq!(Transport::curvature(&[2, 3], &contending), 2, "two shared");
-        assert_eq!(
-            Transport::curvature(&[2, 3, 4], &contending),
-            2,
-            "the novel 4 adds no curvature"
-        );
+    fn graded_torsion_reads_by_dimension_flat_past_the_end() {
+        // T_k applies strictly to its own grade: an H_1 lift never perturbs
+        // an H_0 axis, and an unlisted grade is flat (×1).
+        let c = claim("h", &[axis(1, 0), axis(2, 1)], &[0, 3], 0);
+        assert_eq!(c.torsion_at(0), 0, "H_0 grade is flat here");
+        assert_eq!(c.torsion_at(1), 3, "H_1 grade carries torsion 3");
+        assert_eq!(c.torsion_at(2), 0, "past the graded vector → flat");
     }
 
     #[test]
-    fn curvature_is_the_support_intersection_cardinality() {
-        let contending: BTreeSet<u32> = [10, 20, 30, 40].into_iter().collect();
-        assert_eq!(Transport::curvature(&[], &contending), 0, "empty support");
-        assert_eq!(Transport::curvature(&[20, 40], &contending), 2);
-        assert_eq!(Transport::curvature(&[10, 20, 30, 40], &contending), 4);
-        let none: BTreeSet<u32> = BTreeSet::new();
-        assert_eq!(
-            Transport::curvature(&[1, 2, 3], &none),
-            0,
-            "no concurrency, no curvature"
-        );
-    }
-
-    #[test]
-    fn a_congested_solver_is_dilated_but_never_starved() {
+    fn a_congested_axis_is_dilated_but_never_starved() {
         let t = Transport::tuned();
         let q = t.quantum(0, 0); // the weakest solver: unit quantum
         let cost = Transport::cost(7); // heavy congestion → cost 8
-        // Deficit carries: a unit-quantum solver at cost 8 accrues 8 over
-        // 8 rounds and serves exactly once — slow, never zero.
+        // Per-axis deficit carries: unit quantum at cost 8 accrues 8 over 8
+        // rounds and serves exactly once — slow, never zero.
         assert_eq!(throughput(q, cost, 8), 1);
-        // And throughput grows without bound in time: served later, never
-        // never. A hard cap instead of a carried deficit would wall it out.
+        // Throughput grows without bound in time: served later, never never.
         assert_eq!(throughput(q, cost, 800), 100);
     }
 
-    fn claim(holder: &str, support: &[u32], torsion: u64, payload: u32) -> Claim<u32> {
+    fn axis(gen: u32, dim: u32) -> Axis {
+        Axis::new(gen, dim)
+    }
+
+    fn claim(holder: &str, support: &[Axis], torsion: &[u64], payload: u32) -> Claim<u32> {
         Claim {
             holder: holder.to_owned(),
             support: Box::from(support),
-            torsion,
+            torsion: Box::from(torsion),
             payload,
         }
+    }
+
+    /// Drain up to `n` claims, completing each so no congestion accrues —
+    /// isolates escrow/torsion ordering from curvature. Returns holders in
+    /// served order.
+    fn drain_completing(q: &Transit<u32>, esc: impl Fn(&str) -> u128 + Copy, n: usize) -> Vec<String> {
+        let mut served = Vec::new();
+        for _ in 0..n {
+            let Some(c) = q.take(esc) else { break };
+            served.push(c.holder.clone());
+            q.complete(&c.support);
+        }
+        served
     }
 
     #[test]
     fn transit_serves_a_lone_holder_in_fifo_order() {
         let q: Transit<u32> = Transit::tuned();
         for i in 0..3 {
-            q.offer(claim("solo", &[], 0, i));
+            q.offer(claim("solo", &[axis(1, 0)], &[], i));
         }
         let esc = |_: &str| 0u128;
-        let got: Vec<u32> = std::iter::from_fn(|| q.take(esc).map(|c| c.payload)).collect();
+        let got: Vec<u32> =
+            std::iter::from_fn(|| q.take(esc).map(|c| c.payload)).collect();
         assert_eq!(got, vec![0, 1, 2], "a single holder is drained in order");
     }
 
     #[test]
     fn transit_escrow_weight_orders_two_holders_without_starving() {
-        // Both flooded with orthogonal (empty-support) claims, so Γ=0 and
-        // only escrow separates them. rich (escrow 10_000 → weight 64)
-        // serves its whole quantum before poor (escrow 0 → weight 1) gets
-        // a single turn: velocity ∝ escrow weight, and poor is served, not
-        // starved.
+        // Orthogonal axes (rich on gen 1, poor on gen 2), completed each
+        // serve so only escrow separates them. rich (escrow 10_000 →
+        // weight 64) serves its whole quantum before poor (escrow 0 →
+        // weight 1) gets a turn: velocity ∝ escrow weight, poor not starved.
         let q: Transit<u32> = Transit::tuned();
         for i in 0..64 {
-            q.offer(claim("rich", &[], 0, i));
+            q.offer(claim("rich", &[axis(1, 0)], &[], i));
         }
         for i in 0..64 {
-            q.offer(claim("poor", &[], 0, 100 + i));
+            q.offer(claim("poor", &[axis(2, 0)], &[], 100 + i));
         }
         let esc = |h: &str| if h == "rich" { 10_000u128 } else { 0 };
-        let holders: Vec<String> =
-            std::iter::from_fn(|| q.take(esc).map(|c| c.holder)).take(65).collect();
+        let holders = drain_completing(&q, esc, 65);
         assert!(
             holders.iter().take(64).all(|h| h == "rich"),
             "rich serves its full quantum-64 burst first"
@@ -958,91 +1049,82 @@ mod tests {
     }
 
     #[test]
-    fn transit_torsion_lifts_a_holders_quantum() {
-        // Equal escrow (0 → base weight 1); B's claims declare torsion 3,
-        // lifting its quantum ×4. In the same window B settles four claims
-        // to A's one. The lift is the head claim's, not the actor's.
+    fn transit_graded_torsion_lifts_a_holders_quantum() {
+        // Equal escrow (0 → base weight 1); B's head declares torsion 3 at
+        // grade 1 (its axis is H_1), lifting that axis's quantum ×4. In the
+        // same window B settles four claims to A's flat one.
         let q: Transit<u32> = Transit::tuned();
         for i in 0..4 {
-            q.offer(claim("A", &[], 0, i));
+            q.offer(claim("A", &[axis(1, 0)], &[], i));
         }
         for i in 0..4 {
-            q.offer(claim("B", &[], 3, 100 + i));
+            q.offer(claim("B", &[axis(2, 1)], &[0, 3], 100 + i));
         }
         let esc = |_: &str| 0u128;
-        let holders: Vec<String> =
-            std::iter::from_fn(|| q.take(esc).map(|c| c.holder)).take(5).collect();
+        let holders = drain_completing(&q, esc, 5);
         assert_eq!(holders.iter().filter(|h| *h == "A").count(), 1);
         assert_eq!(
             holders.iter().filter(|h| *h == "B").count(),
             4,
-            "torsion 3 lifts B's quantum to serve 4× in the window"
+            "torsion 3 at grade 1 lifts B's H_1 axis to serve 4× in the window"
         );
     }
 
     #[test]
-    fn transit_curvature_dilates_a_congested_holder() {
-        // A seed claim on generator 1 is taken and left IN FLIGHT (never
-        // completed), so generator 1 stays congested. A's claims share it
-        // (Γ=1 → cost 2); B's claims are orthogonal (Γ=0 → cost 1). With
-        // equal escrow, B settles strictly more — congestion dilates A's
-        // transit time. Each served claim is completed so the field stays
-        // exactly the seed.
+    fn transit_congestion_dilates_a_holder_by_multiplicity() {
+        // Two single-claim seeds (escrow-rich, so they serve at once) are
+        // left IN FLIGHT on generator 1 → inflight[1] = 2, so A's cost on
+        // generator 1 is 1+2 = 3, while B on generator 2 costs 1. B settles
+        // strictly more, and by ~3× — multiplicity compounds, it does not
+        // saturate at "present" (the anti-presence-collapse).
         let q: Transit<u32> = Transit::tuned();
-        q.offer(claim("seed", &[1], 0, 0));
-        for i in 0..30 {
-            q.offer(claim("A", &[1], 0, 100 + i));
+        q.offer(claim("seedX", &[axis(1, 0)], &[], 0));
+        q.offer(claim("seedY", &[axis(1, 0)], &[], 1));
+        for i in 0..40 {
+            q.offer(claim("A", &[axis(1, 0)], &[], 100 + i));
         }
-        for i in 0..30 {
-            q.offer(claim("B", &[2], 0, 200 + i));
+        for i in 0..40 {
+            q.offer(claim("B", &[axis(2, 0)], &[], 200 + i));
         }
-        let esc = |_: &str| 0u128;
-        // Take the seed and hold it in flight (do NOT complete it).
-        let seed = q.take(esc).expect("seed");
-        assert_eq!(seed.holder, "seed");
+        let esc = |h: &str| if h.starts_with("seed") { 1_000_000u128 } else { 0 };
+        // Take both seeds and hold them in flight (do NOT complete).
+        assert_eq!(q.take(esc).expect("seedX").holder, "seedX");
+        assert_eq!(q.take(esc).expect("seedY").holder, "seedY");
+        assert_eq!(
+            q.inner.lock().expect("lock").inflight.get(&1).copied(),
+            Some(2),
+            "generator 1 congested by both seeds"
+        );
         let mut a = 0;
         let mut b = 0;
-        for _ in 0..30 {
+        for _ in 0..40 {
             let Some(c) = q.take(esc) else { break };
-            if c.holder == "A" {
-                a += 1;
-            } else if c.holder == "B" {
-                b += 1;
+            match c.holder.as_str() {
+                "A" => a += 1,
+                "B" => b += 1,
+                _ => {}
             }
-            q.complete(&c.support); // keep the field at exactly the seed
+            q.complete(&c.support); // keep the field at exactly the two seeds
         }
         assert!(a > 0, "the congested holder is dilated, never starved");
-        assert!(b > a, "the orthogonal holder settles strictly more: {b} vs {a}");
+        assert!(b >= 2 * a, "multiplicity-2 congestion dilates ~3×: {b} vs {a}");
     }
 
     #[test]
     fn transit_complete_clears_the_congestion_field() {
         let q: Transit<u32> = Transit::tuned();
-        q.offer(claim("h", &[1, 2, 3], 0, 0));
+        q.offer(claim("h", &[axis(1, 0), axis(2, 0), axis(3, 0)], &[], 0));
         let esc = |_: &str| 0u128;
         let c = q.take(esc).expect("one claim");
-        // In flight: generators 1,2,3 congest the field.
-        let field = q.inner.lock().expect("lock").inflight.clone();
-        assert_eq!(
-            Transit::<u32>::curvature_inflight(&[2], &field),
-            1,
-            "generator 2 is in flight"
-        );
+        {
+            // In flight: generators 1,2,3 each congest their own axis once.
+            let inner = q.inner.lock().expect("lock");
+            assert_eq!(inner.inflight.get(&2).copied(), Some(1), "generator 2 in flight");
+            assert_eq!(inner.inflight.len(), 3);
+        }
         q.complete(&c.support);
-        // Cleared: the field is empty, so nothing is congested.
         let inner = q.inner.lock().expect("lock");
         assert!(inner.inflight.is_empty(), "completion clears the field");
-    }
-
-    #[test]
-    fn transit_curvature_inflight_counts_shared_generators_once() {
-        let field: BTreeMap<u32, u32> = [(10, 3), (20, 1), (30, 2)].into_iter().collect();
-        assert_eq!(Transit::<u32>::curvature_inflight(&[], &field), 0);
-        assert_eq!(Transit::<u32>::curvature_inflight(&[99], &field), 0, "novel");
-        // Shared generator 10 counts ONCE despite three claims in flight.
-        assert_eq!(Transit::<u32>::curvature_inflight(&[10], &field), 1);
-        assert_eq!(Transit::<u32>::curvature_inflight(&[10, 20, 30], &field), 3);
-        assert_eq!(Transit::<u32>::curvature_inflight(&[10, 99], &field), 1);
     }
 
     #[test]
@@ -1054,8 +1136,8 @@ mod tests {
         let run = || {
             let q: Transit<u32> = Transit::tuned();
             for i in 0..10 {
-                q.offer(claim("x", &[1], 2, i));
-                q.offer(claim("y", &[1], 0, 100 + i));
+                q.offer(claim("x", &[axis(1, 0)], &[2], i));
+                q.offer(claim("y", &[axis(1, 0)], &[], 100 + i));
             }
             let esc = |h: &str| if h == "x" { 5_000u128 } else { 25 };
             std::iter::from_fn(|| q.take(esc).map(|c| c.payload)).collect::<Vec<_>>()
