@@ -900,7 +900,7 @@ mod witnessing {
     }
 
     #[test]
-    fn the_replay_arm_actually_re_derives() {
+    fn the_replay_arm_re_derives() {
         // A witness about a BROKEN claim: the digest matches (the witness
         // honestly names the broken bytes), but replay re-derivation says
         // the claim does not close. Verdict false, never a refusal — the

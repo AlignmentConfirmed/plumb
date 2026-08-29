@@ -49,7 +49,7 @@ fn no_dependency_is_a_path_dependency() {
 /// Without this, the test above passes on an empty list — which is what
 /// a broken parser returns, and it would read as *no path dependencies*.
 #[test]
-fn the_parser_actually_reads_the_dependency_table() {
+fn the_parser_reads_the_dependency_table() {
     let lines = dependency_lines();
     assert!(
         !lines.is_empty(),

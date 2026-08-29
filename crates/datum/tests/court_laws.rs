@@ -1379,7 +1379,7 @@ mod workspace_hygiene {
     /// sibling paths that are supposed to exist. Without this, a broken
     /// walker returns empty lists — which would read as *all clean*.
     #[test]
-    fn the_walker_actually_reads_the_workspace() {
+    fn the_walker_reads_the_workspace() {
         let manifests = member_manifests();
         assert!(
             manifests.len() >= 4,
@@ -1453,7 +1453,7 @@ mod http_quarantine {
     }
 
     #[test]
-    fn the_edge_actually_holds_what_the_quarantine_confines() {
+    fn the_edge_holds_what_the_quarantine_confines() {
         // The scanner must be able to FIND the markers, or a silent
         // scan reads as a clean one — and the gateway must actually
         // be where HTTP lives.

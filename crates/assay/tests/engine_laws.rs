@@ -740,7 +740,7 @@ mod convergence_laws {
     /// **And the gauge is real**: it moves the facets it is applied to, so
     /// `v4` is not passing because `regauged` is the identity.
     #[test]
-    fn v4_the_re_gauge_actually_moves_the_boundary() {
+    fn v4_the_re_gauge_moves_the_boundary() {
         let boundary = closed(2);
         let moved = boundary.regauged(0, &whole(5));
         assert_ne!(boundary, moved, "regauged returned the boundary unchanged");
@@ -1234,7 +1234,7 @@ mod solve {
     /// re-verified by `closes_to`, never trusted on `solve_sparsest`'s
     /// own say-so.
     #[test]
-    fn solve_sparsest_beats_the_naive_particular_solution() {
+    fn solve_sparsest_has_smaller_support_than_the_particular_solution() {
         // 4 nodes, 4 edges: a 3-hop path 0->1->2->3, plus one direct
         // shortcut edge 0->3. SNF's particular solution (pivot order
         // is an algebraic accident, not a shortest-path search) picks

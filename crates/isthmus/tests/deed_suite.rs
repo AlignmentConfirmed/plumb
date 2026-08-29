@@ -313,7 +313,7 @@ mod axis_laws {
     /// to open distinct names, and it would be exactly as blind as the
     /// eight laws it was written to answer for.
     #[test]
-    fn a9_the_scripts_actually_build_the_missed_states() {
+    fn a9_the_scripts_build_the_missed_states() {
         let mut with_repeats = 0usize;
         let mut max_repeat = 0usize;
         for (_, script) in scripts() {
@@ -2261,7 +2261,7 @@ mod derivation_laws {
     /// something false — so overlapping regions must produce a shared tag,
     /// proving the disjointness is what the law rests on.
     #[test]
-    fn d2_overlapping_regions_would_collide_which_is_why_deeds_are_disjoint() {
+    fn d2_overlapping_regions_are_refused_and_deeds_stay_disjoint() {
         let overlapping = |low: u64, high: u64| Deed {
             holder: "constructed".to_owned(),
             region: vec![(low, high)],

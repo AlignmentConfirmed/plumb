@@ -46,7 +46,7 @@ fn the_manifest_never_names_the_court() {
 /// The gate can fail: the parser finds dependency lines at all,
 /// naming exactly the leaves + sdk this crate is scoped to.
 #[test]
-fn the_parser_actually_reads_the_dependency_table() {
+fn the_parser_reads_the_dependency_table() {
     let lines = dependency_lines();
     assert!(!lines.is_empty(), "found no dependency lines — the parser is broken");
     for name in ["isthmus", "assay", "sig", "sdk"] {
