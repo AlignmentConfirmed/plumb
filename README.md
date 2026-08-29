@@ -1,104 +1,86 @@
 # plumb
 
-A plumb line is the surveyor's instrument for finding true vertical —
-the reference a measurement is trusted against. That is this project's
-job, for claims.
+plumb is an epistemic settlement layer: a system that prices, verifies,
+and settles claims. A claim is submitted unsettled. It is verified by
+re-derivation or by convergence among independent parties, then settled:
+credited on a ledger, recorded, and protected against being paid twice.
+See [`PROOF_ECONOMY.md`](PROOF_ECONOMY.md) for the full description.
 
-**plumb is an epistemic settlement layer** — a market where claims are
-priced, verified, and settled like trades. A claim arrives unsettled:
-asserted, unpaid, contestable. It is verified by re-derivation or by
-convergence among independent parties, and then it **settles** —
-credited on a ledger, recorded, and protected against ever being paid
-twice. The long-form description is [`PROOF_ECONOMY.md`](PROOF_ECONOMY.md).
+## Workspace
 
-## The workspace
+Three crates:
 
-Three crates, one law each:
-
-| crate | law | role |
+| crate | dependencies | role |
 |---|---|---|
-| [`crates/isthmus`](crates/isthmus) | imports **nothing** | the substrate — carries claims it cannot read |
-| [`crates/assay`](crates/assay) | imports **nothing** | the verification physics — multi-axial convergence |
-| [`crates/datum`](crates/datum) | imported by **nothing** | the court — prices space, verifies, settles, keeps the chain |
+| [`crates/isthmus`](crates/isthmus) | none | the substrate: transports claims without interpreting them |
+| [`crates/assay`](crates/assay) | none | verification: multi-axial convergence |
+| [`crates/datum`](crates/datum) | not imported by other crates | the court: prices work, verifies, settles, and maintains the chain |
 
-The division of ignorance is the security model: isthmus moves things
-without understanding them; datum understands things without moving
-them. A party that could do both would be an arbiter, and this design
-refuses arbiters.
+isthmus transports claims without interpreting them; datum interprets
+claims without transporting them. The two roles are kept separate: a
+single party performing both could act as an arbiter.
 
 ```bash
-cargo test               # the whole suite; touches nothing outside this directory
+cargo test               # runs the full test suite
 cargo run -p plumb-sdk --example join
-scripts/proofnet.sh      # the whole economy on one machine: genesis, signed
-                         # claims, a registered domain, federation, kill/resume
-scripts/simnet.sh start  # a standing local network on 9xxx ports: three
-                         # federating courts, a carrier, looping signed clients
+scripts/proofnet.sh      # single-machine run: genesis, signed claims, a
+                         # registered domain, federation, kill/resume
+scripts/simnet.sh start  # standing local network on 9xxx ports: three
+                         # federating courts, a carrier, signed clients
 ```
 
-## The protocols
+## Protocols
 
-The wire language is called **Plumbline** — utterances are linear
-bytes; meanings live in spaces ([`PLUMBLINE.md`](PLUMBLINE.md)). It is
-specified independently of the code, with conformance vectors an
-implementation in any language can be checked against:
+The wire language is Plumbline: messages are linear byte sequences whose
+meaning is multi-dimensional ([`PLUMBLINE.md`](PLUMBLINE.md)). It is
+specified independently of the implementation, with conformance vectors
+that an implementation in any language can be checked against.
 
-- [`PLUMBLINE.md`](PLUMBLINE.md) — the language, and how it is
-  multi-dimensional
-- [`POWPP.md`](POWPP.md) — the physics, the proofs, and the
-  economics: what the engine verifies and why credit is earned
+- [`PLUMBLINE.md`](PLUMBLINE.md) — the wire language
+- [`POWPP.md`](POWPP.md) — what the engine verifies and how credit is
+  assigned
 - [`protocols/`](protocols/) — IS-1 (wire) through IS-6 (chain)
 - [`conformance/`](conformance/) — the vectors, the manifest, and a
   Python reference reader
-- [`INTEGRATING.md`](INTEGRATING.md) — the entry point for implementers
-- [`ROADMAP.md`](ROADMAP.md) — from tested model to live beta network
-- [`IMPLEMENTATION.md`](IMPLEMENTATION.md) — the program of record:
-  every ruling (signatures, universal checker, freshness, x402,
-  topological track) with its task ladder and open operator questions
+- [`INTEGRATING.md`](INTEGRATING.md) — guide for implementers
+- [`ROADMAP.md`](ROADMAP.md) — development roadmap
+- [`IMPLEMENTATION.md`](IMPLEMENTATION.md) — rulings, task ladders, and
+  open questions
 
-## What this is
+## Status
 
-A complete, tested **model** of a settlement layer: the wire, the
-court, the economics, ~300 tests. It is not yet a deployable network.
-The status discipline lives in `PROOF_ECONOMY.md` §5: nothing here
-claims to be built unless a test can fail over it.
+plumb is a tested model of a settlement layer, covering the wire
+protocol, the court, and the settlement economics, with approximately
+300 tests. It is not a deployed network. A component is documented as
+built only when a test covers it (`PROOF_ECONOMY.md` §5).
 
 Kernel-edge measurements — the suites that verify live domain engines
-against this reference — live in the lab, a separate repository that
-depends on these crates the way any outsider would. This workspace
-reaches nothing outside its own directory.
+against this reference — are maintained in a separate repository that
+depends on these crates.
 
-## Known gaps
+## Scope
 
-plumb is a tested model, not a deployed network. What stands, and what
-does not, yet:
+Implemented:
 
-1. **Cryptographic identity — built, opt-in.** Ed25519 over BLAKE3
-   envelopes (scheme 0x01), with keys bound to grants on the chain
-   (`Act::Bind`, IS-6/4). Courts set to `require_signatures = true`
-   reject forged, stale, and unbound presentations (S1–S7). A party
-   with no genesis-time bind can join a running court and register one
-   (`plumbd join`, P2) without a restart or a hand-edited config.
-   Enforcement and live registration are config flags today; a testnet
-   genesis would make them the default.
-2. **Transport — built, TCP only.** `plumbd` runs signed, fresh
-   sessions over TCP (IS-2/2 session challenge: a replayed session's
-   answer covers a dead token), courts federate durably, and the
-   channel can run encrypted (`tls = true`, IS-6/6 — a chain-pinned
-   certificate, no CA, since a court has no DNS name to answer to).
-   Admission limits (connection caps, a handshake deadline) bound what
-   an unauthenticated connection can hold. TLS is opt-in per court, TCP
-   is the only transport, and there is no NAT traversal or peer
-   discovery — peers are configured, not found.
-3. **IS-4 witness — built (IS-4/1).** The frame (arm ‖ observer ‖
-   subject ‖ derivation), the court's witness log, and a watcher bound
-   by four prohibitions: it may not observe, repair, canonicalize, or
-   answer bare. The verdict *frame* is deliberately left open (§8):
-   reports live above the substrate.
-4. **Tag-51 — closed (IS-1/5).** The closure carries its shape as a
-   declared-complex definition: a hexagon and a five-simplex over the
-   same six orbs are distinct bytes (vectors V17/V18), and the legacy
-   grain is explicit "shape unknown," never an inferred simplex.
-5. **No independent implementation yet.** Every specification gap found
-   so far surfaced in review. If you implement IS-1 from the documents
-   and the conformance vectors alone, the places you trip over are the
-   feedback this project most wants — please file them.
+- Ed25519-over-BLAKE3 signatures (scheme `0x01`); keys bind to grants on
+  the chain (`Act::Bind`, IS-6/4). With `require_signatures = true`, a
+  court rejects forged, stale, and unbound presentations.
+- Live registration (`plumbd join`): a key with no genesis-time bind
+  joins a running court and registers without a restart.
+- Signed, fresh sessions over TCP (IS-2/2 session challenge); durable
+  court federation; optional channel encryption (`tls = true`, IS-6/6:
+  a chain-pinned certificate). Admission limits (connection caps,
+  handshake deadline) bound unauthenticated connections.
+- IS-4 witness (IS-4/1): the frame, the court's witness log, and a
+  watcher bound by four prohibitions.
+- Tag-51 shaped relations (IS-1/5): a relation carries its polytopal
+  shape as a declared-complex definition.
+
+Not yet implemented:
+
+- Signature enforcement and live registration are enabled per deployment
+  by config flag, not by default.
+- Transports other than TCP; NAT traversal; peer discovery.
+- The IS-4 verdict frame (§8).
+- An independent implementation from the specification and conformance
+  vectors.
