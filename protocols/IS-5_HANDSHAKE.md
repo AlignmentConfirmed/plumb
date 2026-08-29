@@ -1,18 +1,16 @@
 # IS-5 — THE HANDSHAKE
 
-**Status:** specified. The frame is implemented in `datum/src/session.rs`
-and its vector generated at §7; the session that would send it is not
-built.
+**Status:** the frame is implemented in `datum/src/session.rs`, its
+vector generated at §7, and the court handshake sends it.
 
-A substrate other meshes connect to cannot work without a way for two
-peers to say what they speak. `IS-2` had none.
+A substrate that other meshes connect to needs a way for two peers to
+state what they speak.
 
 ## 1. It is a declaration, not a negotiation
 
-**Ruled, and it follows from the lab's `decide/node-identity.md`.** A negotiation
-settles on terms both accept, which needs a party to hold the settled
-terms and a way to be bound by them. There is no issuer here and no
-authority to ask.
+A negotiation settles on terms both accept, which needs a party to hold
+the settled terms and a way to be bound by them. There is no issuer here
+and no authority to ask.
 
 So each peer **states what it holds** and neither agrees to anything:
 
@@ -29,15 +27,15 @@ This is the same shape as the position handshake one layer up: a peer
 **exhibits** rather than presents a credential, and nothing in the
 exchange refers to who it is.
 
-## 2. A peer that speaks less is limited, never refused
+## 2. A peer that speaks less is limited
 
-the lab's `decide/node-identity.md` and `IS-2` §5 both rule that a linking mesh is
-not a distinguished peer. It forwards frames it does not own, by length,
-and needs no version for them at all.
+`IS-2` §5 rules that a linking mesh is not a distinguished peer: it
+forwards frames it does not own, by length, and needs no version for
+them.
 
-So a peer implementing fewer revisions is **limited to what it can
-read** and is not turned away. Refusing it would break the property that
-makes a mesh-of-meshes possible.
+A peer implementing fewer revisions is limited to what it can read, not
+turned away. Refusing it would break the property that makes a
+mesh-of-meshes possible.
 
 The only thing a declaration can cause is a sender choosing not to send
 something the receiver has not claimed to read.
@@ -93,9 +91,9 @@ observation names its target and there was no name to write.
   each, its own included. Heights are **counts**: height 0 and absent
   are the same fact, so a frontier never carries a zero.
 
-**Which function produced the digest is not specified here, and that is
-deliberate.** Picking one would be this document choosing a security
-property for every integrator. The verifier takes the function in.
+The digest function is chosen by the integrator, not fixed here: the
+verifier takes the function in. Fixing one would choose a security
+property for every integrator.
 
 A receiver may mint **one** observation from a declaration: over the
 sender's own chain, at the declared height, with the declared digest.
@@ -161,26 +159,24 @@ smaller bound than the default.** Enforcing one silently is the defect.
 A revision is compared for equality and nothing else. There is no
 newer-than.
 
-`NS-3` §2.4 already rules the same for a corpus — *"a corpus without one
-names a moving target"* — and `IS-4` §3 carries it for the observer. A
-protocol is a corpus in this respect: two peers on different revisions
-disagree about what a frame means, and **neither is wrong.**
+A corpus without a revision names a moving target (`IS-4` §3 carries
+this for the observer), and a protocol is a corpus in this respect: two
+peers on different revisions disagree about what a frame means, and
+neither is authoritative.
 
 Ordering revisions would let a peer decide it is ahead and act on the
-difference, which is the authority this protocol does not have.
+difference, which is authority this protocol does not have.
 
-## 6. What a hello may not do
+## 6. Hello constraints
 
-1. **May not be required.** A session with no hello runs on the
-   defaults. A substrate that refuses the silent is not a substrate.
-2. **May not be believed.** A peer declaring a range it does not hold
-   has lied about nothing important: the receiver still re-derives every
-   claim, and a grant is a claim on numbers rather than on meaning.
-3. **May not be a round trip.** Each side sends; neither waits. A
-   handshake that blocks is a coordinator with extra steps.
-4. **May not change the framing.** It is an ordinary record under
-   `IS-1` §1, so socket bytes still do not differ from file bytes —
-   refusal 1 holds.
+1. **Never required.** A session with no hello runs on the defaults.
+2. **Not a credential.** A peer declaring a range it does not hold has
+   misled no one important: the receiver still re-derives every claim,
+   and a grant is a claim on numbers, not on meaning.
+3. **Not a round trip.** Each side sends; neither waits. A handshake
+   that blocks is a coordinator with extra steps.
+4. **Does not change the framing.** It is an ordinary record under
+   `IS-1` §1, so socket bytes still do not differ from file bytes.
 
 ## 7. Test vectors
 
@@ -228,11 +224,6 @@ Generated by `datum/tests/wire_suite.rs (mod vectors)::the_hello_vector` and
 `::the_uplink_vector`, asserted against this hex, exactly as `IS-1`
 §9's twelve are.
 
-An earlier draft of this section carried a **hand-written** hex and
-flagged the real one as owed in the same breath. Hand-typing the bytes
-was wrong three times across this work — twice in `IS-1` §9 and once
-here — which is the whole argument for generating them.
-
 ## 8. Round-trip and refusal
 
 `a_hello_round_trips_and_refuses_a_partial_one` holds four properties:
@@ -244,16 +235,12 @@ here — which is the whole argument for generating them.
 - trailing bytes are not this declaration
 - no declaration heard means the **default**, not zero
 
-**This section said "any offset" without qualification and `IS-5/2`
-made that false.** An `IS-5/2` declaration has exactly one surviving
-cut — §3.1.2 — and the correction is recorded here rather than made
-quietly, because a document that keeps a claim wider than the code is
-the failure this whole series of vectors exists to prevent. The bounded
-form is held by `isthmus/tests/deed_suite.rs (mod sphere_laws)::s7_the_declaration_
-round_trips_and_absent_is_not_empty`, which asserts that the surviving
-cut is that one and that what survives is strictly less.
+An `IS-5/2` declaration has exactly one surviving cut (§3.1.2): the
+bounded form is held by `isthmus/tests/deed_suite.rs (mod sphere_laws)::s7_the_declaration_
+round_trips_and_absent_is_not_empty`, which asserts the surviving cut is
+that one and that what survives is strictly less.
 
-## 9. What this does not settle
+## 9. Open items
 
 - **Whether a peer should re-declare.** A session that runs long enough
   for a peer's grants to change has no way to say so, and adding one
