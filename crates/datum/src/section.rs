@@ -151,6 +151,25 @@ impl Section {
             .accumulate(delta, shape);
     }
 
+    /// Merge another section into this one — the abelian union of two
+    /// settled sections. `shape_of` supplies each grade's [`GradeShape`]
+    /// (its torsion moduli) so the sum reduces correctly on every axis.
+    ///
+    /// This is the **group** half of the guard/section split (§6h): merging
+    /// is commutative and associative, so nodes that settled disjoint work
+    /// converge to the same section — the path-independent limit across
+    /// nodes (#67), the operation a federation relay (#72) applies to a
+    /// peer's [`Section::encode`] bytes. Exactly-once — idempotency under
+    /// re-merge — is the **guard**'s job (the book's `seen` set), not the
+    /// group's; a relay exchanges each peer's contribution once.
+    pub fn merge(&mut self, other: &Section, shape_of: impl Fn(GradeId) -> GradeShape) {
+        for (grade, credit) in other.cells() {
+            let shape = shape_of(grade);
+            let delta = AxialCredit::of(credit.free().to_vec(), credit.torsion().to_vec());
+            self.deposit(grade, &shape, &delta);
+        }
+    }
+
     /// The accumulated credit at grade `(tag, dim)`, if any.
     #[must_use]
     pub fn at(&self, (tag, dim): GradeId) -> Option<&AxialCredit> {
@@ -608,6 +627,79 @@ mod tests {
             Err(SectionBroken::Truncated),
             "a court resumes from a whole store or refuses"
         );
+    }
+
+    #[test]
+    fn the_section_limit_is_path_independent_across_nodes() {
+        // #67: however the settlement work is partitioned across nodes, the
+        // combined convergent section — and its committed anchor — is the
+        // same as one node that saw all of it. Disjoint contributions ⊕ to
+        // one limit, so merging is order- and partition-independent.
+        let shape_of = |g: GradeId| -> GradeShape {
+            match g {
+                (100, 0) => shape(1, &[6]),
+                (100, 1) => shape(2, &[]),
+                (200, 0) => shape(0, &[5]),
+                _ => shape(0, &[]),
+            }
+        };
+        let all = [
+            ((100u64, 0u32), AxialCredit::of(vec![3], vec![4])),
+            ((100, 1), AxialCredit::of(vec![7, -2], vec![])),
+            ((100, 0), AxialCredit::of(vec![1], vec![5])),
+            ((200, 0), AxialCredit::of(vec![], vec![3])),
+            ((200, 0), AxialCredit::of(vec![], vec![4])),
+        ];
+
+        // One node settles everything.
+        let mut single = Section::new();
+        for (g, d) in &all {
+            single.deposit(*g, &shape_of(*g), d);
+        }
+
+        // Two nodes settle a disjoint partition (domain 100 vs 200), each in
+        // its own order — then exchange and merge, as a federation would.
+        let deposit = |section: &mut Section, indices: &[usize]| {
+            for &i in indices {
+                let (g, d) = &all[i];
+                section.deposit(*g, &shape_of(*g), d);
+            }
+        };
+        let mut node_a = Section::new();
+        deposit(&mut node_a, &[2, 0, 1]); // domain 100, shuffled
+        let mut node_b = Section::new();
+        deposit(&mut node_b, &[4, 3]); // domain 200, shuffled
+
+        let mut a_plus_b = node_a.clone();
+        a_plus_b.merge(&node_b, shape_of);
+        let mut b_plus_a = node_b.clone();
+        b_plus_a.merge(&node_a, shape_of);
+
+        assert_eq!(
+            a_plus_b.anchor(),
+            single.anchor(),
+            "partition across nodes reaches the same committed anchor"
+        );
+        assert_eq!(
+            b_plus_a.anchor(),
+            single.anchor(),
+            "and the merge is symmetric — either order reaches the one limit"
+        );
+        assert_eq!(a_plus_b, b_plus_a, "A⊕B == B⊕A as sections, not just anchors");
+    }
+
+    #[test]
+    fn merge_is_the_group_sum_on_an_overlapping_grade() {
+        // Two nodes crediting the SAME grade with DIFFERENT work sum there:
+        // the grade's credit is the abelian sum, torsion reduced per grade.
+        let shape_of = |_: GradeId| shape(1, &[6]);
+        let mut a = Section::new();
+        a.deposit((7, 0), &shape_of((7, 0)), &AxialCredit::of(vec![10], vec![4]));
+        let mut b = Section::new();
+        b.deposit((7, 0), &shape_of((7, 0)), &AxialCredit::of(vec![5], vec![5]));
+        a.merge(&b, shape_of);
+        assert_eq!(a.at((7, 0)).map(AxialCredit::free), Some(&[15i128][..]), "10 + 5");
+        assert_eq!(a.at((7, 0)).map(AxialCredit::torsion), Some(&[3u64][..]), "(4+5)%6=3");
     }
 
     #[test]
