@@ -83,6 +83,14 @@ impl AxialCredit {
     pub fn torsion(&self) -> &[u64] {
         &self.torsion
     }
+
+    /// True iff this is the additive identity — zero on every axis. A grade
+    /// at zero carries no homology (present-but-zero equals never-deposited),
+    /// which the section anchor relies on to stay canonical.
+    #[must_use]
+    pub fn is_zero(&self) -> bool {
+        self.free.iter().all(|v| *v == 0) && self.torsion.iter().all(|v| *v == 0)
+    }
 }
 
 /// A grade coordinate: `(registered-domain tag, homological dimension)`.
@@ -179,6 +187,41 @@ impl Section {
         self.domains
             .iter()
             .flat_map(|(&tag, stalk)| stalk.iter().map(move |(&dim, credit)| ((tag, dim), credit)))
+    }
+
+    /// An **order-independent commitment** to the settled section (#65): a
+    /// BLAKE3 digest of the non-zero cells in canonical `(tag, dim)` order.
+    ///
+    /// This is the anchor re-based on the section (§6h). The old anchor
+    /// hashed the *ordered act log* — order-**dependent**, so two nodes that
+    /// merged the same contributions in different orders reached the same
+    /// section yet **different** digests: phantom divergence. Here the digest
+    /// is a function of the section *value*: because the section is
+    /// order-independent AND zero cells (the homology identity —
+    /// present-but-zero equals never-deposited) are skipped, any two nodes
+    /// that reached the same net section, in any order and via any reduction
+    /// path, commit to the **same** anchor.
+    #[must_use]
+    pub fn anchor(&self) -> [u8; 32] {
+        let mut buf = Vec::new();
+        for ((tag, dim), credit) in self.cells() {
+            if credit.is_zero() {
+                continue; // present-but-zero == absent — keep the anchor canonical
+            }
+            buf.extend_from_slice(&tag.to_le_bytes());
+            buf.extend_from_slice(&dim.to_le_bytes());
+            let free = credit.free();
+            buf.extend_from_slice(&u64::try_from(free.len()).unwrap_or(u64::MAX).to_le_bytes());
+            for v in free {
+                buf.extend_from_slice(&v.to_le_bytes());
+            }
+            let torsion = credit.torsion();
+            buf.extend_from_slice(&u64::try_from(torsion.len()).unwrap_or(u64::MAX).to_le_bytes());
+            for v in torsion {
+                buf.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        sig::envelope_hash(&buf)
     }
 }
 
@@ -360,5 +403,62 @@ mod tests {
             vec![(100, 0), (100, 1), (200, 0)],
             "canonical order: tag, then dim — the anchor basis"
         );
+    }
+
+    #[test]
+    fn the_anchor_is_independent_of_deposit_order() {
+        // #65: the anchor commits to the section VALUE, so the same net
+        // section reached in any order commits to the same digest — the fix
+        // for the order-dependent act-log hash.
+        let s0 = shape(1, &[6]);
+        let s1 = shape(2, &[]);
+        let s2 = shape(0, &[4]);
+        let deposits = [
+            ((100u64, 0u32), &s0, AxialCredit::of(vec![3], vec![4])),
+            ((100, 1), &s1, AxialCredit::of(vec![7, -2], vec![])),
+            ((200, 0), &s2, AxialCredit::of(vec![], vec![3])),
+            ((100, 0), &s0, AxialCredit::of(vec![1], vec![5])),
+        ];
+        let mut forward = Section::new();
+        for (grade, shp, delta) in &deposits {
+            forward.deposit(*grade, shp, delta);
+        }
+        let mut reverse = Section::new();
+        for (grade, shp, delta) in deposits.iter().rev() {
+            reverse.deposit(*grade, shp, delta);
+        }
+        assert_eq!(
+            forward.anchor(),
+            reverse.anchor(),
+            "same net section → same anchor, any order"
+        );
+    }
+
+    #[test]
+    fn the_anchor_skips_zero_cells() {
+        // A grade whose torsion wrapped back to zero (5 deposits of ℤ/5) is
+        // PRESENT with zero value, but must anchor the same as a section that
+        // never touched it — present-but-zero == absent (homology identity).
+        let s = shape(0, &[5]);
+        let mut wrapped = Section::new();
+        for _ in 0..5 {
+            wrapped.deposit((1, 0), &s, &AxialCredit::of(vec![], vec![1]));
+        }
+        assert!(wrapped.at((1, 0)).is_some(), "the zero grade is present in the store");
+        assert_eq!(
+            wrapped.anchor(),
+            Section::new().anchor(),
+            "present-zero anchors as absent"
+        );
+    }
+
+    #[test]
+    fn different_sections_commit_to_different_anchors() {
+        let s = shape(1, &[]);
+        let mut a = Section::new();
+        a.deposit((1, 0), &s, &AxialCredit::of(vec![5], vec![]));
+        let mut b = Section::new();
+        b.deposit((1, 0), &s, &AxialCredit::of(vec![6], vec![]));
+        assert_ne!(a.anchor(), b.anchor(), "distinct settled value → distinct anchor");
     }
 }
