@@ -863,13 +863,24 @@ away. Split the functor by coefficients:
   of this — the scheduler path becomes SNF-free.
 - **Slow leg `betti` (ℤ, book, at settle):** full integer SNF for the
   invariant-factor **values** the `ℤ/mℤ` accumulation needs.
-- **`GradeClass`:** a fixed prime sweep classifies torsion —
-  Crystallographic (orders `{2,3,4,6}`, rotor-representable) vs Exotic
-  (a drop at a prime `≥ 5`). **Exact only if plumb's universes are
-  crystallographic** (a domain fact to VERIFY, #70); otherwise `betti_fast`
-  is exact for prime-smooth torsion and the book's SNF is the authority.
-  Exotic is a **scheduling hint / anomaly signal**, never a settlement
-  tier — the book always settles by exact SNF.
+- **`GradeClass` + `#70 VERDICT (2026-08-29)`:** `datum::geometry::classify`
+  (exact, via `grade_shapes`/SNF) labels a universe Crystallographic (every
+  invariant factor of order `{2,3,4,6}`) or Exotic (an order outside it).
+  **Survey result** (`the_shipped_universes_are_crystallographic`): every
+  universe plumb actually ships is Crystallographic — the graph/rewriting
+  presentations (`demo_cycle`, `demo_theta`, dihedral) are dim ≤ 1, totally
+  unimodular, torsion-free; the one dim-2 universe (`demo_theta_filled`,
+  `∂f = 2e₁−2e₂`) carries `ℤ/2`, still crystallographic. But it is **NOT
+  structurally enforced** — `DeclaredComplex::admit` bounds neither dimension
+  nor torsion, so an adversarial kernel could register a dim-3 complex with,
+  say, `ℤ/35` and pass admission. **Resolution: no enforcement needed.**
+  `betti_fast` is a *scheduler hint* whose exactness lives in the book's SNF,
+  not in the hint, so exotic torsion costs only a bounded, turn-order-only
+  hint error — never a wrong settlement. So the fast leg stays exact-for-
+  smooth, the book's exact SNF is the settlement authority for any torsion,
+  and `classify` is available for **telemetry / an optional court policy**
+  (flag or refuse Exotic), never a required gate. Exotic is an anomaly
+  signal, not a settlement tier.
 
 **What plumb supports for kernels.** The network's *guarantee* is
 crystallographic-exact (discrete, replayable, `{2,3,4,6}` torsion → exact

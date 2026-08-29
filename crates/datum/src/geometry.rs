@@ -177,6 +177,43 @@ pub fn grade_shapes(complex: &DeclaredComplex) -> Vec<GradeShape> {
         .collect()
 }
 
+/// The crystallographic class of a universe's torsion (#70).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GradeClass {
+    /// Every torsion order lies in the crystallographic set `{2,3,4,6}` (or
+    /// there is no torsion at all). `betti_fast` is **exact** for such a
+    /// universe — the fast field-rank leg cannot mis-count `{2,3}`-smooth
+    /// torsion, and these are the only lattice-compatible orders.
+    Crystallographic,
+    /// A torsion factor of an order **outside** `{2,3,4,6}`. `betti_fast`
+    /// may undercount it (a bounded, turn-order-only scheduling-hint error);
+    /// the book's exact SNF remains the settlement authority regardless. In
+    /// a crystallographic domain this cannot occur, so its appearance is an
+    /// **anomaly signal worth a verdict** — flagged, never rejected.
+    Exotic {
+        /// The offending invariant-factor order.
+        order: u64,
+    },
+}
+
+/// Classify a universe's torsion (exactly, via the book's SNF leg
+/// [`grade_shapes`], not the fast leg — a fixed prime sweep cannot reliably
+/// *detect* large-prime torsion). Crystallographic iff every invariant
+/// factor has order in `{2,3,4,6}`. This is verification/telemetry, never an
+/// admission gate here: settlement is exact for any torsion (#70). A court
+/// MAY choose to flag or refuse `Exotic` universes; nothing here forces it.
+#[must_use]
+pub fn classify(complex: &DeclaredComplex) -> GradeClass {
+    for shape in grade_shapes(complex) {
+        for order in shape.torsion {
+            if !matches!(order, 2 | 3 | 4 | 6) {
+                return GradeClass::Exotic { order };
+            }
+        }
+    }
+    GradeClass::Crystallographic
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used)]
@@ -303,5 +340,58 @@ mod tests {
         assert_eq!(axes.len(), 3, "{{10,11}}@2 + {{4}}@1, deduped");
         assert!(axes.iter().any(|x| x.dim == 2), "witness axes at its dim");
         assert!(axes.iter().any(|x| x.dim == 1), "target axes at dim − 1");
+    }
+
+    fn one_cell_boundary(m: i64) -> DeclaredComplex {
+        // cells [1,1], ∂_1 = [[m]]: H_0 = coker([m]) = ℤ/mℤ (trivial at m=±1).
+        DeclaredComplex {
+            cells: vec![1, 1],
+            ops: vec![vec![Entry { row: 0, col: 0, coeff: whole(m) }]],
+        }
+    }
+
+    #[test]
+    fn classify_accepts_crystallographic_orders_and_flags_exotic() {
+        // {2,3,4,6} are the lattice-compatible orders — crystallographic.
+        assert_eq!(classify(&one_cell_boundary(2)), GradeClass::Crystallographic);
+        assert_eq!(classify(&one_cell_boundary(6)), GradeClass::Crystallographic);
+        assert_eq!(classify(&one_cell_boundary(1)), GradeClass::Crystallographic, "torsion-free");
+        // A (2,4) universe: both factors crystallographic.
+        let mut op = vec![
+            Entry { row: 0, col: 0, coeff: whole(2) },
+            Entry { row: 1, col: 0, coeff: whole(6) },
+            Entry { row: 0, col: 1, coeff: whole(4) },
+            Entry { row: 1, col: 1, coeff: whole(8) },
+        ];
+        op.sort_by_key(|e| (e.col, e.row));
+        let torsion_2_4 = DeclaredComplex { cells: vec![2, 2], ops: vec![op] };
+        assert_eq!(classify(&torsion_2_4), GradeClass::Crystallographic);
+        // Exotic: an order outside {2,3,4,6} is flagged WITH its order.
+        assert_eq!(classify(&one_cell_boundary(5)), GradeClass::Exotic { order: 5 });
+        assert_eq!(classify(&one_cell_boundary(8)), GradeClass::Exotic { order: 8 });
+    }
+
+    #[test]
+    fn the_shipped_universes_are_crystallographic() {
+        // #70 survey: every universe plumb actually ships classifies
+        // Crystallographic. Torsion-free graphs, plus the theta-filled
+        // complex whose ∂f = 2e1 − 2e2 yields ℤ/2 (order 2 ∈ {2,3,4,6}).
+        use crate::domains::{demo_cycle_universe, demo_theta_filled_universe, demo_theta_universe};
+        assert_eq!(classify(&demo_cycle_universe(5)), GradeClass::Crystallographic);
+        assert_eq!(classify(&demo_theta_universe()), GradeClass::Crystallographic);
+
+        let filled = demo_theta_filled_universe();
+        assert_eq!(classify(&filled), GradeClass::Crystallographic);
+        // It genuinely carries torsion (ℤ/2 in H_1) — proving the classifier
+        // ACCEPTS crystallographic torsion, not merely torsion-freeness.
+        assert!(
+            grade_shapes(&filled).iter().any(|s| s.torsion.contains(&2)),
+            "theta-filled has ℤ/2 torsion"
+        );
+
+        // The dihedral market's registered universe is a rewriting
+        // presentation (dim 1) → totally unimodular → torsion-free.
+        let dihedral = crate::corpus::dihedral_order_6_compiled().expect("dihedral compiles");
+        assert_eq!(classify(&dihedral.complex), GradeClass::Crystallographic);
     }
 }
