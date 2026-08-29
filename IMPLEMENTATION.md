@@ -645,6 +645,38 @@ dequeue*. So the two metric terms attach at different granularities:
   real value now and names the gap honestly rather than faking full-metric
   coverage at a seam that cannot see claims.
 
+**Phase 5 scheduler — LANDED 2026-08-29.** The scheduling fibre is built,
+vectorized, bounded, bridged, and wired:
+- `sched::{Transport, Fibre, Transit}` — the transport physics and the
+  claim-dispatch scheduler. The fibre is a **sparse vector over
+  generator-space** (`Fibre.deficit: BTreeMap<u64,i64>`), NOT a scalar
+  (the scalar collapse was remediated, #57): diagonal per-axis connection
+  `cost[g] = 1 + inflight[g]` (multiplicity counts), graded torsion lifts
+  per dimension, orthogonal axes transport independently. **Bounded** to a
+  flag-filtration depth `k` (`Fibre::retract`, contained expansion). All
+  deterministic within a court, float-free, and holding
+  `scheduling_never_names_a_settlement_type`.
+- `datum::geometry` — the bridge that READS the metric from the exact
+  complex the court verifies: `graded_torsion(complex)` (torsion rank per
+  grade, magnitude never rewarded) and `support_axes(tag, dim, witness,
+  target)` in **global** `(tag,dim,cell)` identity. **Genesis = the
+  existing `Act::Declare`** (a registered domain is a generator basis; a
+  fresh domain is orthogonal ground, Γ=0, max velocity). No new act.
+- **#55 settler wiring — DONE.** `serve()`'s settler pool drains a
+  `Transit`, escrow PROJECTED from the ledger at take-time
+  (`escrow_of`, #57). Live-validated: courts HEALTHY, credits advancing.
+
+**The honest boundary (the open #60 remainder).** At the session seam,
+only **escrow** differentiates ordering (holder is known at enqueue). The
+full **torsion/curvature** differentiation needs each *work claim*'s
+geometry, which is known only *after* dequeue, inside `drain_records`, on
+a connection-bound settler thread — and a court's market `domain_tag` is
+uniform across its sessions, so it cannot differentiate them either. So
+per-work-claim reordering by the full metric requires **decoupling
+settlement from its TCP connection** (self-attesting claims demultiplexed
+into the shared `Transit`, Directive 4). The metric is built and unit-
+tested; making it *live* is that demux rework, not a wiring tweak.
+
 **Suggested order:** #49 → #52 → #50 → #53 → #54 → #55 → #51.
 
 **The invariant Phase 5 must not break:** an escrow *amount* may be a
