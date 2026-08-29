@@ -874,7 +874,7 @@ mod shaped_closure {
 
         let (orbs_h, def_h) = parse_shaped(&hexagon);
         let (orbs_s, def_s) = parse_shaped(&simplex);
-        assert_eq!(orbs_h, orbs_s, "SAME six orbs — the old frame collapsed here");
+        assert_eq!(orbs_h, orbs_s, "same six orbs — the shape, not the orb list, distinguishes them");
 
         // The engine's own codec reads the independent implementation's
         // bytes, and the declarations are real complexes.

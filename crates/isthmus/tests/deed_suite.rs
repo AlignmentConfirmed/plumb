@@ -2796,7 +2796,7 @@ mod replay_laws {
         let mut two = base();
         two.open_axis("revision", 7);
         two.open_axis("epoch", 3);
-        assert_eq!(two.axes().len(), 3, "a second NAME did not open an axis");
+        assert_eq!(two.axes().len(), 3, "a second name did not open an axis");
         // Per axis: the second NAME added a direction, and the extents are
         // the ones declared. A product would have called this the same as
         // widening one axis fourfold.

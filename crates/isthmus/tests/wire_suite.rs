@@ -162,14 +162,14 @@ mod refusals {
     fn refuses(name: &str, bytes: &[u8], expected: Malformed) {
         match decode(bytes) {
             Err(got) => assert_eq!(got, expected, "{name}: refused, but named the wrong rule"),
-            Ok(value) => panic!("{name}: ACCEPTED {value} — a reader that accepts this has a defect"),
+            Ok(value) => panic!("{name}: accepted {value} — a reader that accepts this has a defect"),
         }
     }
 
     #[track_caller]
     fn admits(name: &str, bytes: &[u8]) {
         if let Err(why) = decode(bytes) {
-            panic!("{name}: the admitted state was REFUSED as {why} — this gate cannot pass");
+            panic!("{name}: the admitted state was refused as {why} — this gate cannot pass");
         }
     }
 

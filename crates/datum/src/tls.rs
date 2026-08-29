@@ -28,8 +28,8 @@
 //! certificate's embedded key with the same cryptographic primitives
 //! any TLS stack uses ([`webpki::EndEntityCert::verify_signature`]).
 //! Skipping chain-of-trust is a deliberate, narrow substitution of
-//! trust anchor; skipping signature verification would be no
-//! encryption at all wearing a certificate as a costume.
+//! trust anchor; skipping signature verification would leave the
+//! channel unauthenticated.
 
 use std::sync::Arc;
 

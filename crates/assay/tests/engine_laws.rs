@@ -575,7 +575,7 @@ mod convergence_laws {
             residue.component(1).cloned(),
             "this law's premise needs the two axes to be exact negatives",
         );
-        assert!(!residue.is_zero(), "and the axes must NOT cancel");
+        assert!(!residue.is_zero(), "and the axes must not cancel");
 
         assert!(
             matches!(verdict, Convergence::Open { .. }),

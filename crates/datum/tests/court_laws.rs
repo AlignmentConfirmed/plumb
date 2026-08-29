@@ -432,10 +432,10 @@ mod board {
         let proposal = survey(&planet, &squatter).expect("the slab is surveyable");
         assert_eq!(proposal.price, Extent::new(vec![16]));
 
-        // Force being looked over for now, as ruled: there is no branch
-        // that takes without settling. A short position holds a COUNTER,
+        // As ruled: there is no branch
+        // that takes without settling. A short position holds a counter,
         // and enactment witnesses a fixpoint that does not exist yet — so
-        // the slab does not move, and nothing died either.
+        // the slab does not move.
         let counter = clears(&proposal, &squatter.position).expect_err("15 against 16");
         assert_eq!(
             counter.short,
