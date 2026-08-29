@@ -85,31 +85,42 @@ impl AxialCredit {
     }
 }
 
-/// One grade of the section: a `(registered-domain tag, homological
-/// dimension)` whose homology `H_dim` the credit accumulates in. Torsion is
-/// a property of a *grade's* homology (it only appears in the SNF basis, not
-/// on an individual cell), so the section is keyed here, per grade — the
-/// type-correct home of the free⊕torsion structure `AxialCredit` carries.
+/// A grade coordinate: `(registered-domain tag, homological dimension)`.
+/// Torsion is a property of a *grade's* homology (it appears only in the SNF
+/// basis, never on an individual cell), so credit accumulates per grade —
+/// the type-correct home of the free⊕torsion structure [`AxialCredit`]
+/// carries. The `Section` stores these NESTED, so the domain is a first-class
+/// base point rather than half of a flat key.
 pub type GradeId = (u64, u32);
 
+/// A domain's **stalk**: its graded-homology fibre — the grades (by
+/// dimension) over one registered-domain base point, each with credit
+/// accumulated in that grade's `H_k`. The first-class unit the sheaf routing
+/// / sharding / anchor (#65, #72) operate on.
+pub type Stalk = BTreeMap<u32, AxialCredit>;
+
 /// The **multi-axial settlement section** (Phase 6, #62): the convergent
-/// credit, keyed by grade, each cell an [`AxialCredit`] in that grade's
-/// homology `H_k = ℤ^free ⊕ (⊕ ℤ/m_iℤ)`.
+/// credit, a **sheaf of stalks** — `domain tag → (dimension → AxialCredit)`,
+/// sparse at every level. A domain is a base point; its stalk is the graded
+/// homology fibre over it; each grade's cell is an [`AxialCredit`] in
+/// `H_k = ℤ^free ⊕ (⊕ ℤ/m_iℤ)`. Sparse maps at the identity levels (domain,
+/// grade), dense `Vec` bases inside `AxialCredit` (the axes ARE a basis) —
+/// the right representation per level, never a dense `Vec<Vec<Vec>>` tower
+/// that would materialize the empty product space.
 ///
-/// This is the book's convergence object (§6h): claims deposit into it in
-/// any order and it **converges**, because [`AxialCredit::accumulate`] is
-/// commutative and associative (confluent). Convergence over the torsion
-/// axes is *guaranteed by finiteness* (they live in `ℤ/m_iℤ`); the free
-/// axes grow (the density market).
+/// This is the book's convergence object (§6h): claims deposit in any order
+/// and it **converges**, because [`AxialCredit::accumulate`] is commutative
+/// and associative (confluent). Convergence over the torsion axes is
+/// *guaranteed by finiteness* (`ℤ/m_iℤ`); the free axes grow (the market).
 ///
 /// The section is the **value** layer of the guard/section split. The
-/// monotonic exactly-once **guard** — which claims have already been
-/// deposited — is a *separate* layer that makes deposits idempotent (since
-/// `⊕` is not), and lives with the book's `seen` set, not here. Together:
-/// guard for exactly-once, group for any-order.
+/// monotonic exactly-once **guard** — which claims are already deposited —
+/// is a *separate* layer that makes deposits idempotent (`⊕` is not), and
+/// lives with the book's `seen` set. Guard for exactly-once, group for
+/// any-order.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Section {
-    grades: BTreeMap<GradeId, AxialCredit>,
+    domains: BTreeMap<u64, Stalk>,
 }
 
 impl Section {
@@ -119,33 +130,55 @@ impl Section {
         Self::default()
     }
 
-    /// Deposit `delta` into `grade` (typed by `shape`). Order-independent:
-    /// the settled section does not depend on the order deposits arrive,
-    /// which is the convergence guarantee that lets disjoint commits run
-    /// concurrently. The caller has already passed the exactly-once guard.
-    pub fn deposit(&mut self, grade: GradeId, shape: &GradeShape, delta: &AxialCredit) {
-        self.grades
-            .entry(grade)
+    /// Deposit `delta` into grade `(tag, dim)` (typed by `shape`).
+    /// Order-independent: the settled section does not depend on the order
+    /// deposits arrive — the convergence guarantee that lets disjoint
+    /// commits run concurrently. The caller has passed the exactly-once guard.
+    pub fn deposit(&mut self, (tag, dim): GradeId, shape: &GradeShape, delta: &AxialCredit) {
+        self.domains
+            .entry(tag)
+            .or_default()
+            .entry(dim)
             .or_insert_with(|| AxialCredit::zero(shape))
             .accumulate(delta, shape);
     }
 
-    /// The accumulated credit at `grade`, if the section carries any.
+    /// The accumulated credit at grade `(tag, dim)`, if any.
     #[must_use]
-    pub fn at(&self, grade: GradeId) -> Option<&AxialCredit> {
-        self.grades.get(&grade)
+    pub fn at(&self, (tag, dim): GradeId) -> Option<&AxialCredit> {
+        self.domains.get(&tag)?.get(&dim)
     }
 
-    /// The number of grades this section spans.
+    /// A domain's whole stalk (its graded fibre), if the section carries any
+    /// — the unit the sheaf routing / anchor operate on.
+    #[must_use]
+    pub fn stalk(&self, tag: u64) -> Option<&Stalk> {
+        self.domains.get(&tag)
+    }
+
+    /// The number of domains (base points) the section spans.
+    #[must_use]
+    pub fn domains(&self) -> usize {
+        self.domains.len()
+    }
+
+    /// The total number of grade cells across all domains.
     #[must_use]
     pub fn spanned(&self) -> usize {
-        self.grades.len()
+        self.domains.values().map(BTreeMap::len).sum()
     }
 
-    /// The grades in canonical (sorted) order — the deterministic basis for
-    /// an order-independent anchor commitment (#65).
-    pub fn iter(&self) -> impl Iterator<Item = (&GradeId, &AxialCredit)> {
-        self.grades.iter()
+    /// The domain stalks in canonical (tag) order.
+    pub fn stalks(&self) -> impl Iterator<Item = (u64, &Stalk)> {
+        self.domains.iter().map(|(&tag, stalk)| (tag, stalk))
+    }
+
+    /// Every `((tag, dim), credit)` in canonical order (tag, then dim) — the
+    /// deterministic basis an order-independent anchor commits to (#65).
+    pub fn cells(&self) -> impl Iterator<Item = (GradeId, &AxialCredit)> {
+        self.domains
+            .iter()
+            .flat_map(|(&tag, stalk)| stalk.iter().map(move |(&dim, credit)| ((tag, dim), credit)))
     }
 }
 
@@ -300,5 +333,32 @@ mod tests {
         assert_eq!(section.at((1, 0)).map(AxialCredit::free), Some(&[5i128][..]));
         assert_eq!(section.at((2, 0)).map(AxialCredit::free), Some(&[9i128][..]));
         assert_eq!(section.at((3, 0)), None, "an untouched grade carries nothing");
+    }
+
+    #[test]
+    fn a_domain_stalk_is_a_first_class_unit() {
+        // The sheaf structure: a domain's grades form a STALK you can pull
+        // out whole (for routing/anchoring), and domains are disjoint base
+        // points. cells() flattens in a deterministic (tag, dim) order.
+        let mut section = Section::new();
+        section.deposit((100, 0), &shape(1, &[6]), &AxialCredit::of(vec![5], vec![4]));
+        section.deposit((100, 1), &shape(2, &[]), &AxialCredit::of(vec![1, 2], vec![]));
+        section.deposit((200, 0), &shape(1, &[6]), &AxialCredit::of(vec![7], vec![2]));
+
+        assert_eq!(section.domains(), 2, "two base points");
+        assert_eq!(section.spanned(), 3, "three grade cells total");
+        assert_eq!(
+            section.stalk(100).map(BTreeMap::len),
+            Some(2),
+            "H_0 and H_1 over domain 100"
+        );
+        assert!(section.stalk(300).is_none(), "an untouched domain has no stalk");
+
+        let coords: Vec<GradeId> = section.cells().map(|(g, _)| g).collect();
+        assert_eq!(
+            coords,
+            vec![(100, 0), (100, 1), (200, 0)],
+            "canonical order: tag, then dim — the anchor basis"
+        );
     }
 }
