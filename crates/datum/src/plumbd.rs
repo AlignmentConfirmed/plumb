@@ -495,12 +495,25 @@ impl TorsionCache {
                 return std::sync::Arc::clone(torsion);
             }
         }
-        // Miss: resolve the declared complex and reduce it exactly once.
-        let torsion: std::sync::Arc<[u64]> = ledger
+        // Miss: resolve the declared complex once.
+        let complex = ledger
             .lock()
             .ok()
             .and_then(|guard| guard.declaration_of(tag))
-            .and_then(|bytes| assay::complex::DeclaredComplex::decode(&bytes).ok())
+            .and_then(|bytes| assay::complex::DeclaredComplex::decode(&bytes).ok());
+        // #70: flag an EXOTIC universe the first time this court resolves it
+        // — impossible in a crystallographic domain, so it is an anomaly
+        // signal worth surfacing. Never a rejection: the book's exact SNF
+        // settles any torsion regardless.
+        if let Some(c) = &complex {
+            if let crate::geometry::GradeClass::Exotic { order } = crate::geometry::classify(c) {
+                println!(
+                    "plumbd: domain {tag} carries exotic torsion (order {order}); \
+                     betti_fast is a hint here, the book's exact SNF is the authority"
+                );
+            }
+        }
+        let torsion: std::sync::Arc<[u64]> = complex
             .map(|complex| crate::geometry::graded_torsion(&complex).into())
             .unwrap_or_else(|| Vec::new().into());
         if let Ok(mut cache) = self.inner.lock() {
