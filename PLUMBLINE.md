@@ -109,8 +109,7 @@ intersection.
 
 ## What is named, what is new
 
-The name is new (decided 2026-08-27); everything it names predates
-it. Nothing on the wire changes: no tag, no vector, no revision
+The name is new; everything it names predates it. Nothing on the wire changes: no tag, no vector, no revision
 string moves because the language now has a name. A reader who has
 never heard the word "Plumbline" interoperates byte-for-byte with one
 who has — which is, fittingly, the language's own first rule about

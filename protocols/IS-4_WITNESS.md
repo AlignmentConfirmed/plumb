@@ -1,6 +1,6 @@
 # IS-4 — THE WITNESS
 
-**Status:** §5 frame + roles **ENFORCED** (`IS-4/1`, 2026-08-28) —
+**Status:** §5 frame + roles **ENFORCED** (`IS-4/1`) —
 `isthmus::witness` (the frame, refuse-not-repair on arm and revision),
 `datum::witnessing` (the watcher, held to all four §6 prohibitions;
 the court's witness log; tag 84 in the court's own grant), the fourth

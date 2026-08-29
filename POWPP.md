@@ -244,10 +244,10 @@ Two consequences distinguish this from hash-grinding PoW:
 
 ---
 
-## 5 · What "useful" honestly means here
+## 5 · What "useful" means here
 
 The engine proves **closure**, not **usefulness**. That is a
-deliberate division of labor, and the honest statement of it:
+deliberate division of labor, stated precisely:
 
 - The *verifiable* part — conservation, boundary annihilation,
   exact arithmetic — is universal: any discipline whose certificates

@@ -64,8 +64,8 @@ bytes it is.
 | `region` | `LE16(axes) ‖ (tag low ‖ tag high)…` — per-axis inclusive ranges, in axis order |
 
 `text` is `LE16` and `blob` is `LE32` deliberately. A name is this
-protocol's own vocabulary and a short ceiling is honest; a blob carries
-a digest whose width is **somebody else's** decision, and a narrow
+protocol's own vocabulary and a short ceiling is ours to set; a blob
+carries a digest whose width is **somebody else's** decision, and a narrow
 length there would be this document putting a ceiling on a stranger's
 choice.
 

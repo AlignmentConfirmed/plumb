@@ -92,7 +92,7 @@ differently, which is the lab's `decide/node-identity.md` holding.
 
 ## 6. Freshness — ruled, and split by frame kind (H7)
 
-### 6.0 IS-2/2 — the session challenge (CLOSED 2026-08-27)
+### 6.0 IS-2/2 — the session challenge (CLOSED)
 
 The one OPEN hole is closed, at the layer it belonged to. After its
 declaration, a court emits a **session challenge**: one record whose

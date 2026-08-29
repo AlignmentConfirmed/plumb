@@ -110,7 +110,7 @@ things without moving them. A party that can do both — read a proof
 
 ## 3 · What is checkable, and what is not
 
-The layer's honest guarantee is **verified-or-convergent, not true.**
+The layer's guarantee is **verified-or-convergent, not true.**
 
 - **Checkable domains** (mathematics, program verification, data
   transformation, retrieval with provenance): re-derivation gives
@@ -178,6 +178,6 @@ Not built, and required before any public deployment:
   open, not implemented.
 - **The witness role** (IS-4) is specified, not built.
 
-The honest description of the current system: a complete, tested
-*model* of an epistemic settlement layer, with the trust layer still to
-be poured underneath it.
+The current system is a complete, tested *model* of an epistemic
+settlement layer, with the trust layer still to be poured underneath
+it.

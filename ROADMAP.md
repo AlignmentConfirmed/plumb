@@ -37,13 +37,12 @@ dependency-free.
 | **P1** | Tag-51 revision: the relation frame carries its polytopal shape (IS-1/3) | shaped-relation vectors; Known Gap #4 closed |
 | **P2** | IS-4 witness: observer / witness / watcher productized, fourth `plumbd` role | vectors; Known Gap #3 closed |
 
-## Phase C+ — the universal checker (DECIDED 2026-08-27, blocks beta)
+## Phase C+ — the universal checker (blocks beta)
 
 The engine becomes the invariant: domains circulate as data, the
-binary never recompiles to learn a discipline. Ruled ahead of the
+binary never recompiles to learn a discipline. Scheduled ahead of the
 beta so testers onboard onto the declared-domain engine, not the
-legacy compiled path. Full decision + ladder:
-`IMPLEMENTATION.md`.
+legacy compiled path. Full ladder: `IMPLEMENTATION.md`.
 
 | ID | task | done when |
 |---|---|---|

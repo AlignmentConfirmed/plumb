@@ -1,7 +1,7 @@
 # IS-1 — WIRE
 
-**Revision: `IS-1/2`.** Compared for equality, never ordered — see
-the lab's `decide/publishing.md`. §12 records what moved.
+**Revision: `IS-1/2`.** Compared for equality, never ordered. §12
+records what moved.
 
 **Status: BUILT.** `crates/isthmus` implements §1 through §4, and §9's
 frame and rational vectors, as a crate with **no path dependencies**. An
@@ -128,7 +128,7 @@ the run.
 
 `isthmus` refuses it and declares `IS-1/2`. `strand` accepts it and
 implements `IS-1/1`. They disagree about one byte string, and that
-disagreement is visible in the handshake rather than hidden — which is
+disagreement is visible in the handshake — which is
 the entire reason `IS-5` carries revision strings.
 `propose/negative-zero.md` is the patch that closes it.
 

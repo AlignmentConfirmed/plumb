@@ -118,7 +118,7 @@ implementations:
 
 ```
 V3   ratio 0      00000000000100000001
-                  zero's magnitude is the EMPTY STRING, not a zero byte
+                  zero's magnitude is the empty string, not a zero byte
 
 V7   ratio 256/255  0002000000010001000000ff
                   magnitudes are variable width
