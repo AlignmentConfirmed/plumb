@@ -21,7 +21,7 @@
 //! - [`BUSY_TAG`] — the wire tag a swamped court answers with, so a
 //!   producer *waits* cooperatively instead of stalling on a timeout.
 
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::{Condvar, Mutex};
 
 /// The record tag a court sends when it is shedding load: a producer
@@ -499,6 +499,254 @@ impl<K: Eq + std::hash::Hash + Clone, T> FairQueue<K, T> {
     }
 }
 
+/// One unit of settlement work awaiting transport across the fibre — the
+/// thing [`Transit`] schedules. It carries the two declared geometric
+/// facts the scheduler orders it by, and an opaque `payload` it never
+/// inspects.
+///
+/// `support` and `torsion` are **declarations read only to order
+/// transit**, never to settle: settlement re-derives everything from the
+/// invariant chain. A false declaration (understated support to feign
+/// orthogonality, overstated torsion to feign complexity) therefore buys
+/// only a better place in *this court's* line — never yield, never a
+/// ledger entry — and a signed one that the settled chain contradicts is
+/// separately a slashable broken commitment (#56c). The scheduler trusts
+/// the cheap declaration for turn-order and lets settlement be the truth.
+pub struct Claim<T> {
+    /// The economic identity whose fibre this claim rides in — the DRR
+    /// key. An empty string is the base lane (an unauthenticated or
+    /// unstaked session), served at the escrow floor.
+    pub holder: String,
+    /// The claim's declared non-zero basis vectors (generators / axioms /
+    /// sublet indices), assumed deduplicated. Read for curvature only.
+    pub support: Box<[u32]>,
+    /// The declared torsion of the open boundary — lifts the holder's
+    /// quantum while this claim sits at the head of the fibre (#58).
+    pub torsion: u64,
+    /// The settlement work itself, opaque to the scheduler.
+    pub payload: T,
+}
+
+struct TransitInner<T> {
+    /// Per-holder FIFO of pending claims.
+    queues: HashMap<String, VecDeque<Claim<T>>>,
+    /// Round-robin order over active (non-empty) holders.
+    order: VecDeque<String>,
+    /// Per-holder carried deficit — the fibre `E_x`. Dropped when a holder
+    /// drains (an inactive flow forfeits hoarded credit, standard DRR).
+    fibres: HashMap<String, Fibre>,
+    /// Holders whose quantum has already been granted for their current
+    /// turn (so a burst of serves within one turn is not re-granted).
+    open_turn: HashSet<String>,
+    /// The live congestion field: a multiset of the generators touched by
+    /// claims currently **in flight** (taken, not yet completed). The sole
+    /// source of curvature `Γ`, and the reason `Γ` is a runtime hint that
+    /// never touches consensus — it is literally who-else-is-working-now.
+    inflight: BTreeMap<u32, u32>,
+    /// Total pending claims across all holders.
+    total: usize,
+}
+
+/// The shared claim-dispatch layer — the seam where the full transport
+/// metric attaches (Phase 5, #60). A vector bundle over holders: the base
+/// coordinate (escrow) is **projected from the ledger at section-time**
+/// (`take*` takes an `escrow_of` projector, never a stored amount, #57);
+/// the fibre is the per-holder deficit plus the live in-flight field.
+///
+/// Dispatch is deterministic given the sequence of `offer`/`take`/
+/// `complete` calls and the projected escrow at each `take`: a pure
+/// integer state machine (deficit round-robin with cost `1 + Γ` and
+/// quantum `EscrowWeight(escrow)·(1 + torsion)`). Two courts will diverge
+/// in turn-order because their in-flight fields differ by live timing —
+/// that is the fibre, and it is exactly what A4 permits, because none of
+/// it reaches a settlement. The module's source-scan test holds that line
+/// over this type too.
+pub struct Transit<T> {
+    transport: Transport,
+    inner: Mutex<TransitInner<T>>,
+    available: Condvar,
+}
+
+impl<T> Default for Transit<T> {
+    fn default() -> Self {
+        Self::new(Transport::tuned())
+    }
+}
+
+impl<T> Transit<T> {
+    /// A transit scheduler with the given transport schedule.
+    #[must_use]
+    pub fn new(transport: Transport) -> Self {
+        Self {
+            transport,
+            inner: Mutex::new(TransitInner {
+                queues: HashMap::new(),
+                order: VecDeque::new(),
+                fibres: HashMap::new(),
+                open_turn: HashSet::new(),
+                inflight: BTreeMap::new(),
+                total: usize::from(false), // 0, without a bare literal
+            }),
+            available: Condvar::new(),
+        }
+    }
+
+    /// The tuned schedule.
+    #[must_use]
+    pub fn tuned() -> Self {
+        Self::new(Transport::tuned())
+    }
+
+    /// Enqueue a claim under its holder and wake one worker.
+    pub fn offer(&self, claim: Claim<T>) {
+        if let Ok(mut inner) = self.inner.lock() {
+            let key = claim.holder.clone();
+            let empty_before = inner.queues.get(&key).is_none_or(VecDeque::is_empty);
+            inner.queues.entry(key.clone()).or_default().push_back(claim);
+            inner.total = inner.total.saturating_add(1);
+            if empty_before {
+                inner.order.push_back(key);
+            }
+        }
+        self.available.notify_one();
+    }
+
+    /// The number of claims pending (not counting in-flight).
+    #[must_use]
+    pub fn pending(&self) -> usize {
+        self.inner.lock().map_or(0, |inner| inner.total)
+    }
+
+    /// The curvature a claim of `support` meets against the current
+    /// in-flight field: `Γ = |supp ∩ {generators in flight}|`. The field
+    /// is a multiset, but curvature counts a shared *generator* once — one
+    /// congested axis is one unit of interference however many claims ride
+    /// it — so the probe is presence (`count > 0`), matching
+    /// [`Transport::curvature`]'s set semantics.
+    fn curvature_inflight(support: &[u32], inflight: &BTreeMap<u32, u32>) -> u64 {
+        let hits = support
+            .iter()
+            .filter(|g| inflight.get(g).is_some_and(|&c| c > 0))
+            .count();
+        u64::try_from(hits).unwrap_or(u64::MAX)
+    }
+
+    /// Advance the DRR state machine by exactly one served claim, or
+    /// `None` if nothing is pending. Grants a holder its quantum once at
+    /// the start of its turn; serves from the carried deficit while it
+    /// covers the `1 + Γ` cost of the head claim; rotates and carries the
+    /// remainder when it cannot. Guaranteed to terminate while `total > 0`:
+    /// the in-flight field is fixed under the lock, so costs are fixed,
+    /// and each rotation re-grants a quantum ≥ 1, so some deficit clears
+    /// its cost within a bounded number of passes.
+    fn dispatch_locked(
+        transport: &Transport,
+        inner: &mut TransitInner<T>,
+        escrow_of: &impl Fn(&str) -> u128,
+    ) -> Option<Claim<T>> {
+        loop {
+            let key = inner.order.front()?.clone();
+            // Skip/clear a holder whose queue emptied under it.
+            if inner.queues.get(&key).is_none_or(VecDeque::is_empty) {
+                inner.order.pop_front();
+                inner.queues.remove(&key);
+                inner.fibres.remove(&key);
+                inner.open_turn.remove(&key);
+                continue;
+            }
+            // Grant the quantum once, at the start of this holder's turn.
+            // The lift is the torsion of the claim currently at the head —
+            // the boundary in the fibre right now, not the actor's past.
+            if !inner.open_turn.contains(&key) {
+                let torsion = inner
+                    .queues
+                    .get(&key)
+                    .and_then(VecDeque::front)
+                    .map_or(0, |c| c.torsion);
+                let quantum = transport.quantum(escrow_of(&key), torsion);
+                inner.fibres.entry(key.clone()).or_default().grant(quantum);
+                inner.open_turn.insert(key.clone());
+            }
+            // Cost is the live curvature the head meets against everyone
+            // else in flight — recomputed per serve, since the field moves.
+            let gamma = {
+                let head = inner.queues.get(&key).and_then(VecDeque::front)?;
+                Self::curvature_inflight(&head.support, &inner.inflight)
+            };
+            let cost = Transport::cost(gamma);
+            let afford = inner
+                .fibres
+                .get_mut(&key)
+                .is_some_and(|f| f.try_serve(cost));
+            if !afford {
+                // Turn over: carry the deficit, re-grant on the next visit.
+                inner.open_turn.remove(&key);
+                inner.order.pop_front();
+                inner.order.push_back(key);
+                continue;
+            }
+            let claim = inner.queues.get_mut(&key)?.pop_front()?;
+            inner.total = inner.total.saturating_sub(1);
+            // The served claim joins the in-flight field: it now congests
+            // whoever is dispatched next until `complete` clears it.
+            for &g in &claim.support {
+                *inner.inflight.entry(g).or_insert(0) += 1;
+            }
+            if inner.queues.get(&key).is_none_or(VecDeque::is_empty) {
+                // Drained: drop the holder and forfeit its idle deficit.
+                inner.order.pop_front();
+                inner.queues.remove(&key);
+                inner.fibres.remove(&key);
+                inner.open_turn.remove(&key);
+            }
+            // else: the holder keeps the head and its open turn — the next
+            // take serves it again from the remaining deficit (its burst).
+            return Some(claim);
+        }
+    }
+
+    /// Non-blocking dispatch — the next claim by transport order, or
+    /// `None` if nothing is pending. `escrow_of` projects the base
+    /// coordinate at section-time. Used by tests; workers call
+    /// [`Transit::take_blocking`].
+    #[must_use]
+    pub fn take(&self, escrow_of: impl Fn(&str) -> u128) -> Option<Claim<T>> {
+        let mut inner = self.inner.lock().ok()?;
+        Self::dispatch_locked(&self.transport, &mut inner, &escrow_of)
+    }
+
+    /// Block until a claim is available, then dispatch it by transport
+    /// order. `None` only if the lock is poisoned.
+    #[must_use]
+    pub fn take_blocking(&self, escrow_of: impl Fn(&str) -> u128) -> Option<Claim<T>> {
+        let mut inner = self.inner.lock().ok()?;
+        loop {
+            if let Some(claim) = Self::dispatch_locked(&self.transport, &mut inner, &escrow_of) {
+                return Some(claim);
+            }
+            inner = self.available.wait(inner).ok()?;
+        }
+    }
+
+    /// Signal that an in-flight claim has settled: remove its `support`
+    /// from the congestion field, so it no longer dilates the transit of
+    /// claims dispatched after it. A worker MUST call this once per taken
+    /// claim (settled or failed) — an uncompleted claim would congest the
+    /// field forever. `support` is the taken claim's own support slice.
+    pub fn complete(&self, support: &[u32]) {
+        if let Ok(mut inner) = self.inner.lock() {
+            for &g in support {
+                if let Some(count) = inner.inflight.get_mut(&g) {
+                    *count -= 1;
+                    if *count == 0 {
+                        inner.inflight.remove(&g);
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used, clippy::panic)]
@@ -659,6 +907,160 @@ mod tests {
         // And throughput grows without bound in time: served later, never
         // never. A hard cap instead of a carried deficit would wall it out.
         assert_eq!(throughput(q, cost, 800), 100);
+    }
+
+    fn claim(holder: &str, support: &[u32], torsion: u64, payload: u32) -> Claim<u32> {
+        Claim {
+            holder: holder.to_owned(),
+            support: Box::from(support),
+            torsion,
+            payload,
+        }
+    }
+
+    #[test]
+    fn transit_serves_a_lone_holder_in_fifo_order() {
+        let q: Transit<u32> = Transit::tuned();
+        for i in 0..3 {
+            q.offer(claim("solo", &[], 0, i));
+        }
+        let esc = |_: &str| 0u128;
+        let got: Vec<u32> = std::iter::from_fn(|| q.take(esc).map(|c| c.payload)).collect();
+        assert_eq!(got, vec![0, 1, 2], "a single holder is drained in order");
+    }
+
+    #[test]
+    fn transit_escrow_weight_orders_two_holders_without_starving() {
+        // Both flooded with orthogonal (empty-support) claims, so Γ=0 and
+        // only escrow separates them. rich (escrow 10_000 → weight 64)
+        // serves its whole quantum before poor (escrow 0 → weight 1) gets
+        // a single turn: velocity ∝ escrow weight, and poor is served, not
+        // starved.
+        let q: Transit<u32> = Transit::tuned();
+        for i in 0..64 {
+            q.offer(claim("rich", &[], 0, i));
+        }
+        for i in 0..64 {
+            q.offer(claim("poor", &[], 0, 100 + i));
+        }
+        let esc = |h: &str| if h == "rich" { 10_000u128 } else { 0 };
+        let holders: Vec<String> =
+            std::iter::from_fn(|| q.take(esc).map(|c| c.holder)).take(65).collect();
+        assert!(
+            holders.iter().take(64).all(|h| h == "rich"),
+            "rich serves its full quantum-64 burst first"
+        );
+        assert_eq!(
+            holders.get(64).map(String::as_str),
+            Some("poor"),
+            "then poor gets its turn — never starved"
+        );
+    }
+
+    #[test]
+    fn transit_torsion_lifts_a_holders_quantum() {
+        // Equal escrow (0 → base weight 1); B's claims declare torsion 3,
+        // lifting its quantum ×4. In the same window B settles four claims
+        // to A's one. The lift is the head claim's, not the actor's.
+        let q: Transit<u32> = Transit::tuned();
+        for i in 0..4 {
+            q.offer(claim("A", &[], 0, i));
+        }
+        for i in 0..4 {
+            q.offer(claim("B", &[], 3, 100 + i));
+        }
+        let esc = |_: &str| 0u128;
+        let holders: Vec<String> =
+            std::iter::from_fn(|| q.take(esc).map(|c| c.holder)).take(5).collect();
+        assert_eq!(holders.iter().filter(|h| *h == "A").count(), 1);
+        assert_eq!(
+            holders.iter().filter(|h| *h == "B").count(),
+            4,
+            "torsion 3 lifts B's quantum to serve 4× in the window"
+        );
+    }
+
+    #[test]
+    fn transit_curvature_dilates_a_congested_holder() {
+        // A seed claim on generator 1 is taken and left IN FLIGHT (never
+        // completed), so generator 1 stays congested. A's claims share it
+        // (Γ=1 → cost 2); B's claims are orthogonal (Γ=0 → cost 1). With
+        // equal escrow, B settles strictly more — congestion dilates A's
+        // transit time. Each served claim is completed so the field stays
+        // exactly the seed.
+        let q: Transit<u32> = Transit::tuned();
+        q.offer(claim("seed", &[1], 0, 0));
+        for i in 0..30 {
+            q.offer(claim("A", &[1], 0, 100 + i));
+        }
+        for i in 0..30 {
+            q.offer(claim("B", &[2], 0, 200 + i));
+        }
+        let esc = |_: &str| 0u128;
+        // Take the seed and hold it in flight (do NOT complete it).
+        let seed = q.take(esc).expect("seed");
+        assert_eq!(seed.holder, "seed");
+        let mut a = 0;
+        let mut b = 0;
+        for _ in 0..30 {
+            let Some(c) = q.take(esc) else { break };
+            if c.holder == "A" {
+                a += 1;
+            } else if c.holder == "B" {
+                b += 1;
+            }
+            q.complete(&c.support); // keep the field at exactly the seed
+        }
+        assert!(a > 0, "the congested holder is dilated, never starved");
+        assert!(b > a, "the orthogonal holder settles strictly more: {b} vs {a}");
+    }
+
+    #[test]
+    fn transit_complete_clears_the_congestion_field() {
+        let q: Transit<u32> = Transit::tuned();
+        q.offer(claim("h", &[1, 2, 3], 0, 0));
+        let esc = |_: &str| 0u128;
+        let c = q.take(esc).expect("one claim");
+        // In flight: generators 1,2,3 congest the field.
+        let field = q.inner.lock().expect("lock").inflight.clone();
+        assert_eq!(
+            Transit::<u32>::curvature_inflight(&[2], &field),
+            1,
+            "generator 2 is in flight"
+        );
+        q.complete(&c.support);
+        // Cleared: the field is empty, so nothing is congested.
+        let inner = q.inner.lock().expect("lock");
+        assert!(inner.inflight.is_empty(), "completion clears the field");
+    }
+
+    #[test]
+    fn transit_curvature_inflight_counts_shared_generators_once() {
+        let field: BTreeMap<u32, u32> = [(10, 3), (20, 1), (30, 2)].into_iter().collect();
+        assert_eq!(Transit::<u32>::curvature_inflight(&[], &field), 0);
+        assert_eq!(Transit::<u32>::curvature_inflight(&[99], &field), 0, "novel");
+        // Shared generator 10 counts ONCE despite three claims in flight.
+        assert_eq!(Transit::<u32>::curvature_inflight(&[10], &field), 1);
+        assert_eq!(Transit::<u32>::curvature_inflight(&[10, 20, 30], &field), 3);
+        assert_eq!(Transit::<u32>::curvature_inflight(&[10, 99], &field), 1);
+    }
+
+    #[test]
+    fn transit_dispatch_is_deterministic_within_a_court() {
+        // Identical offer/take/escrow sequences produce identical served
+        // order: the fibre is non-deterministic ACROSS courts (in-flight
+        // fields differ by live timing), but a pure integer state machine
+        // WITHIN one. This is what keeps it testable and pinnable.
+        let run = || {
+            let q: Transit<u32> = Transit::tuned();
+            for i in 0..10 {
+                q.offer(claim("x", &[1], 2, i));
+                q.offer(claim("y", &[1], 0, 100 + i));
+            }
+            let esc = |h: &str| if h == "x" { 5_000u128 } else { 25 };
+            std::iter::from_fn(|| q.take(esc).map(|c| c.payload)).collect::<Vec<_>>()
+        };
+        assert_eq!(run(), run(), "same inputs → same dispatch, exactly");
     }
 
     #[test]
