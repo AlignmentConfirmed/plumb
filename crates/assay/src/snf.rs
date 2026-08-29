@@ -1,4 +1,18 @@
-//! Smith Normal Form over ℤ — the linear-algebra alternative to
+//! The integer boundary calculus — invariants and filling chains of a
+//! **boundary operator** `∂`, exact over ℤ.
+//!
+//! The public face is [`Boundary`] (sparse integer incidence data) and the
+//! operations a chain complex actually asks for: [`invariant_factors`] and
+//! [`rank`] (the torsion and free structure), [`rank_mod`] (the cheap field
+//! rank the fast leg `betti_fast` uses, over `𝔽_p`, no coefficient
+//! explosion), and [`solve`] (does an integral filling chain exist). The
+//! dense tableau the Smith algorithm mutates in place — `Matrix`,
+//! `decompose` — is a **private scratch representation**, not an API: it is
+//! the conventional `U·A·V = D` machinery, kept as the exact slow leg, and
+//! a longer-term move to a blade/versor calculus (research-gated behind the
+//! confluence guardrail) would dissolve it entirely.
+//!
+//! Smith Normal Form over ℤ is the linear-algebra alternative to
 //! traversal for deciding "does an integral chain with this boundary
 //! exist," and constructing one directly when it does.
 //!
@@ -54,12 +68,12 @@ fn magnitude(n: &BigInt) -> BigInt {
     }
 }
 
-/// A dense integer matrix, row-major. Dense is the honest limitation
-/// here: correct and simple for the universe sizes this workspace
-/// declares (hundreds of cells), not yet the sparse representation a
-/// much larger universe would need.
+/// The Smith algorithm's **private** dense scratch tableau, row-major — not
+/// an API. Dense is the honest limitation here: correct and simple for the
+/// universe sizes this workspace declares (hundreds of cells). Callers work
+/// in [`Boundary`] and ask for invariants; they never touch this.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Matrix {
+struct Matrix {
     rows: usize,
     cols: usize,
     data: Vec<BigInt>,
@@ -68,7 +82,7 @@ pub struct Matrix {
 impl Matrix {
     /// An all-zero matrix of the given shape.
     #[must_use]
-    pub fn zeros(rows: usize, cols: usize) -> Self {
+    fn zeros(rows: usize, cols: usize) -> Self {
         Self {
             rows,
             cols,
@@ -78,7 +92,7 @@ impl Matrix {
 
     /// The `n × n` identity.
     #[must_use]
-    pub fn identity(n: usize) -> Self {
+    fn identity(n: usize) -> Self {
         let mut m = Self::zeros(n, n);
         for i in 0..n {
             m.set(i, i, BigInt::from(1));
@@ -88,20 +102,20 @@ impl Matrix {
 
     /// Row count.
     #[must_use]
-    pub fn rows(&self) -> usize {
+    fn rows(&self) -> usize {
         self.rows
     }
 
     /// Column count.
     #[must_use]
-    pub fn cols(&self) -> usize {
+    fn cols(&self) -> usize {
         self.cols
     }
 
     /// The entry at `(r, c)`, or zero outside the shape — never a
     /// panic on a caller's off-by-one.
     #[must_use]
-    pub fn get(&self, r: usize, c: usize) -> BigInt {
+    fn get(&self, r: usize, c: usize) -> BigInt {
         if r >= self.rows || c >= self.cols {
             return BigInt::zero();
         }
@@ -112,7 +126,7 @@ impl Matrix {
     /// Set the entry at `(r, c)`. Silently does nothing outside the
     /// shape — this module never indexes a caller's mistake into a
     /// panic.
-    pub fn set(&mut self, r: usize, c: usize, v: BigInt) {
+    fn set(&mut self, r: usize, c: usize, v: BigInt) {
         if r >= self.rows || c >= self.cols {
             return;
         }
@@ -178,7 +192,7 @@ impl Matrix {
     /// check `U·A·V = D` directly against the defining property,
     /// rather than trusting the construction blind.
     #[must_use]
-    pub fn multiply(&self, other: &Matrix) -> Matrix {
+    fn multiply(&self, other: &Matrix) -> Matrix {
         let mut out = Matrix::zeros(self.rows, other.cols);
         for r in 0..self.rows {
             for k in 0..self.cols {
@@ -195,10 +209,11 @@ impl Matrix {
         out
     }
 
-    /// A matrix from dense row-major data, for building small
+    /// A matrix from dense row-major data, for building small test
     /// examples without going through `set` one cell at a time.
+    #[cfg(test)]
     #[must_use]
-    pub fn from_rows(rows: &[Vec<i64>]) -> Self {
+    fn from_rows(rows: &[Vec<i64>]) -> Self {
         let r = rows.len();
         let c = rows.first().map_or(0, Vec::len);
         let mut m = Matrix::zeros(r, c);
@@ -214,7 +229,7 @@ impl Matrix {
 /// `U·A·V = D`: `U`, `V` unimodular, `D` diagonal with the invariant
 /// factors `d₁ ∣ d₂ ∣ … ∣ dᵣ` down the diagonal and zero elsewhere.
 #[derive(Debug, Clone)]
-pub struct Decomposition {
+struct Decomposition {
     /// Row transform, `rows(A) × rows(A)`.
     pub u: Matrix,
     /// The diagonal form, same shape as `A`.
@@ -329,9 +344,10 @@ fn clear_row(d: &mut Matrix, v: &mut Matrix, t: usize) {
     }
 }
 
-/// Decompose `a` into Smith Normal Form.
+/// Decompose `a` into Smith Normal Form. Private: the slow, exact engine
+/// behind [`invariant_factors`]/[`rank`]/[`solve`].
 #[must_use]
-pub fn decompose(a: &Matrix) -> Decomposition {
+fn decompose(a: &Matrix) -> Decomposition {
     let mut d = a.clone();
     let mut u = Matrix::identity(a.rows());
     let mut v = Matrix::identity(a.cols());
@@ -383,9 +399,9 @@ pub fn decompose(a: &Matrix) -> Decomposition {
 /// needs `(U·z)[i]` **exactly** divisible by `d_i` (zero rows beyond
 /// the rank need `(U·z)[i]` to already be zero) — then `x = V·y`,
 /// with the free (kernel) coordinates of `y` set to zero for a
-/// particular solution.
+/// particular solution. Private: the engine behind [`solve`].
 #[must_use]
-pub fn solve_integer(a: &Matrix, z: &[BigInt]) -> Option<Vec<BigInt>> {
+fn solve_integer(a: &Matrix, z: &[BigInt]) -> Option<Vec<BigInt>> {
     let decomposition = decompose(a);
     let mut z_col = Matrix::zeros(a.rows(), 1);
     for (i, value) in z.iter().enumerate() {
@@ -414,6 +430,163 @@ pub fn solve_integer(a: &Matrix, z: &[BigInt]) -> Option<Vec<BigInt>> {
     }
     let x = decomposition.v.multiply(&y);
     Some((0..x.rows()).map(|i| x.get(i, 0)).collect())
+}
+
+/// The non-negative residue of `a` modulo `p`.
+fn reduce(a: &BigInt, p: &BigInt) -> BigInt {
+    let r = a % p;
+    if r.is_negative() {
+        r + p
+    } else {
+        r
+    }
+}
+
+/// The modular inverse of `a` mod prime `p`, via Fermat: `a^(p-2) mod p`.
+/// The caller only inverts a nonzero pivot, so `a` is never `0 mod p`.
+fn inverse_mod(a: &BigInt, p: &BigInt) -> BigInt {
+    reduce(a, p).modpow(&(p - BigInt::from(2)), p)
+}
+
+/// A boundary operator `∂` as **sparse integer incidence data** — the
+/// public face of this module. `rows` are the `k`-cells, `cols` the
+/// `(k+1)`-cells; each entry is the (accumulating) coefficient of a `k`-cell
+/// in the boundary of a `(k+1)`-cell. Callers build one and ask for its
+/// invariants or a filling chain; the dense Smith tableau stays private.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Boundary {
+    rows: usize,
+    cols: usize,
+    entries: Vec<(usize, usize, BigInt)>,
+}
+
+impl Boundary {
+    /// An empty boundary of the given shape.
+    #[must_use]
+    pub fn new(rows: usize, cols: usize) -> Self {
+        Self {
+            rows,
+            cols,
+            entries: Vec::new(),
+        }
+    }
+
+    /// Add `coeff` to the `(row, col)` incidence. Repeated entries for one
+    /// cell accumulate; zero and out-of-shape entries are dropped.
+    pub fn add(&mut self, row: usize, col: usize, coeff: BigInt) {
+        if row < self.rows && col < self.cols && !coeff.is_zero() {
+            self.entries.push((row, col, coeff));
+        }
+    }
+
+    /// The number of `k`-cells (rows).
+    #[must_use]
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+
+    /// The number of `(k+1)`-cells (columns).
+    #[must_use]
+    pub fn cols(&self) -> usize {
+        self.cols
+    }
+
+    /// Densify into the private Smith tableau (accumulating repeats).
+    fn densify(&self) -> Matrix {
+        let mut m = Matrix::zeros(self.rows, self.cols);
+        for (r, c, v) in &self.entries {
+            let existing = m.get(*r, *c);
+            m.set(*r, *c, existing + v);
+        }
+        m
+    }
+}
+
+/// The invariant factors of the boundary: the nonzero Smith diagonal
+/// `d_1 ∣ d_2 ∣ … ∣ d_r` over ℤ. Their count is the rank; those `> 1` are
+/// the torsion. The **exact slow leg** — full integer SNF — the settlement
+/// authority.
+#[must_use]
+pub fn invariant_factors(b: &Boundary) -> Vec<BigInt> {
+    let dense = b.densify();
+    let dec = decompose(&dense);
+    let mut factors = Vec::new();
+    for i in 0..dec.d.rows().min(dec.d.cols()) {
+        let value = dec.d.get(i, i);
+        if !value.is_zero() {
+            factors.push(value);
+        }
+    }
+    factors
+}
+
+/// The exact integer rank of the boundary — the number of nonzero
+/// invariant factors (equivalently the ℚ-rank).
+#[must_use]
+pub fn rank(b: &Boundary) -> usize {
+    invariant_factors(b).len()
+}
+
+/// The rank over the prime field `𝔽_p` — Gaussian elimination with every
+/// entry reduced mod `p`, so values never leave `[0, p)` and there is NO
+/// coefficient explosion. This is the **cheap fast leg** the scheduler's
+/// `betti_fast` uses in place of full integer Smith Normal Form: exact
+/// modular integer arithmetic, never floating point.
+///
+/// `rank_ℚ` is `rank_mod` at a large prime (equal for all but finitely many
+/// "bad" primes); a small-prime sweep recovers the torsion count exactly
+/// for prime-smooth torsion via `rank_ℚ − minₚ rank_mod(p)` (#68).
+#[must_use]
+pub fn rank_mod(b: &Boundary, prime: u64) -> usize {
+    if prime < 2 {
+        return 0;
+    }
+    let p = BigInt::from(prime);
+    let mut m = b.densify();
+    let (rows, cols) = (m.rows(), m.cols());
+    for r in 0..rows {
+        for c in 0..cols {
+            let v = reduce(&m.get(r, c), &p);
+            m.set(r, c, v);
+        }
+    }
+    let mut rank = 0usize;
+    let mut pivot = 0usize;
+    for col in 0..cols {
+        let mut sel = None;
+        for r in pivot..rows {
+            if !m.get(r, col).is_zero() {
+                sel = Some(r);
+                break;
+            }
+        }
+        let Some(pr) = sel else { continue };
+        m.swap_rows(pivot, pr);
+        let inv = inverse_mod(&m.get(pivot, col), &p);
+        for r in 0..rows {
+            if r != pivot && !m.get(r, col).is_zero() {
+                let factor = reduce(&(m.get(r, col) * &inv), &p);
+                for c in col..cols {
+                    let sub = reduce(&(&factor * m.get(pivot, c)), &p);
+                    let newv = reduce(&(m.get(r, c) - sub), &p);
+                    m.set(r, c, newv);
+                }
+            }
+        }
+        rank += 1;
+        pivot += 1;
+        if pivot == rows {
+            break;
+        }
+    }
+    rank
+}
+
+/// A filling chain `x` with `∂x = target`, if an integral one exists — the
+/// exact integer solve. `None` when solvable only over ℚ, or not at all.
+#[must_use]
+pub fn solve(b: &Boundary, target: &[BigInt]) -> Option<Vec<BigInt>> {
+    solve_integer(&b.densify(), target)
 }
 
 #[cfg(test)]
@@ -531,5 +704,60 @@ mod tests {
             None,
             "2x = 1 has no integer x, even though x = 1/2 solves it over Q"
         );
+    }
+
+    fn boundary_2x2(a: i64, b: i64, c: i64, d: i64) -> Boundary {
+        let mut m = Boundary::new(2, 2);
+        m.add(0, 0, BigInt::from(a));
+        m.add(0, 1, BigInt::from(b));
+        m.add(1, 0, BigInt::from(c));
+        m.add(1, 1, BigInt::from(d));
+        m
+    }
+
+    #[test]
+    fn rank_mod_is_the_field_rank_and_recovers_the_torsion_count() {
+        // The (2,4) torsion boundary: rank_Q = 2, and mod 2 it vanishes to
+        // rank 0 (both invariant factors are even). This is the fast leg.
+        let b = boundary_2x2(2, 4, 6, 8);
+        let rank_q = rank_mod(&b, 1_000_003); // rank over a large prime = rank_Q
+        assert_eq!(rank_q, 2, "rank over Q");
+        assert_eq!(rank_mod(&b, 2), 0, "both factors even → rank 0 mod 2");
+        assert_eq!(rank_mod(&b, 3), 2, "neither factor divisible by 3");
+        // torsion_count = rank_Q − minₚ rank_mod(p): 2 − min(0,2) = 2 — the
+        // two invariant factors (2,4), exactly, with NO integer SNF.
+        let torsion_count = rank_q - rank_mod(&b, 2).min(rank_mod(&b, 3));
+        assert_eq!(torsion_count, 2, "betti_fast torsion count");
+        // The exact slow leg agrees on the values.
+        assert_eq!(invariant_factors(&b), vec![BigInt::from(2), BigInt::from(4)]);
+        assert_eq!(rank(&b), 2);
+    }
+
+    #[test]
+    fn rank_mod_is_full_at_every_prime_for_a_torsion_free_boundary() {
+        let b = boundary_2x2(1, 0, 0, 1);
+        assert_eq!(rank_mod(&b, 2), 2);
+        assert_eq!(rank_mod(&b, 5), 2);
+        assert_eq!(rank(&b), 2);
+        assert!(
+            invariant_factors(&b).iter().all(|f| *f == BigInt::from(1)),
+            "identity has no torsion"
+        );
+    }
+
+    #[test]
+    fn boundary_solve_matches_the_integer_solve() {
+        // Path graph 0->1->2 through the public Boundary API.
+        let mut b = Boundary::new(3, 2);
+        b.add(0, 0, BigInt::from(-1));
+        b.add(1, 0, BigInt::from(1));
+        b.add(1, 1, BigInt::from(-1));
+        b.add(2, 1, BigInt::from(1));
+        let z = vec![BigInt::from(-1), BigInt::from(0), BigInt::from(1)];
+        assert!(solve(&b, &z).is_some(), "0->2 is reachable");
+        // 2x = 1 refuses — solvable over Q, not over Z (the whole point).
+        let mut two = Boundary::new(1, 1);
+        two.add(0, 0, BigInt::from(2));
+        assert_eq!(solve(&two, &[BigInt::from(1)]), None);
     }
 }

@@ -52,23 +52,15 @@ pub struct Betti {
     pub torsion: Vec<BigInt>,
 }
 
-fn to_integer_matrix(rows: u32, cols: u32, op: &[Entry]) -> Result<crate::snf::Matrix, HomologyRefused> {
-    let mut m = crate::snf::Matrix::zeros(rows as usize, cols as usize);
+fn to_boundary(rows: u32, cols: u32, op: &[Entry]) -> Result<crate::snf::Boundary, HomologyRefused> {
+    let mut b = crate::snf::Boundary::new(rows as usize, cols as usize);
     for entry in op {
         if entry.coeff.denom() != &BigInt::from(1) {
             return Err(HomologyRefused::NonIntegerCoefficient);
         }
-        let existing = m.get(entry.row as usize, entry.col as usize);
-        m.set(entry.row as usize, entry.col as usize, existing + entry.coeff.numer());
+        b.add(entry.row as usize, entry.col as usize, entry.coeff.numer().clone());
     }
-    Ok(m)
-}
-
-fn rank_of(a: &crate::snf::Matrix) -> usize {
-    let dec = crate::snf::decompose(a);
-    (0..dec.d.rows().min(dec.d.cols()))
-        .filter(|&i| !dec.d.get(i, i).is_zero())
-        .count()
+    Ok(b)
 }
 
 /// `H_dim`'s free rank and torsion.
@@ -81,7 +73,7 @@ pub fn betti(complex: &DeclaredComplex, dim: u32) -> Result<Betti, HomologyRefus
     } else {
         let rows = *complex.cells.get(dim - 1).ok_or(HomologyRefused::NoSuchDimension)?;
         match complex.ops.get(dim - 1) {
-            Some(op) => rank_of(&to_integer_matrix(rows, n_k, op)?),
+            Some(op) => crate::snf::rank(&to_boundary(rows, n_k, op)?),
             None => 0,
         }
     };
@@ -89,20 +81,14 @@ pub fn betti(complex: &DeclaredComplex, dim: u32) -> Result<Betti, HomologyRefus
     let (rank_k1, torsion) = match complex.ops.get(dim) {
         Some(op) => {
             let cols = *complex.cells.get(dim + 1).unwrap_or(&0);
-            let matrix = to_integer_matrix(n_k, cols, op)?;
-            let dec = crate::snf::decompose(&matrix);
-            let mut rank = 0usize;
-            let mut torsion = Vec::new();
-            for i in 0..dec.d.rows().min(dec.d.cols()) {
-                let value = dec.d.get(i, i);
-                if value.is_zero() {
-                    continue;
-                }
-                rank += 1;
-                if value != BigInt::from(1) {
-                    torsion.push(value);
-                }
-            }
+            // The nonzero invariant factors of ∂_{dim+1}: their count is the
+            // rank, those > 1 are H_dim's torsion.
+            let factors = crate::snf::invariant_factors(&to_boundary(n_k, cols, op)?);
+            let rank = factors.len();
+            let torsion: Vec<BigInt> = factors
+                .into_iter()
+                .filter(|value| *value != BigInt::from(1))
+                .collect();
             (rank, torsion)
         }
         None => (0, Vec::new()),

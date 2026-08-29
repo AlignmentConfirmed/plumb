@@ -470,11 +470,10 @@ impl DeclaredComplex {
             scale = lcm(&scale, coeff.denom());
         }
 
-        let mut a = crate::snf::Matrix::zeros(rows as usize, cols as usize);
+        let mut a = crate::snf::Boundary::new(rows as usize, cols as usize);
         for entry in op {
             let scaled = entry.coeff.numer() * (&scale / entry.coeff.denom());
-            let existing = a.get(entry.row as usize, entry.col as usize);
-            a.set(entry.row as usize, entry.col as usize, existing + scaled);
+            a.add(entry.row as usize, entry.col as usize, scaled);
         }
         let mut z = vec![BigInt::from(0); rows as usize];
         for (cell, coeff) in target {
@@ -484,7 +483,7 @@ impl DeclaredComplex {
             }
         }
 
-        let x = crate::snf::solve_integer(&a, &z).ok_or(SolveRefused::NoIntegralSolution)?;
+        let x = crate::snf::solve(&a, &z).ok_or(SolveRefused::NoIntegralSolution)?;
         Ok(x
             .into_iter()
             .enumerate()
