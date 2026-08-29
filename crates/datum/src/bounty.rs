@@ -107,18 +107,29 @@ pub struct Answer {
     pub payout: u128,
 }
 
-/// Settle a claim body against a demand-posed bounty.
-///
-/// The order is deliberate: the poser's-universe gate first (cheap,
-/// and the rule that makes rebates sane), then the byte budget, then
-/// metered verification under the fuel budget, then the book (replay
-/// law and all), then the payout arithmetic.
-pub fn settle_answer(
+/// A verified answer — everything the atomic commit needs, with **no book
+/// write** yet (#61). Verification (the expensive metered re-derivation)
+/// produces this off the write lock, so it parallelizes; [`commit_answer`]
+/// is the one atomic act that touches the book.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedAnswer {
+    spent_fuel: u64,
+    spent_bytes: u64,
+    payout: u128,
+}
+
+/// Verify a claim body against a demand-posed bounty **without writing the
+/// book** — the whole of the expensive path (universe gate, byte budget,
+/// metered homological re-derivation), reading only `seen` for cited
+/// dependencies. Settled work is monotonic, so a read here is safe against
+/// any later commit. Pure and lock-free on the write side, so many verifies
+/// run in parallel (#61).
+pub fn verify_answer(
     bounty: &Bounty,
     query: &Query,
     body: &[u8],
-    book: &mut RewardBook,
-) -> Result<Answer, AnswerRefused> {
+    seen: &std::collections::HashSet<WorkId>,
+) -> Result<VerifiedAnswer, AnswerRefused> {
     let got = body.len() as u64;
     if got > bounty.max_bytes {
         return Err(AnswerRefused::Oversized {
@@ -144,7 +155,7 @@ pub fn settle_answer(
         let mut remaining = conjecture.target.clone();
         for dep in &proof.deps {
             let cited = WorkId::from_bytes(dep.clone());
-            if !book.seen().contains(&cited) {
+            if !seen.contains(&cited) {
                 return Err(AnswerRefused::Book(RewardRefused::UnsettledDependency {
                     work_id: cited,
                 }));
@@ -167,19 +178,48 @@ pub fn settle_answer(
         }
         claim.verify(bounty.max_fuel).map_err(AnswerRefused::Broken)?
     };
-    // Compute the payout BEFORE crediting so it lands on the durable
-    // act itself (credit_claim_priced records it), not just in this
-    // ephemeral Answer — the whole point of #41.
+    // Payout is computed here so it lands on the durable act at commit
+    // (credit_claim_priced records it), not just in the ephemeral Answer.
     let payout = bounty.payout(spent_fuel, got);
-    let credit = book
-        .credit_claim_priced(body, payout)
-        .map_err(AnswerRefused::Book)?;
-    Ok(Answer {
-        credit,
+    Ok(VerifiedAnswer {
         spent_fuel,
         spent_bytes: got,
         payout,
     })
+}
+
+/// Commit a [`VerifiedAnswer`] to the book — the one atomic act (the replay
+/// law and the priced credit). Holds the write lock only here, and only for
+/// this cheap step; the expensive verification already ran in
+/// [`verify_answer`].
+pub fn commit_answer(
+    book: &mut RewardBook,
+    body: &[u8],
+    verified: VerifiedAnswer,
+) -> Result<Answer, AnswerRefused> {
+    let credit = book
+        .credit_claim_priced(body, verified.payout)
+        .map_err(AnswerRefused::Book)?;
+    Ok(Answer {
+        credit,
+        spent_fuel: verified.spent_fuel,
+        spent_bytes: verified.spent_bytes,
+        payout: verified.payout,
+    })
+}
+
+/// Settle a claim body against a demand-posed bounty: verify, then commit.
+/// Kept as the one-call surface every current caller uses; the two halves
+/// are separable so a settler pool can verify in parallel and commit under
+/// the book lock only at the atomic step (#61/#66).
+pub fn settle_answer(
+    bounty: &Bounty,
+    query: &Query,
+    body: &[u8],
+    book: &mut RewardBook,
+) -> Result<Answer, AnswerRefused> {
+    let verified = verify_answer(bounty, query, body, book.seen())?;
+    commit_answer(book, body, verified)
 }
 
 use assay::complex::ProofClaim;
