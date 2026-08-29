@@ -37,6 +37,8 @@ meaning is multi-dimensional ([`PLUMBLINE.md`](PLUMBLINE.md)). It is
 specified independently of the implementation, with conformance vectors
 that an implementation in any language can be checked against.
 
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — the code map: crates, modules,
+  and where each responsibility lives
 - [`PLUMBLINE.md`](PLUMBLINE.md) — the wire language
 - [`POWPP.md`](POWPP.md) — what the engine verifies and how credit is
   assigned
