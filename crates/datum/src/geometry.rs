@@ -130,6 +130,49 @@ pub fn graded_torsion(complex: &DeclaredComplex) -> Vec<u64> {
         .collect()
 }
 
+/// The homological **shape** of a grade `k`: the number of FREE (ℤ) axes
+/// and the invariant factors `m_i` of its TORSION (ℤ/m_iℤ) axes. Together
+/// they type the credit a generator of this grade can carry — the free
+/// axes count in ℤ, the torsion axes count in ℤ/m_iℤ.
+///
+/// Same SNF (`betti`) as [`graded_torsion`], but carrying the factor
+/// **values** the book's modular arithmetic needs, where the scheduler
+/// wanted only the count. This is the second, book-side reading of the one
+/// torsion we defined: the scheduler lifts by how *many* cycles a grade
+/// has; the section counts *within* each cyclic group `ℤ/m_iℤ`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GradeShape {
+    /// Free rank `b_k`: the number of ℤ-valued axes.
+    pub free_rank: usize,
+    /// Torsion invariant factors `m_i` (each `> 1`): one `ℤ/m_iℤ` axis each.
+    pub torsion: Vec<u64>,
+}
+
+/// The graded homological shapes of a complex: `grade_shapes(C)[k]` is the
+/// free rank and torsion invariant factors of `H_k(C)`. The multi-axial
+/// section is valued, grade by grade, in these groups.
+#[must_use]
+pub fn grade_shapes(complex: &DeclaredComplex) -> Vec<GradeShape> {
+    (0..complex.cells.len())
+        .map(|d| {
+            let dim = u32::try_from(d).unwrap_or(u32::MAX);
+            betti(complex, dim)
+                .map(|b| GradeShape {
+                    free_rank: b.free_rank,
+                    torsion: b
+                        .torsion
+                        .iter()
+                        .map(|m| u64::try_from(m).unwrap_or(u64::MAX))
+                        .collect(),
+                })
+                .unwrap_or(GradeShape {
+                    free_rank: 0,
+                    torsion: Vec::new(),
+                })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used)]
@@ -190,6 +233,28 @@ mod tests {
             Some(1),
             "ℤ/10⁶ is one cycle, weighted the same as ℤ/2"
         );
+    }
+
+    #[test]
+    fn grade_shapes_carry_the_invariant_factors_the_book_counts_in() {
+        // Same (2,4) complex: H_0 = ℤ/2 ⊕ ℤ/4, free rank 0. Where the
+        // scheduler saw "2 cycles", the book sees the moduli [2, 4] — the
+        // groups its torsion axes count in.
+        let mut op = vec![
+            Entry { row: 0, col: 0, coeff: whole(2) },
+            Entry { row: 1, col: 0, coeff: whole(6) },
+            Entry { row: 0, col: 1, coeff: whole(4) },
+            Entry { row: 1, col: 1, coeff: whole(8) },
+        ];
+        op.sort_by_key(|e| (e.col, e.row));
+        let complex = DeclaredComplex {
+            cells: vec![2, 2],
+            ops: vec![op],
+        };
+        let shapes = grade_shapes(&complex);
+        let h0 = shapes.first().expect("grade 0");
+        assert_eq!(h0.free_rank, 0, "both cells consumed into torsion");
+        assert_eq!(h0.torsion, vec![2, 4], "the moduli, not their count");
     }
 
     #[test]

@@ -706,6 +706,89 @@ ledger entry.
 
 ---
 
+## 6g · The multi-axial settlement section (Phase 6) — SCOPED 2026-08-29
+
+**The gap.** `RewardBook` is one global structure behind one `Mutex`, so
+settlement serializes on it (§6f demux note). Two naive fixes both fail:
+holding the lock across verification wastes the parallelism (verification
+is pure and has no business touching the book), and sharding the book by a
+scalar `domain_tag → bucket` is a **flat ring** — one index, no grade, no
+connectivity — the exact dimensional collapse #57–#59 remediated on the
+fibre, moved to the book. The tag is a *projection* of the manifold, not
+its coordinates.
+
+**The object.** The book is a **graded, multi-axial section over the same
+generator manifold the fibre uses** — not a keyed collection. Over each
+generator `g` (global id `hash(tag, dim, cell)`, so the grade `k = dim` is
+baked in), the section holds a credit **valued in that grade's homology
+group**:
+
+  H_k(C) = ℤ^{b_k}  ⊕  (⊕_i ℤ/m_i ℤ)     (free rank `b_k` ⊕ torsion `m_i`)
+
+so credit on a **free** axis is ℤ-valued and credit on a **torsion** axis
+is **ℤ/m_iℤ-valued** — it wraps modulo the invariant factor `m_i`. The
+`m_i` are the SNF invariant factors we already extract; the O(1)
+`TorsionCache` (populated at `Act::Declare`, §6f demux) supplies them, so
+the book's modular arithmetic on torsion axes is a cached lookup, never a
+matrix reduction. **This is the mathematics behind the multi-axial
+section: the book is a section of the graded homology bundle, free axes
+counting in ℤ, torsion axes counting in ℤ/mℤ.**
+
+**Concurrency = support-disjointness = the connection Γ.** Two commits are
+independent iff their supports are disjoint in generator-space — which is
+*exactly* the diagonal connection the scheduler computes
+(`cost[g]=1+inflight[g]`). The book's conflict structure and the fibre's
+congestion structure are the **same object**. So there is no separate
+shard key: a commit locks **the generators in its own `∂`-connected
+support** (`witness(k) ∪ target(k−1)` and the `∂`-neighborhood the closure
+reads), acquired in **canonical sorted-by-id order** (deadlock-free, the
+same determinism as `retract`). Disjoint supports → disjoint locks →
+parallel; overlapping → serialized *on the shared cells*, never on a whole
+domain bucket. Capacity is the manifold's true sparsity, not the domain
+count. The tag survives only as a coarse routing/genesis projection
+`π: M → tags`, never as the lock coordinate — that is the difference
+between a manifold and a ring.
+
+**Authority is a boundary condition, not a lock (Stokes).** Conservation —
+no double-count, no phantom credit — is enforced by the **closure the
+claim already proved** (`∂c = target`, `∂∘∂ = 0`), cell by cell, not by a
+global lock:
+
+  ∫_M dc = ∫_{∂M} c = 0   (closed manifold → the total is conserved by topology)
+
+So the direct sum of the local (per-cell) sections is automatically
+consistent, every node applies the same closed contributions to the same
+graded cells, and the books converge (A4) with no global view on the
+commit path. **Authority = the section is closed; convergence = the
+section is deterministic.** The lock is only ever local to the shared cells
+of genuinely-overlapping concurrent claims.
+
+**Construction (buildable).**
+- `Book`: a sparse section `GenId → Cell { credit: multi-axial value in
+  ℤ^free ⊕ (ℤ/mℤ)^torsion, replay-guard: work-ids settled on this cell }`.
+  Graded because `GenId` encodes `dim`.
+- Fine-grained locks **per live generator** (lazily created, dropped when a
+  cell goes quiescent) — NOT a fixed stripe array (`g mod N` reintroduces
+  false sharing = a partial ring; expose N only as a tunable that trades
+  exactness for memory).
+- Commit: `verify(value)` pure and lockless → `∂`-connected support →
+  lock its `GenId`s in sorted order → per-cell replay-check + closed
+  credit (modular on torsion axes) → release.
+- Anchor: an epoch-barriered `⊕` over live cells — the only cross-cell
+  coordination, a checkpoint read snapshot, never on the commit path.
+- The existing `RewardBook` API is preserved as a facade over the section,
+  so callers are unchanged; the source-scan boundary test still holds.
+
+**Task graph:** #61 (verify/commit split) → #62 (multi-axial section store,
+torsion-valued) → #63 (∂-connected support + per-generator canonical
+locking) → #64 (closure/Stokes conservation + per-cell replay) → #65
+(epoch-barriered anchor as ⊕) → #66 (parallel-commit the demux settler
+pool) → #67 (convergence/A4 test across nodes). #61 is a pure throughput
+win with no data change; the section (#62) is where the torsion mathematics
+lands.
+
+---
+
 ## 7 · Topological signatures — research track, scheme ≥ 0x02
 
 Held at research until the cryptanalytic bar is met; enters through

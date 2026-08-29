@@ -67,6 +67,7 @@ pub mod registration;
 pub mod registry;
 pub mod reward;
 pub mod sample;
+pub mod section;
 pub mod settle;
 pub mod tls;
 pub mod witnessing;
