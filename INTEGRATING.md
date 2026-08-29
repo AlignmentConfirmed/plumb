@@ -31,8 +31,8 @@ is a third. Between them they found four gaps, all four closed.
 
 ```
                  your title ──┐
-netstratum mesh ──────────────┼── the substrate ── exits: kernels
-xylarium mesh ────────────────┘
+    a linking mesh ───────────┼── the substrate ── exits: kernels
+    another mesh ─────────────┘
 ```
 
 The substrate carries **frames** and does not read them. A frame it does
