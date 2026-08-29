@@ -932,8 +932,8 @@ pub fn serve(
     // Greeter → per-HOLDER fair queue (the priority seam #55 weights) →
     // settler. The empty key is the base lane: a non-enforce court or a
     // fresh registration has no authenticated holder yet.
-    let settler_queue: Arc<crate::sched::FairQueue<String, LiveSession>> =
-        Arc::new(crate::sched::FairQueue::new());
+    let settler_queue: Arc<crate::sched::Transit<LiveSession>> =
+        Arc::new(crate::sched::Transit::tuned());
 
     for _ in 0..settler_count {
         let settler_queue = Arc::clone(&settler_queue);
@@ -944,7 +944,16 @@ pub fn serve(
         let witnesses = Arc::clone(witnesses);
         let on_session = Arc::clone(&on_session);
         std::thread::spawn(move || {
-            while let Some((_holder, live)) = settler_queue.take_blocking() {
+            // #55: the settler pool drains the escrow-weighted transit
+            // scheduler. Escrow is PROJECTED from the ledger at take-time
+            // (#57) — a chain fact turned into a local quantum, never
+            // stored — so a higher-staked holder is served proportionally
+            // more often. `escrow_of` is a fold; on a poisoned ledger it
+            // yields the base weight (0), never a panic.
+            while let Some(claim) = settler_queue
+                .take_blocking(|h| ledger.lock().map(|g| g.escrow_of(h)).unwrap_or(0))
+            {
+                let crate::sched::Claim { payload: live, support, .. } = claim;
                 let LiveSession {
                     mut stream,
                     challenge_frame,
@@ -965,8 +974,11 @@ pub fn serve(
                 );
                 // The wall was charged at accept and held across the
                 // handshake AND the queue wait; release it however the
-                // session ends.
+                // session ends. Clear the claim's axes from the congestion
+                // field (empty at this seam, but the contract is: every
+                // taken claim completes).
                 release_wall(&rules.connections, ip);
+                settler_queue.complete(&support);
                 match result {
                     Ok(report) => on_session(&report),
                     Err(e) => println!("plumbd: session failed: {e:?}"),
@@ -992,7 +1004,18 @@ pub fn serve(
                         // lane); the settler queue's per-key fairness is
                         // what #55 upgrades to escrow-weighted priority.
                         let holder = live.survey.holder.clone().unwrap_or_default();
-                        settler_queue.offer(holder, *live);
+                        // Enqueue as a Claim into the transit scheduler.
+                        // Support/torsion are empty at this seam — a
+                        // session's work geometry is not known until its
+                        // records arrive in drain_records — so the metric
+                        // here is escrow only; per-work-claim curvature
+                        // attaches inside the record loop.
+                        settler_queue.offer(crate::sched::Claim {
+                            holder,
+                            support: Box::default(),
+                            torsion: Box::default(),
+                            payload: *live,
+                        });
                     }
                     GreetOutcome::Done(report) => {
                         release_wall(&rules.connections, ip);
