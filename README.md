@@ -1,10 +1,11 @@
 # plumb
 
 plumb is an epistemic settlement layer: a system that prices, verifies,
-and settles claims. A claim is submitted unsettled. It is verified by
-re-derivation or by convergence among independent parties, then settled:
-credited on a ledger, recorded, and protected against being paid twice.
-See [`PROOF_ECONOMY.md`](PROOF_ECONOMY.md) for the full description.
+and settles claims. A claim enters the system unsettled and remains so
+until it is verified — by re-derivation, or by convergence among
+independent parties. Once verified, it settles: it is credited on a
+ledger, recorded, and protected against duplicate payment. A full
+description is given in [`PROOF_ECONOMY.md`](PROOF_ECONOMY.md).
 
 ## Workspace
 

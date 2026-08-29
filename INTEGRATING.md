@@ -1,34 +1,31 @@
 # INTEGRATING
 
-How to connect a development title to this substrate — that is, how
-to speak **Plumbline**, the wire language the IS documents specify
+How to connect a development title to this substrate: how to speak
+**Plumbline**, the wire language the IS documents specify
 (`PLUMBLINE.md`). A peer declares which Plumbline revisions it
 speaks; revisions compare for equality and are never ordered.
 
-## 0. If you write Rust, you are done in one line
+## 0. Rust integration
 
 ```toml
 [dependencies]
 isthmus = "0.1"
 ```
 
-`crates/isthmus` is `IS-1`, `IS-2` §7, `IS-3` and `IS-5` as a crate with
-**no path dependencies** — no kernel tree on disk, no workspace to join.
-`datum` asserts it agrees with both kernels byte for byte; the run is at
-`measure/third-implementation.md`.
+`crates/isthmus` implements `IS-1`, `IS-2` §7, `IS-3` and `IS-5` as a crate with
+**no path dependencies**: no kernel tree on disk, no workspace to join.
+`datum` asserts it agrees with both kernels byte for byte.
 
-Read on if you are writing in something else, or if you want to know
-what the crate is doing.
+The sections below describe implementing in other languages and the
+behavior of the crate.
 
 ---
 
-**You do not need any of the source in these trees.** Everything below
-can be implemented from this document, `protocols/`, and
-`conformance/`. That claim is tested twice: `conformance/reference.py`
-is a second implementation written from the documents alone, and
-`crates/isthmus` is a third. Between them they found **four** gaps —
-three recorded in `measure/second-implementation.md`, one in
-`measure/third-implementation.md`, all four closed.
+This document, `protocols/`, and `conformance/` are sufficient to
+implement everything below; the source in these trees is not required.
+That property is tested twice: `conformance/reference.py` is a second
+implementation written from the documents alone, and `crates/isthmus`
+is a third. Between them they found four gaps, all four closed.
 
 ## 1. What you are connecting to
 
@@ -38,14 +35,13 @@ netstratum mesh ──────────────┼── the substrat
 xylarium mesh ────────────────┘
 ```
 
-The substrate carries **frames**. It does not read them. A frame it does
-not own is length-skipped and forwarded, which is what lets a mesh
+The substrate carries **frames** and does not read them. A frame it does
+not own is length-skipped and forwarded. This is what lets a mesh
 connect to a mesh rather than only a kernel to a mesh.
 
-Two kernels already cross it. `measure/the-crossing.md` records a
-relation leaving one, arriving at the other, and both agreeing on what
-arrived — including exact rationals and a case where their readings
-differ by a known offset.
+Two kernels cross it. A relation leaves one, arrives at the other, and
+both agree on what arrived, including exact rationals and a case where
+their readings differ by a known offset.
 
 ## 2. The minimum you must implement
 
@@ -57,23 +53,22 @@ Four things, in this order.
 tag u8 ‖ LE32(length) ‖ value
 ```
 
-`IS-1` §1. That is the whole framing. The length prefix is what makes
-everything else possible.
+`IS-1` §1. That is the whole framing. The length prefix makes everything
+else possible.
 
 ### 2.2 Skip what you do not own
 
 A tag you do not know is **stepped over whole**, by its declared length,
 and what follows still reads. `IS-1` §2.
 
-This is not an optimisation and it is not optional. It is the property
-that lets you connect at all: you will receive frames belonging to
-kernels and meshes you have never heard of, and dropping the connection
-because of one is the failure mode the whole design avoids.
+This property is required. You will receive frames belonging to kernels
+and meshes you have never heard of. Skip and forward them rather than
+dropping the connection.
 
 ### 2.3 The four verdicts
 
-`IS-1` §10. A reader answers one of four things, and **the last two are
-where implementations go wrong**:
+`IS-1` §10. A reader answers one of four things. The last two are where
+implementations most often go wrong:
 
 | verdict | meaning |
 |---|---|
@@ -85,7 +80,7 @@ where implementations go wrong**:
 `skip` is a record you will never own. `wait` is one that has not
 finished arriving. Conflating them either drops data or stalls forever.
 
-### 2.4 Tell *never* from *not yet*
+### 2.4 Distinguish never from not yet
 
 ```
 len > MAX_RECORD        REFUSE   no arrival can satisfy this
@@ -94,13 +89,13 @@ buffer < 5 + len        WAIT     the value is incomplete
 otherwise               TAKE
 ```
 
-`IS-2` §7. `MAX_RECORD` is `1 << 20` by default — measured against the
+`IS-2` §7. `MAX_RECORD` is `1 << 20` by default, measured against the
 largest record in the environment, 585 bytes, so it clears real traffic
 by roughly 1790.
 
-Without the bound those two cases are the same observation and you can
-only wait. With it, a session's held bytes never exceed one maximal
-record.
+Without the bound the first two cases are the same observation and the
+only available response is to wait. With it, a session's held bytes never
+exceed one maximal record.
 
 ## 3. Checking yourself
 
@@ -113,8 +108,7 @@ protocols/IS-1_WIRE.md   §9, thirteen byte-exact vectors
 Every vector is generated by calling the reference codec and asserted
 against the hex the document carries, so the two cannot drift.
 
-Start with these three, in order — they are the ones that catch the most
-implementations:
+Start with these three, in order; they catch the most implementations:
 
 ```
 V3   ratio 0      00000000000100000001
@@ -136,8 +130,8 @@ sign u8 ‖ LE32(len) ‖ numerator BE ‖ LE32(len) ‖ denominator BE
 Sign is `0` or `1`. Magnitudes carry no leading zeros. Zero's magnitude
 is empty.
 
-**Refuse, never repair.** `IS-1` §4 lists every refusal a conforming
-reader may produce, and the list is exhaustive on purpose:
+Refuse, never repair. `IS-1` §4 lists every refusal a conforming reader
+may produce, and the list is exhaustive:
 
 ```
 zero denominator                       leading zero byte in a magnitude
@@ -147,9 +141,9 @@ bytes left over after a value          a nested record with the wrong tag
 ```
 
 Two of those were found by the second implementation, which read §3's
-*"magnitudes carry no leading zeros"* as a statement about encoders —
-which it is — and inferred nothing about decoders. **A rule stated about
-the writer is not a rule about the reader**, and §4 now states both.
+"magnitudes carry no leading zeros" as a statement about encoders and
+inferred nothing about decoders. A rule stated about the writer is not a
+rule about the reader; §4 now states both.
 
 ## 5. Asking for tag numbers
 
@@ -169,19 +163,17 @@ Tags are one byte. `IS-3` §5 partitions them:
 240–255      held back, so exhausting the space refuses rather than wraps
 ```
 
-**Ask for a range from 192–239.** What a value means inside your range
-is yours. One tag, one meaning, forever; a retired tag is never
-reissued.
+Ask for a range from 192–239. What a value means inside your range is
+yours. One tag, one meaning, forever; a retired tag is never reissued.
 
-Two rules learned the expensive way, both worth your attention:
+Two rules:
 
-- **A claim not on `master` is not a claim.** A range was claimed on a
-  branch, `master` read *unclaimed* for days, and a lane wrote a
-  142-line frame against a tag already taken. The registry did not
-  collide with them — *it lied to them*.
-- **A table is only authoritative over what it enumerates.** A grant
-  table was written against one registry and was a claim about two.
-  Every range above is checked against both, by a test.
+- A claim not on `master` is not a claim. A range claimed on a branch
+  read as *unclaimed* on `master`, and a lane wrote a 142-line frame
+  against a tag already taken. Claim on `master`.
+- A table is authoritative only over what it enumerates. A grant table
+  written against one registry was a claim about two. Every range above
+  is checked against both, by a test.
 
 ## 6. Saying what you speak
 
@@ -196,18 +188,18 @@ hello = LE32(revisions) ‖ (LE16(len) ‖ utf8)…
 Tag 64. Each side states what it holds; neither agrees to anything;
 there is no round trip and no failure to agree.
 
-**A peer that speaks less is limited, never refused.** If you implement
-only §2's four points you can still connect — you will forward what you
-cannot read, which is exactly what a linking mesh does.
+A peer that speaks less is limited, not refused. Implementing only §2's
+four points is sufficient to connect; you forward what you cannot read,
+which is what a linking mesh does.
 
-You may declare a **larger** `max_record` than the default. You may not
+You may declare a **larger** `max_record` than the default. Do not
 enforce a smaller one without having declared it: a reader refusing at a
 ceiling its sender does not know about loses the record with nobody at
 fault.
 
 ## 7. If you want to be believed
 
-`IS-4`. Three roles, and none is optional:
+`IS-4`. Three roles, none optional:
 
 ```
 OBSERVER   holds the subject, at the depth it has standing to see
@@ -219,7 +211,7 @@ A witness **names** its observer and does not ship it. A verdict that
 cannot say which observer it was reached against cannot be compared with
 another.
 
-And a witness says which arm it is, because the cost differs by an order
+A witness states which arm it is, because the cost differs by an order
 of magnitude:
 
 | arm | checking costs |
@@ -227,24 +219,23 @@ of magnitude:
 | succinct | less than producing |
 | replay | what producing costs — it buys tamper-evidence, not economy |
 
-## 8. What this substrate does not give you
+## 8. Security model
 
-Stated plainly, because discovering these later is worse than reading
-them now.
+The wire framing carries no confidentiality: frames are identical
+whether or not the channel is encrypted, and tampering degrades to
+refusal rather than to false acceptance, since nothing above the wire
+accepts a claim it has not re-derived. Confidentiality, identity, and
+freshness are enforced at the court layer:
 
-- **No transport security.** The protocol carries none. Tampering
-  degrades to refusal rather than to false acceptance, because nothing
-  above believes a claim it has not re-derived — but that is not
-  confidentiality. Use an encrypting carrier if you need one; the frames
-  are identical either way.
-- **No node identity.** A peer is what it can demonstrate. There is no
-  issuer, no key registry and no party to ask.
-- **No freshness yet.** A replayed frame is valid and re-derives
-  correctly. `IS-2` §6 rules that a claim is replay-safe and an effect
-  must be idempotent — and records that at least one effect currently
-  is not.
-- **No accountability.** A peer that floods or stalls cannot be named,
-  so it cannot be excluded by name. Exclude at the adapter.
+- **Confidentiality.** The court runs optional chain-pinned TLS
+  (`IS-6` §6). An encrypting carrier can also wrap the frames unchanged.
+- **Identity.** Keys bind to grants on the chain (`Act::Bind`, `IS-6`
+  §4). A court with `require_signatures = true` refuses forged, stale,
+  and unbound presentations.
+- **Freshness.** The `IS-2` §6 session challenge binds a session's
+  answer to a live token; a replayed session is refused.
+- **Admission.** Connection caps and a handshake deadline bound what an
+  unauthenticated connection can hold.
 
 ## 9. Where to start reading
 
@@ -256,6 +247,6 @@ protocols/IS-3_REGISTRY.md   §5, to pick your range
 protocols/IS-5_HANDSHAKE.md  to say what you speak
 ```
 
-`reference.py` is the fastest way in. It implements §1 through §4 and
-the session rule in one file, imports nothing, and checks itself against
-every vector and every conformance case.
+`reference.py` implements §1 through §4 and the session rule in one file,
+imports nothing, and checks itself against every vector and every
+conformance case.

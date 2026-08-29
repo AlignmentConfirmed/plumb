@@ -1,70 +1,64 @@
 # The Proof Economy
 
-**An epistemic settlement layer** — a market where claims are priced,
-verified, and settled like trades.
+An epistemic settlement layer: a system that prices, verifies, and
+settles claims of useful work.
 
-In finance, settlement is the moment a trade becomes final: obligations
-discharged, ownership actually transferred. This system does the same
-thing for **claims of useful work**. A claim arrives unsettled —
-asserted, unpaid, contestable. It is verified by re-derivation or by
-convergence among independent parties, and then it **settles**: credited
-on a ledger, recorded, and protected against ever being paid twice.
+Settlement is the point at which a claim becomes final: credited on a
+ledger and recorded. A claim is submitted unsettled — asserted, unpaid,
+contestable. It is verified by re-derivation or by convergence among
+independent parties, and then it settles: credited on a ledger,
+recorded, and protected against being paid twice.
 
-Blockchains settle ownership. Prediction markets price beliefs but rely
-on outside oracles. Peer review verifies but has no ledger and no
-economics. This layer settles *the claims themselves*, natively.
+Blockchains settle ownership. Prediction markets price beliefs and rely
+on external oracles. Peer review verifies without a ledger or
+economics. This layer settles the claims themselves.
 
 ---
 
 ## 1 · The two components
 
-The economy is two parts with a deliberate division of ignorance:
+The economy has two parts with a separation of function:
 
-### isthmus — the substrate (moves claims without understanding them)
+### isthmus — the substrate (moves claims without interpreting them)
 
 A dependency-free wire library. It defines:
 
-- **The record** — `tag ‖ length ‖ value`. The length prefix is what
-  lets a carrier forward a frame it cannot read.
-- **The four verdicts** — accept, refuse, skip, wait. *Skip* (a frame
-  you will never own) and *wait* (a frame that has not finished
-  arriving) are kept distinct, which is what lets strangers share a
-  wire without a coordinator.
+- **The record** — `tag ‖ length ‖ value`. The length prefix lets a
+  carrier forward a frame it does not interpret.
+- **The four verdicts** — accept, refuse, skip, wait. *Skip* (a frame a
+  node will never own) and *wait* (a frame that has not finished
+  arriving) are distinct, which lets independent parties share a wire
+  without a coordinator.
 - **The registry** — tag ranges granted to vocabularies. A granted
-  range is yours until you retire it; a retired tag is never reissued;
-  the frozen band is never grantable. This is the authorization
-  surface (see §4).
-- **Node roles** — producer, verifier, carrier. Roles are
-  capabilities, not ranks; nothing distinguishes a sender from a
-  receiver, so there is no coordinator to capture.
-- **Claim envelopes** — opaque frames (tags 80–82) that carry proof
-  bytes the substrate never inspects.
+  range is held until retired; a retired tag is never reissued; the
+  frozen band is never grantable. This is the authorization surface
+  (see §4).
+- **Node roles** — producer, verifier, carrier. Roles are capabilities,
+  not ranks; senders and receivers are not distinguished, so there is
+  no coordinator role.
+- **Claim envelopes** — opaque frames (tags 80–82) carrying proof bytes
+  that the substrate does not inspect.
 
-Isthmus enforces exactly one epistemics: *carriers cannot read what
-they carry.* Independence of parties in transit is structural, not
-promised.
+Isthmus enforces one epistemic property: carriers do not interpret what
+they carry. Independence of parties in transit is structural.
 
-### datum — the court (understands claims without moving them)
+### datum — the court (interprets claims without moving them)
 
 The settlement engine. It defines:
 
-- **The board** — priced, multi-axial space. Posting a question is
-  opening space; the price is the bounty. Space is n-dimensional on
-  purpose: an answer can be required to close on several independent
-  axes (correct, bounded, reproducible, cited) before it earns
-  anything.
-- **Work identity** — `work_id` is derived from the *structure* of the
-  work, never from a nonce. The same answer resubmitted — or copied —
-  is the same work, and is refused as replay. This is what makes a
-  knowledge economy possible: credit cannot be farmed by re-uploading
-  known results.
+- **The board** — priced, multi-axial space. Posting a question opens
+  space; the price is the bounty. Space is n-dimensional: an answer can
+  be required to close on several independent axes (correct, bounded,
+  reproducible, cited) before it earns anything.
+- **Work identity** — `work_id` is derived from the structure of the
+  work, not from a nonce. The same answer resubmitted or copied is the
+  same work, and is refused as replay. Credit cannot be obtained by
+  re-uploading known results.
 - **The reward book** — credit ledgered against work identity, with
-  multi-axis cover: claims that do not close on every axis earn
-  nothing.
+  multi-axis cover: claims that do not close on every axis earn nothing.
 - **Settlement** — `enact_if_funded`: a claim settles only when the
   space it lands on is funded and every axis converges. Settlement
-  writes the chain; the chain is the record of what was measured
-  rather than assumed.
+  writes the chain; the chain records what was measured.
 - **The chain** — founding acts, blocks as well-formed act batches,
   vertical anchors across chains, and sphere-merge economics for when
   two independently-grown ledgers meet.
@@ -83,9 +77,10 @@ producer                    carriers                    court
    │                                       on the ledger  │
 ```
 
-Isthmus moves things without understanding them; datum understands
-things without moving them. A party that can do both — read a proof
-*and* carry it — would be an arbiter, and the design refuses arbiters.
+Isthmus moves claims without interpreting them; datum interprets claims
+without moving them. A party that both reads a proof and carries it
+would be an arbiter; the design separates these two functions so that
+no single party holds both.
 
 ---
 
@@ -96,12 +91,12 @@ things without moving them. A party that can do both — read a proof
 2. **Work happens elsewhere.** A kernel (any attached domain engine)
    produces a candidate: a proof, a construction, a solution.
 3. **The claim travels.** Wrapped in an opaque envelope, it crosses the
-   substrate. No carrier can read it; no carrier can front-run it.
+   substrate. Carriers do not read it and cannot front-run it.
 4. **The court verifies.** For checkable domains, verification is
    re-derivation: the court reruns the work and the claim either closes
    or it does not. For open domains, verification is convergence:
    credit requires independent claims with matching structure from
-   parties who could not see each other's work in transit.
+   parties that could not see each other's work in transit.
 5. **Settlement.** If the space is funded and every axis closes, the
    claim settles: credit is written, the work identity is recorded, and
    any future copy of the same work is replay.
@@ -113,38 +108,36 @@ things without moving them. A party that can do both — read a proof
 The layer's guarantee is **verified-or-convergent, not true.**
 
 - **Checkable domains** (mathematics, program verification, data
-  transformation, retrieval with provenance): re-derivation gives
-  answers that arrive with proof. Here the economy is at full strength.
-- **Open domains** (judgment, taste, strategy): re-derivation is
-  impossible; convergence is the only tool, and convergent is not the
-  same as correct — independent parties can share a bias. The layer
-  prices and settles such claims but does not pretend to more certainty
-  than the mechanism provides.
+  transformation, retrieval with provenance): re-derivation produces
+  answers that arrive with proof. The economy operates at full strength
+  here.
+- **Open domains** (judgment, taste, strategy): re-derivation is not
+  possible; convergence is the only available mechanism, and convergent
+  is not the same as correct — independent parties can share a bias. The
+  layer prices and settles such claims to the level of certainty the
+  mechanism provides.
 
-Any public statement about this system should preserve that
-distinction. Overclaiming is the one failure the settlement metaphor
-cannot survive.
+Public statements about this system preserve this distinction.
 
 ---
 
 ## 4 · Attaching a kernel (the authorization model)
 
-The economy is a substrate, not a club — but attachment is authorized,
-and the authorization is *on the ledger*, not in a config file:
+Attachment is authorized, and the authorization is recorded on the
+ledger rather than in a config file:
 
 1. **A grant.** The kernel's vocabulary receives a tag range from the
    registry. Grants are recorded as deeds on the chain; the frozen band
    is never granted; a retired range is never reissued.
 2. **A declaration.** The kernel declares itself over the handshake —
    which revisions it speaks. Revisions compare for equality and are
-   never ordered: two peers on different revisions disagree about what
-   a frame means, and neither is wrong.
+   never ordered: two peers on different revisions disagree about what a
+   frame means, and neither is authoritative.
 3. **An on-ramp.** The kernel's domain dialect is translated at its own
-   edge into a portable claim the court can verify. The substrate never
-   learns the dialect; the court never learns the kernel.
+   edge into a portable claim the court can verify. The substrate does
+   not process the dialect; the court does not process the kernel.
 
-The SDK surface a kernel needs (see `IMPLEMENTATION.md` for the
-crate plan):
+The SDK surface a kernel uses:
 
 | operation | what it does |
 |---|---|
@@ -159,7 +152,7 @@ crate plan):
 
 ## 5 · Status — what is built and what is not
 
-Built and enforced by tests today:
+Built and enforced by tests:
 
 - The wire, the four verdicts, skip-unknown, exact rationals, refusals
 - The registry, the handshake, the chain codec, conformance vectors
@@ -167,17 +160,25 @@ Built and enforced by tests today:
   block production, vertical anchors, sphere-merge economics
 - Producer / verifier / carrier roles; opaque claim envelopes
 
-Not built, and required before any public deployment:
+- **Cryptographic identity.** Ed25519 over BLAKE3 envelopes (scheme
+  `0x01`), keys bound to grants on the chain (`Act::Bind`, IS-6/4). With
+  `require_signatures = true`, a court refuses forged, stale, and unbound
+  presentations.
+- **Transport.** The `plumbd` daemon runs signed, fresh sessions over
+  TCP (IS-2/2 session challenge), durable court federation, and optional
+  chain-pinned TLS (IS-6/6). Admission limits (connection caps, handshake
+  deadline) bound unauthenticated connections.
+- **Live registration** (`plumbd join`): a key with no genesis-time bind
+  joins a running court and registers without a restart.
+- **The IS-4 witness** (IS-4/1): the frame, the court's witness log, and
+  the watcher bound by four prohibitions.
 
-- **Cryptographic identity, enforcement half.** Primitives exist
-  (Ed25519 over BLAKE3 envelopes) and the chain binds keys to grants
-  (`Act::Bind`); courts and carriers do not yet refuse unsigned or
-  mis-signed envelopes. Until they do, one party can present as many.
-- **Transport.** The substrate is a library, not a daemon. Sessions,
-  freshness, and anti-replay at the transport level are specified as
-  open, not implemented.
-- **The witness role** (IS-4) is specified, not built.
+Enabled per deployment, or not yet implemented:
 
-The current system is a complete, tested *model* of an epistemic
-settlement layer, with the trust layer still to be poured underneath
-it.
+- Signature enforcement and live registration are config flags, not
+  defaults.
+- TCP is the only transport; there is no NAT traversal or peer discovery.
+- The IS-4 verdict frame (§8).
+
+The current system is a tested model of an epistemic settlement layer.
+It is not yet a deployed network.
