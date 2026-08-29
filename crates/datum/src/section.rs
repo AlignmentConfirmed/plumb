@@ -31,6 +31,12 @@ pub struct AxialCredit {
     free: Vec<i128>,
     /// Torsion axes — axis `i` is a residue in `[0, m_i)`.
     torsion: Vec<u64>,
+    /// The torsion moduli `m_i` of this cell's grade, so a merge reduces
+    /// without re-resolving the grade's shape. The section is **self-
+    /// describing**: a relay (#72) holds only the section, never the claim
+    /// that made it, and cannot re-derive `m_i` from a tag alone (a claim
+    /// may embed its own universe rather than declare one on the chain).
+    moduli: Vec<u64>,
 }
 
 impl AxialCredit {
@@ -41,6 +47,7 @@ impl AxialCredit {
         Self {
             free: vec![0; shape.free_rank],
             torsion: vec![0; shape.torsion.len()],
+            moduli: shape.torsion.clone(),
         }
     }
 
@@ -48,7 +55,21 @@ impl AxialCredit {
     /// yet reduced — [`AxialCredit::accumulate`] reduces them mod `m_i`).
     #[must_use]
     pub fn of(free: Vec<i128>, torsion: Vec<u64>) -> Self {
-        Self { free, torsion }
+        Self {
+            free,
+            torsion,
+            moduli: Vec::new(),
+        }
+    }
+
+    /// The grade shape this cell carries — its free rank and torsion moduli.
+    /// A merge reconstructs the shape from the cell itself, so no external
+    /// resolver is needed.
+    fn shape(&self) -> GradeShape {
+        GradeShape {
+            free_rank: self.free.len(),
+            torsion: self.moduli.clone(),
+        }
     }
 
     /// Accumulate `delta` into this credit under `shape`: free axes add in
@@ -152,8 +173,8 @@ impl Section {
     }
 
     /// Merge another section into this one — the abelian union of two
-    /// settled sections. `shape_of` supplies each grade's [`GradeShape`]
-    /// (its torsion moduli) so the sum reduces correctly on every axis.
+    /// settled sections. Each cell carries its own torsion moduli, so the
+    /// sum reduces correctly with no external resolver.
     ///
     /// This is the **group** half of the guard/section split (§6h): merging
     /// is commutative and associative, so nodes that settled disjoint work
@@ -162,11 +183,24 @@ impl Section {
     /// peer's [`Section::encode`] bytes. Exactly-once — idempotency under
     /// re-merge — is the **guard**'s job (the book's `seen` set), not the
     /// group's; a relay exchanges each peer's contribution once.
-    pub fn merge(&mut self, other: &Section, shape_of: impl Fn(GradeId) -> GradeShape) {
-        for (grade, credit) in other.cells() {
-            let shape = shape_of(grade);
-            let delta = AxialCredit::of(credit.free().to_vec(), credit.torsion().to_vec());
-            self.deposit(grade, &shape, &delta);
+    pub fn merge(&mut self, other: &Section) {
+        use std::collections::btree_map::Entry;
+        for ((tag, dim), remote) in other.cells() {
+            match self.domains.entry(tag).or_default().entry(dim) {
+                Entry::Vacant(v) => {
+                    // Absent here: adopt the peer's cell, already reduced and
+                    // self-describing (it carries its own moduli).
+                    v.insert(remote.clone());
+                }
+                Entry::Occupied(mut o) => {
+                    // Present on both: the abelian sum, reduced per this
+                    // cell's moduli.
+                    let shape = o.get().shape();
+                    let delta =
+                        AxialCredit::of(remote.free().to_vec(), remote.torsion().to_vec());
+                    o.get_mut().accumulate(&delta, &shape);
+                }
+            }
         }
     }
 
@@ -265,6 +299,10 @@ impl Section {
             for v in torsion {
                 buf.extend_from_slice(&v.to_le_bytes());
             }
+            buf.extend_from_slice(&(credit.moduli.len() as u64).to_le_bytes());
+            for v in &credit.moduli {
+                buf.extend_from_slice(&v.to_le_bytes());
+            }
         }
         buf
     }
@@ -275,9 +313,10 @@ impl Section {
     /// not silently forget — the same rule the book snapshot follows.
     pub fn decode(bytes: &[u8]) -> Result<Self, SectionBroken> {
         let mut p = 0usize;
-        // Each cell is at least 28 bytes (tag 8, dim 4, two length prefixes
-        // 8 each), so a count that cannot fit refuses before any allocation.
-        let count = rd_len(bytes, &mut p, 28)?;
+        // Each cell is at least 36 bytes (tag 8, dim 4, three length
+        // prefixes 8 each), so a count that cannot fit refuses before any
+        // allocation.
+        let count = rd_len(bytes, &mut p, 36)?;
         let mut domains: BTreeMap<u64, Stalk> = BTreeMap::new();
         for _ in 0..count {
             let tag = rd_u64(bytes, &mut p)?;
@@ -292,10 +331,19 @@ impl Section {
             for _ in 0..torsion_len {
                 torsion.push(rd_u64(bytes, &mut p)?);
             }
-            domains
-                .entry(tag)
-                .or_default()
-                .insert(dim, AxialCredit::of(free, torsion));
+            let moduli_len = rd_len(bytes, &mut p, 8)?;
+            let mut moduli = Vec::with_capacity(moduli_len);
+            for _ in 0..moduli_len {
+                moduli.push(rd_u64(bytes, &mut p)?);
+            }
+            domains.entry(tag).or_default().insert(
+                dim,
+                AxialCredit {
+                    free,
+                    torsion,
+                    moduli,
+                },
+            );
         }
         if p != bytes.len() {
             return Err(SectionBroken::TrailingBytes);
@@ -671,9 +719,9 @@ mod tests {
         deposit(&mut node_b, &[4, 3]); // domain 200, shuffled
 
         let mut a_plus_b = node_a.clone();
-        a_plus_b.merge(&node_b, shape_of);
+        a_plus_b.merge(&node_b);
         let mut b_plus_a = node_b.clone();
-        b_plus_a.merge(&node_a, shape_of);
+        b_plus_a.merge(&node_a);
 
         assert_eq!(
             a_plus_b.anchor(),
@@ -697,7 +745,7 @@ mod tests {
         a.deposit((7, 0), &shape_of((7, 0)), &AxialCredit::of(vec![10], vec![4]));
         let mut b = Section::new();
         b.deposit((7, 0), &shape_of((7, 0)), &AxialCredit::of(vec![5], vec![5]));
-        a.merge(&b, shape_of);
+        a.merge(&b);
         assert_eq!(a.at((7, 0)).map(AxialCredit::free), Some(&[15i128][..]), "10 + 5");
         assert_eq!(a.at((7, 0)).map(AxialCredit::torsion), Some(&[3u64][..]), "(4+5)%6=3");
     }

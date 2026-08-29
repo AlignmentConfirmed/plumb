@@ -1121,7 +1121,17 @@ pub fn serve(
     witnesses: &WitnessLog,
     on_session: impl Fn(&SessionReport) + Send + Sync + 'static,
 ) -> std::io::Error {
-    serve_inner(listener, layout, ledger, rules, book, witnesses, on_session, None)
+    serve_inner(
+        listener,
+        layout,
+        ledger,
+        rules,
+        book,
+        witnesses,
+        on_session,
+        Arc::new(Mutex::new(crate::section::Section::new())),
+        None,
+    )
 }
 
 /// Like [`serve`], but the court persists its convergence section (#65) to
@@ -1136,9 +1146,12 @@ pub fn serve_with_snapshot(
     book: &Arc<RwLock<RewardBook>>,
     witnesses: &WitnessLog,
     on_session: impl Fn(&SessionReport) + Send + Sync + 'static,
+    section: Arc<Mutex<crate::section::Section>>,
     section_path: Option<std::path::PathBuf>,
 ) -> std::io::Error {
-    serve_inner(listener, layout, ledger, rules, book, witnesses, on_session, section_path)
+    serve_inner(
+        listener, layout, ledger, rules, book, witnesses, on_session, section, section_path,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1150,6 +1163,7 @@ fn serve_inner<F: Fn(&SessionReport) + Send + Sync + 'static>(
     book: &Arc<RwLock<RewardBook>>,
     witnesses: &WitnessLog,
     on_session: F,
+    section: Arc<Mutex<crate::section::Section>>,
     section_path: Option<std::path::PathBuf>,
 ) -> std::io::Error {
     let on_session = Arc::new(on_session);
@@ -1185,28 +1199,10 @@ fn serve_inner<F: Fn(&SessionReport) + Send + Sync + 'static>(
     // built forward as the settler pool deposits each settled claim (torsion
     // per grade converges, free axes accumulate). Held here so it is written
     // by real settlement, not a disconnected type; a court reports its growth.
-    // #65: resume the convergence section from its durable store if present.
-    // A corrupt or absent store loads as empty rather than refusing — the
-    // section is a derived convergence view, rebuilt forward from settlement,
-    // not the authoritative book. The court then commits to and persists its
-    // anchor as the converged torsion normal form.
-    let section: Arc<Mutex<crate::section::Section>> = Arc::new(Mutex::new(
-        section_path
-            .as_ref()
-            .and_then(|p| std::fs::read(p).ok())
-            .and_then(|bytes| crate::section::Section::decode(&bytes).ok())
-            .unwrap_or_default(),
-    ));
-    if let (Some(_), Ok(g)) = (&section_path, section.lock()) {
-        if g.spanned() > 0 {
-            println!(
-                "plumbd: resumed convergence section — {} grade(s), anchor {}",
-                g.spanned(),
-                anchor_hex(&g.anchor())
-            );
-        }
-    }
-    // A periodic snapshot thread persists the section atomically (temp file
+    // #65/#72: the section is created and loaded by the caller and shared
+    // with the federation relay; this loop only deposits into it and
+    // persists it. A periodic snapshot thread persists it atomically (temp
+    // file
     // then rename), decoupled from settlement frequency — the same cadence
     // discipline the book snapshot follows.
     if let Some(path) = section_path.clone() {

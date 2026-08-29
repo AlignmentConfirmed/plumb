@@ -475,7 +475,7 @@ fn main() {
 
     match config.role.as_str() {
         "court" => {
-            let mut ledger = ledger;
+            let ledger = Arc::new(Mutex::new(ledger));
             let listener = match TcpListener::bind(&config.listen) {
                 Ok(l) => l,
                 Err(e) => {
@@ -491,6 +491,35 @@ fn main() {
                 fed_peers: config.fed_peers.clone(),
                 fed_secs: config.fed_secs,
             };
+            // #65/#72: the convergence section, loaded from its durable store
+            // and shared between the settler pool (serve) and the federation
+            // relay (court_service). It is self-describing (each cell carries
+            // its torsion moduli), so the relay merges it with no resolver.
+            let section_snapshot = config
+                .snapshot
+                .as_ref()
+                .map(|s| std::path::PathBuf::from(format!("{s}.section")));
+            let section: Arc<Mutex<datum::section::Section>> = Arc::new(Mutex::new(
+                section_snapshot
+                    .as_ref()
+                    .and_then(|p| std::fs::read(p).ok())
+                    .and_then(|bytes| datum::section::Section::decode(&bytes).ok())
+                    .unwrap_or_default(),
+            ));
+            if let Ok(g) = section.lock() {
+                if g.spanned() > 0 {
+                    println!(
+                        "plumbd: resumed convergence section — {} grade(s)",
+                        g.spanned()
+                    );
+                }
+            }
+            // NOTE: the section is persisted and deposited locally (#65), but
+            // NOT gossiped into the live federation yet: re-merging an
+            // aggregated section double-counts (the free axes inflate), so
+            // live cross-node convergence needs a deterministic delta-relay,
+            // not gossip (#72's core). start_with_section + the relay stay
+            // staged and unit-proven for that. Book federation is unaffected.
             let _service = match datum::court_service::start(&service, &book) {
                 Ok((handle, restored)) => {
                     if restored > 0 {
@@ -505,9 +534,10 @@ fn main() {
                     std::process::exit(1);
                 }
             };
-            let registered = (0u64..256)
-                .filter(|t| ledger.declaration_of(*t).is_some())
-                .count();
+            let registered = ledger
+                .lock()
+                .map(|g| (0u64..256).filter(|t| g.declaration_of(*t).is_some()).count())
+                .unwrap_or(0);
             if registered > 0 {
                 println!(
                     "plumbd: {registered} registered domain(s) resolved from chain state"
@@ -616,16 +646,18 @@ fn main() {
                 });
                 let identity = datum::tls::Identity { cert_der, key_der };
                 let fingerprint = identity.fingerprint();
-                if ledger.fingerprint_of(&config.holder) != Some(fingerprint) {
-                    ledger.record(isthmus::deed::Act::Certify {
-                        holder: config.holder.clone(),
-                        fingerprint,
-                    });
-                    if let Some(path) = &config.chain {
-                        let _ = datum::registration::persist_chain_atomic(
-                            std::path::Path::new(path),
-                            &ledger,
-                        );
+                if let Ok(mut led) = ledger.lock() {
+                    if led.fingerprint_of(&config.holder) != Some(fingerprint) {
+                        led.record(isthmus::deed::Act::Certify {
+                            holder: config.holder.clone(),
+                            fingerprint,
+                        });
+                        if let Some(path) = &config.chain {
+                            let _ = datum::registration::persist_chain_atomic(
+                                std::path::Path::new(path),
+                                &led,
+                            );
+                        }
                     }
                 }
                 println!(
@@ -654,15 +686,8 @@ fn main() {
                 connections: Arc::new(Mutex::new(plumbd::ConnectionCounts::default())),
                 tls: tls_server_config,
             };
-            let ledger = Arc::new(Mutex::new(ledger));
             let witnesses: plumbd::WitnessLog =
                 Arc::new(Mutex::new(Vec::new()));
-            // #65: the court persists its convergence section beside the
-            // book snapshot, so the committed torsion normal form resumes.
-            let section_snapshot = config
-                .snapshot
-                .as_ref()
-                .map(|s| std::path::PathBuf::from(format!("{s}.section")));
             let err = plumbd::serve_with_snapshot(
                 &listener,
                 &layout,
@@ -676,6 +701,7 @@ fn main() {
                         report.credited, report.refused, report.skipped, report.witnessed
                     );
                 },
+                Arc::clone(&section),
                 section_snapshot,
             );
             eprintln!("plumbd: listener failed: {err}");

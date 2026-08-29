@@ -18,9 +18,8 @@ use std::thread;
 use std::time::Duration;
 
 use crate::court_store::{self, StoreBroken};
-use crate::geometry::GradeShape;
 use crate::reward::RewardBook;
-use crate::section::{GradeId, Section, SectionBroken};
+use crate::section::{Section, SectionBroken};
 
 /// Why live court federation refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -184,18 +183,15 @@ pub fn export_section(section: &Section) -> Vec<u8> {
     section.encode()
 }
 
-/// Decode a remote section and merge it into the local one. `shape_of`
-/// supplies each grade's torsion moduli. Two courts that relay their
-/// sections converge to the same committed anchor (#65) — the live form of
-/// the #67 confluence. Exactly-once stays the book's guard; the relay
-/// carries each peer's contribution.
-pub fn import_merge_section(
-    local: &mut Section,
-    bytes: &[u8],
-    shape_of: impl Fn(GradeId) -> GradeShape,
-) -> Result<(), CourtLiveRefused> {
+/// Decode a remote section and merge it into the local one. The section is
+/// self-describing (each cell carries its torsion moduli), so the merge
+/// needs no external resolver. Two courts that relay their sections
+/// converge to the same committed anchor (#65) — the live form of the #67
+/// confluence. Exactly-once stays the book's guard; the relay carries each
+/// peer's contribution.
+pub fn import_merge_section(local: &mut Section, bytes: &[u8]) -> Result<(), CourtLiveRefused> {
     let remote = Section::decode(bytes)?;
-    local.merge(&remote, shape_of);
+    local.merge(&remote);
     Ok(())
 }
 
@@ -212,10 +208,26 @@ pub fn send_section(stream: &mut TcpStream, section: &Section) -> Result<(), Cou
     Ok(())
 }
 
+/// Push the book and then the section to a peer on one connection (#72):
+/// the RewardBook snapshot first, the convergence section second, in that
+/// order, so the receiver reads them back in the same order.
+pub fn push_book_and_section(
+    addr: impl ToSocketAddrs,
+    book: &RewardBook,
+    section: &Section,
+) -> Result<(), CourtLiveRefused> {
+    let mut stream = TcpStream::connect(addr)?;
+    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+    send_snapshot(&mut stream, book)?;
+    send_section(&mut stream, section)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::section::AxialCredit;
+    use crate::geometry::GradeShape;
+    use crate::section::{AxialCredit, GradeId};
 
     fn shape(free_rank: usize, torsion: &[u64]) -> GradeShape {
         GradeShape {
@@ -242,7 +254,7 @@ mod tests {
 
         // The limit: one node that saw both partitions.
         let mut combined = a.clone();
-        combined.merge(&b, shape_of);
+        combined.merge(&b);
         let target = combined.anchor();
 
         // A relays its section to B over loopback TCP.
@@ -256,7 +268,7 @@ mod tests {
         let mut client = TcpStream::connect(addr).expect("connect");
         send_section(&mut client, &a).expect("send");
         let for_b = handle.join().expect("join");
-        import_merge_section(&mut b, &for_b, shape_of).expect("merge");
+        import_merge_section(&mut b, &for_b).expect("merge");
 
         assert_eq!(
             b.anchor(),

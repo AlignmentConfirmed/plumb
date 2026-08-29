@@ -15,12 +15,13 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use crate::court_live;
 use crate::court_store;
 use crate::reward::RewardBook;
+use crate::section::Section;
 
 /// How the durable court runs. All parts optional: a court with no
 /// snapshot path is in-memory, a court with no peers is solitary —
@@ -94,6 +95,27 @@ pub fn start(
     config: &ServiceConfig,
     book: &Arc<RwLock<RewardBook>>,
 ) -> Result<(ServiceHandle, usize), court_store::StoreBroken> {
+    start_inner(config, book, None)
+}
+
+/// Start the durable court and also federate the convergence section (#72):
+/// each push carries the book then the section on one connection, and each
+/// accept merges both. The section is self-describing (each cell carries its
+/// torsion moduli), so the merge needs no resolver. Two courts settling the
+/// same work converge on one anchor.
+pub fn start_with_section(
+    config: &ServiceConfig,
+    book: &Arc<RwLock<RewardBook>>,
+    section: &Arc<Mutex<Section>>,
+) -> Result<(ServiceHandle, usize), court_store::StoreBroken> {
+    start_inner(config, book, Some(Arc::clone(section)))
+}
+
+fn start_inner(
+    config: &ServiceConfig,
+    book: &Arc<RwLock<RewardBook>>,
+    section: Option<Arc<Mutex<Section>>>,
+) -> Result<(ServiceHandle, usize), court_store::StoreBroken> {
     let mut restored = 0usize;
     if let Some(path) = &config.snapshot {
         let loaded = load_book(path)?;
@@ -127,12 +149,14 @@ pub fn start(
         }));
     }
 
-    // Federation accept loop: peers push snapshots; we merge. The
-    // merge refuses replay by work identity, so a peer pushing the
-    // same snapshot forever adds nothing forever.
+    // Federation accept loop: a peer pushes the book, then (optionally) the
+    // section, on one connection; we merge each. The book merge refuses
+    // replay by work identity, and the section merge is the abelian union —
+    // so a peer pushing the same thing forever adds nothing forever.
     if let Some(listen) = config.fed_listen.clone() {
         let book = Arc::clone(book);
         let stop_flag = Arc::clone(&stop);
+        let section = section.clone();
         threads.push(std::thread::spawn(move || {
             let Ok(listener) = std::net::TcpListener::bind(&listen) else {
                 return;
@@ -148,6 +172,17 @@ pub fn start(
                                 let _ = court_live::import_merge(&mut guard, &bytes);
                             }
                         }
+                        // The section follows the book on the same connection.
+                        // A peer that sends only a book (no section) just ends
+                        // the stream here, and the read fails harmlessly.
+                        if let Some(section) = &section {
+                            if let Ok(sec_bytes) = court_live::recv_snapshot(&mut stream) {
+                                if let Ok(mut guard) = section.lock() {
+                                    let _ =
+                                        court_live::import_merge_section(&mut guard, &sec_bytes);
+                                }
+                            }
+                        }
                     }
                     Err(_) => std::thread::sleep(Duration::from_millis(50)),
                 }
@@ -155,20 +190,25 @@ pub fn start(
         }));
     }
 
-    // One push loop per peer, with backoff: an absent peer costs
-    // patience, never correctness — the next push carries everything.
+    // One push loop per peer, with backoff. The book and section are cloned
+    // under a brief lock, then sent — no lock is held during the network I/O,
+    // so a slow peer costs patience, never a stalled settler.
     for peer in config.fed_peers.clone() {
         let every = Duration::from_secs(config.fed_secs.max(1));
         let book = Arc::clone(book);
         let stop_flag = Arc::clone(&stop);
+        let section = section.clone();
         threads.push(std::thread::spawn(move || {
             let mut backoff = Duration::from_millis(200);
             while !stop_flag.load(Ordering::SeqCst) {
-                let sent = {
-                    match book.read() {
-                        Ok(guard) => court_live::push_to(peer.as_str(), &guard).is_ok(),
-                        Err(_) => false,
+                let book_snap = book.read().ok().map(|g| g.clone());
+                let sec_snap = section.as_ref().and_then(|s| s.lock().ok().map(|g| g.clone()));
+                let sent = match (book_snap, sec_snap) {
+                    (Some(b), Some(s)) => {
+                        court_live::push_book_and_section(peer.as_str(), &b, &s).is_ok()
                     }
+                    (Some(b), None) => court_live::push_to(peer.as_str(), &b).is_ok(),
+                    (None, _) => false,
                 };
                 let wait = if sent {
                     backoff = Duration::from_millis(200);
