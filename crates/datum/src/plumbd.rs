@@ -491,6 +491,16 @@ fn settle_work_parallel(
 /// The exact SNF (`grade_shapes`) runs here, off the book lock, once per
 /// settled claim — the book's exact leg. Logs when a new grade first appears
 /// (a genuine read of the growing convergent state).
+/// The first eight bytes of a section anchor, hex — enough to identify the
+/// committed convergence state in a log without printing all 32.
+fn anchor_hex(anchor: &[u8; 32]) -> String {
+    use std::fmt::Write as _;
+    anchor.iter().take(8).fold(String::new(), |mut s, b| {
+        let _ = write!(s, "{b:02x}");
+        s
+    })
+}
+
 fn deposit_section(section: &Arc<Mutex<crate::section::Section>>, value: &[u8], tag: u64) {
     for ((tag, dim), shape) in crate::geometry::claim_grades(value, tag) {
         let delta = crate::section::AxialCredit::of(
@@ -502,8 +512,9 @@ fn deposit_section(section: &Arc<Mutex<crate::section::Section>>, value: &[u8], 
             guard.deposit((tag, dim), &shape, &delta);
             if is_new {
                 println!(
-                    "plumbd: convergence section grew to {} grade(s) — new (domain {tag}, dim {dim})",
-                    guard.spanned()
+                    "plumbd: convergence section grew to {} grade(s) — new (domain {tag}, dim {dim}); committed anchor {}",
+                    guard.spanned(),
+                    anchor_hex(&guard.anchor())
                 );
             }
         }
@@ -1110,6 +1121,37 @@ pub fn serve(
     witnesses: &WitnessLog,
     on_session: impl Fn(&SessionReport) + Send + Sync + 'static,
 ) -> std::io::Error {
+    serve_inner(listener, layout, ledger, rules, book, witnesses, on_session, None)
+}
+
+/// Like [`serve`], but the court persists its convergence section (#65) to
+/// `section_path` and resumes it on restart — the committed torsion normal
+/// form survives a kill, the same way the reward book does.
+#[allow(clippy::too_many_arguments)]
+pub fn serve_with_snapshot(
+    listener: &TcpListener,
+    layout: &Layout,
+    ledger: &Arc<Mutex<Ledger>>,
+    rules: &SessionRules,
+    book: &Arc<RwLock<RewardBook>>,
+    witnesses: &WitnessLog,
+    on_session: impl Fn(&SessionReport) + Send + Sync + 'static,
+    section_path: Option<std::path::PathBuf>,
+) -> std::io::Error {
+    serve_inner(listener, layout, ledger, rules, book, witnesses, on_session, section_path)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn serve_inner<F: Fn(&SessionReport) + Send + Sync + 'static>(
+    listener: &TcpListener,
+    layout: &Layout,
+    ledger: &Arc<Mutex<Ledger>>,
+    rules: &SessionRules,
+    book: &Arc<RwLock<RewardBook>>,
+    witnesses: &WitnessLog,
+    on_session: F,
+    section_path: Option<std::path::PathBuf>,
+) -> std::io::Error {
     let on_session = Arc::new(on_session);
 
     let governor = crate::sched::StaticGovernor::tuned();
@@ -1143,8 +1185,46 @@ pub fn serve(
     // built forward as the settler pool deposits each settled claim (torsion
     // per grade converges, free axes accumulate). Held here so it is written
     // by real settlement, not a disconnected type; a court reports its growth.
-    let section: Arc<Mutex<crate::section::Section>> =
-        Arc::new(Mutex::new(crate::section::Section::new()));
+    // #65: resume the convergence section from its durable store if present.
+    // A corrupt or absent store loads as empty rather than refusing — the
+    // section is a derived convergence view, rebuilt forward from settlement,
+    // not the authoritative book. The court then commits to and persists its
+    // anchor as the converged torsion normal form.
+    let section: Arc<Mutex<crate::section::Section>> = Arc::new(Mutex::new(
+        section_path
+            .as_ref()
+            .and_then(|p| std::fs::read(p).ok())
+            .and_then(|bytes| crate::section::Section::decode(&bytes).ok())
+            .unwrap_or_default(),
+    ));
+    if let (Some(_), Ok(g)) = (&section_path, section.lock()) {
+        if g.spanned() > 0 {
+            println!(
+                "plumbd: resumed convergence section — {} grade(s), anchor {}",
+                g.spanned(),
+                anchor_hex(&g.anchor())
+            );
+        }
+    }
+    // A periodic snapshot thread persists the section atomically (temp file
+    // then rename), decoupled from settlement frequency — the same cadence
+    // discipline the book snapshot follows.
+    if let Some(path) = section_path.clone() {
+        let section = Arc::clone(&section);
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            let bytes = match section.lock() {
+                Ok(g) => g.encode(),
+                Err(_) => continue,
+            };
+            let mut tmp = path.clone().into_os_string();
+            tmp.push(".tmp");
+            let tmp = std::path::PathBuf::from(tmp);
+            if std::fs::write(&tmp, &bytes).is_ok() {
+                let _ = std::fs::rename(&tmp, &path);
+            }
+        });
+    }
 
     // Settler pool: drains the work-transit in full-metric order, verifies
     // against the shared book (the one settlement resource — the metric

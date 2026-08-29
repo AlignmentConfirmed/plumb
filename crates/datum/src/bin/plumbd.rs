@@ -657,7 +657,13 @@ fn main() {
             let ledger = Arc::new(Mutex::new(ledger));
             let witnesses: plumbd::WitnessLog =
                 Arc::new(Mutex::new(Vec::new()));
-            let err = plumbd::serve(
+            // #65: the court persists its convergence section beside the
+            // book snapshot, so the committed torsion normal form resumes.
+            let section_snapshot = config
+                .snapshot
+                .as_ref()
+                .map(|s| std::path::PathBuf::from(format!("{s}.section")));
+            let err = plumbd::serve_with_snapshot(
                 &listener,
                 &layout,
                 &ledger,
@@ -670,6 +676,7 @@ fn main() {
                         report.credited, report.refused, report.skipped, report.witnessed
                     );
                 },
+                section_snapshot,
             );
             eprintln!("plumbd: listener failed: {err}");
             std::process::exit(1);

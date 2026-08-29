@@ -223,6 +223,110 @@ impl Section {
         }
         sig::envelope_hash(&buf)
     }
+
+    /// Encode the section to durable bytes: every cell in canonical
+    /// `(tag, dim)` order, so `decode(encode(s)) == s` exactly. This is the
+    /// durable stalk store (#65) — a court can persist its converged
+    /// settlement state and resume it — and the form a relay (#72) carries.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let cells: Vec<_> = self.cells().collect();
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&(cells.len() as u64).to_le_bytes());
+        for ((tag, dim), credit) in cells {
+            buf.extend_from_slice(&tag.to_le_bytes());
+            buf.extend_from_slice(&dim.to_le_bytes());
+            let free = credit.free();
+            buf.extend_from_slice(&(free.len() as u64).to_le_bytes());
+            for v in free {
+                buf.extend_from_slice(&v.to_le_bytes());
+            }
+            let torsion = credit.torsion();
+            buf.extend_from_slice(&(torsion.len() as u64).to_le_bytes());
+            for v in torsion {
+                buf.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        buf
+    }
+
+    /// Reconstruct a section from [`Section::encode`] bytes. Refuses a
+    /// truncated, over-long, or trailing-bytes buffer rather than loading a
+    /// partial section: a court resuming from a corrupt store must refuse,
+    /// not silently forget — the same rule the book snapshot follows.
+    pub fn decode(bytes: &[u8]) -> Result<Self, SectionBroken> {
+        let mut p = 0usize;
+        // Each cell is at least 28 bytes (tag 8, dim 4, two length prefixes
+        // 8 each), so a count that cannot fit refuses before any allocation.
+        let count = rd_len(bytes, &mut p, 28)?;
+        let mut domains: BTreeMap<u64, Stalk> = BTreeMap::new();
+        for _ in 0..count {
+            let tag = rd_u64(bytes, &mut p)?;
+            let dim = rd_u32(bytes, &mut p)?;
+            let free_len = rd_len(bytes, &mut p, 16)?;
+            let mut free = Vec::with_capacity(free_len);
+            for _ in 0..free_len {
+                free.push(rd_i128(bytes, &mut p)?);
+            }
+            let torsion_len = rd_len(bytes, &mut p, 8)?;
+            let mut torsion = Vec::with_capacity(torsion_len);
+            for _ in 0..torsion_len {
+                torsion.push(rd_u64(bytes, &mut p)?);
+            }
+            domains
+                .entry(tag)
+                .or_default()
+                .insert(dim, AxialCredit::of(free, torsion));
+        }
+        if p != bytes.len() {
+            return Err(SectionBroken::TrailingBytes);
+        }
+        Ok(Self { domains })
+    }
+}
+
+/// Why [`Section::decode`] refused a durable buffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SectionBroken {
+    /// The buffer ended in the middle of a field.
+    Truncated,
+    /// A length prefix declared more elements than the buffer can hold.
+    Overlong,
+    /// Bytes remained after a complete section decoded.
+    TrailingBytes,
+}
+
+fn rd_u64(b: &[u8], p: &mut usize) -> Result<u64, SectionBroken> {
+    let end = p.checked_add(8).ok_or(SectionBroken::Truncated)?;
+    let slice = b.get(*p..end).ok_or(SectionBroken::Truncated)?;
+    *p = end;
+    Ok(u64::from_le_bytes(slice.try_into().unwrap_or([0; 8])))
+}
+
+fn rd_u32(b: &[u8], p: &mut usize) -> Result<u32, SectionBroken> {
+    let end = p.checked_add(4).ok_or(SectionBroken::Truncated)?;
+    let slice = b.get(*p..end).ok_or(SectionBroken::Truncated)?;
+    *p = end;
+    Ok(u32::from_le_bytes(slice.try_into().unwrap_or([0; 4])))
+}
+
+fn rd_i128(b: &[u8], p: &mut usize) -> Result<i128, SectionBroken> {
+    let end = p.checked_add(16).ok_or(SectionBroken::Truncated)?;
+    let slice = b.get(*p..end).ok_or(SectionBroken::Truncated)?;
+    *p = end;
+    Ok(i128::from_le_bytes(slice.try_into().unwrap_or([0; 16])))
+}
+
+/// Read a length prefix and refuse it if it cannot fit in the remaining
+/// bytes (`stride` bytes per element), so a hostile buffer cannot force a
+/// huge allocation before the element reads fail.
+fn rd_len(b: &[u8], p: &mut usize, stride: usize) -> Result<usize, SectionBroken> {
+    let n = usize::try_from(rd_u64(b, p)?).map_err(|_| SectionBroken::Overlong)?;
+    let remaining = b.len().saturating_sub(*p);
+    if n.saturating_mul(stride) > remaining {
+        return Err(SectionBroken::Overlong);
+    }
+    Ok(n)
 }
 
 #[cfg(test)]
@@ -460,5 +564,57 @@ mod tests {
         let mut b = Section::new();
         b.deposit((1, 0), &s, &AxialCredit::of(vec![6], vec![]));
         assert_ne!(a.anchor(), b.anchor(), "distinct settled value → distinct anchor");
+    }
+
+    #[test]
+    fn the_codec_round_trips_a_section_and_its_anchor() {
+        // #65: the durable stalk store. A court can persist its converged
+        // section and resume it byte-for-byte, so the committed anchor is
+        // the same after a restart as before.
+        let mut s = Section::new();
+        s.deposit((100, 0), &shape(1, &[6]), &AxialCredit::of(vec![5], vec![4]));
+        s.deposit((100, 1), &shape(2, &[]), &AxialCredit::of(vec![1, -2], vec![]));
+        s.deposit((200, 0), &shape(0, &[5]), &AxialCredit::of(vec![], vec![3]));
+
+        let decoded = Section::decode(&s.encode()).expect("round-trip");
+        assert_eq!(decoded, s, "decode(encode(s)) == s");
+        assert_eq!(
+            decoded.anchor(),
+            s.anchor(),
+            "the committed anchor survives the codec"
+        );
+    }
+
+    #[test]
+    fn the_empty_section_round_trips() {
+        let s = Section::new();
+        assert_eq!(Section::decode(&s.encode()), Ok(Section::new()));
+    }
+
+    #[test]
+    fn decode_refuses_trailing_bytes() {
+        let mut bytes = Section::new().encode();
+        bytes.push(0xff);
+        assert_eq!(Section::decode(&bytes), Err(SectionBroken::TrailingBytes));
+    }
+
+    #[test]
+    fn decode_refuses_a_truncated_buffer() {
+        let mut s = Section::new();
+        s.deposit((1, 0), &shape(1, &[]), &AxialCredit::of(vec![5], vec![]));
+        let bytes = s.encode();
+        assert_eq!(
+            Section::decode(&bytes[..bytes.len() - 3]),
+            Err(SectionBroken::Truncated),
+            "a court resumes from a whole store or refuses"
+        );
+    }
+
+    #[test]
+    fn decode_refuses_an_overlong_count_without_allocating() {
+        // A count of u64::MAX cannot fit — refuse before allocating, never
+        // loop toward it.
+        let bytes = u64::MAX.to_le_bytes();
+        assert_eq!(Section::decode(&bytes), Err(SectionBroken::Overlong));
     }
 }
