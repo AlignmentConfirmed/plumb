@@ -581,9 +581,69 @@ Tracked as an ordered, dependency-wired graph (#49–#55):
   and a live **registration** completing across the greeter→settler seam
   (`join-1`). The holder is known before enqueue, closing the
   authenticated-seam gap #53 deferred here.
-- **#55 P5-B3** — weighted deficit round-robin in `FairQueue`, wire the
-  escrow weight, live-validate two contending producers (one escrowed)
-  *(needs #50, #52, #54)*.
+- **#55 P5-B3** — the scheduling fibre's transport physics, then wire the
+  escrow weight at the settler seam *(needs #50, #52, #54)*. **Mechanism
+  DONE 2026-08-29** — `sched::{Transport, Fibre}` (commit `662ad8d`). The
+  earlier burst-quantum DRR (`1f0795a`) was **removed** (unpushed, reset
+  to `5908c44`): it served `w` items back-to-back with no cost accounting
+  and shadowed `(holder→weight, credit)` HashMaps the ledger already
+  carries — a metric-less vehicle with the wrong gait. Its replacement is
+  the deterministic integer transport described under #57/#58/#59 below.
+  **Wiring the settler queue is the open half** — see the granularity
+  finding.
+- **#57 P5-Ruling — scheduler as a vector bundle. ACCEPTED 2026-08-29
+  (operator).** The scheduler is π: E → M. Base `M` = the ledger's exact
+  incidence geometry; fibre `E_x` = ephemeral socket state. The scheduler
+  holds **only** the fibre — `sched::Fibre` is the carried deficit and
+  *nothing else*; the base coordinate (escrow) is **projected from the
+  ledger at section-time** via `escrow_of(holder)`, never shadowed in a
+  HashMap. This is what the removed DRR got wrong.
+- **#58 P5-Ruling — torsion localized to the active fibre. ACCEPTED
+  2026-08-29 (operator, Directive 1).** The metric `g` is scaled by the
+  solver's **static escrow base point** on `M`, dynamically modulated by
+  `T_k = Tor(H_{k-1}(C))` of the **open boundary currently in the fibre** —
+  a property of the *active claim*, never the actor's accumulated history.
+  A solver commands high bandwidth only while transporting complex
+  geometry; the instant it reverts to a flat domain (`T_k = 0`) its
+  priority collapses to the baseline escrow vector. Preserves "not a
+  name"; closes incumbent-farming. Realized as `Transport::quantum(escrow,
+  torsion) = EscrowWeight::of(escrow)·(1+torsion)`, capped.
+- **#59 P5-Ruling — curvature affects turn-order only (option b).
+  ACCEPTED 2026-08-29 (operator, Directive 2).** Yield = the integral of
+  throughput over time; **per-unit reward is Γ-invariant**. `M` mints
+  reward solely from the invariant combinatorial chain; modulating it by
+  `Γ` would entangle ephemeral network kinematics with eternal geometric
+  truth and break A4 replay. `Γ` is a **read-only kinematic variable in
+  `E_x`**: `Γ = |supp(C_A) ∩ supp(C_B)|` (support-intersection — a
+  monotone O(N) upper bound on the homological intersection, never a
+  matrix reduction on the hot path), and it acts **only** on transit cost
+  `= 1 + Γ` (flat unit cost: chain magnitude does not enter, already
+  priced at consensus). A pivot to a novel generator meets `Γ = 0` and is
+  handed maximum un-dilated velocity — the frontier incentive is paid as
+  **throughput**, never a number on the ledger, so
+  `scheduling_never_names_a_settlement_type` holds. Realized as
+  `Transport::{curvature, cost}` + `Fibre::{grant, try_serve}` (deficit
+  carry = anti-starvation). All falsification-tested (`662ad8d`).
+
+**Granularity finding (2026-08-29) — the open wiring decision.** At the
+only seam where an economic identity exists — `settler_queue.offer(holder,
+live)` — the **holder is known but the claim is not**: boundary geometry
+(torsion, support) arrives as *records inside `drain_records`, after
+dequeue*. So the two metric terms attach at different granularities:
+  - **Escrow** (holder-level) is projectable at the settler queue →
+    escrow-weighted DRR (`quantum = Transport::quantum(escrow, 0)`,
+    `cost = 1`) is wireable now, and *is* the chartered #55.
+  - **Torsion + curvature** (claim-level) are only visible inside the
+    record loop, and `Γ` (interference between concurrently active claims
+    *across solvers*) needs a shared claim-dispatch layer that does not
+    exist — each settler thread drains its own session sequentially. The
+    full transport metric has no seam to attach to yet.
+  **Recommendation (pending operator):** wire escrow-weighting at the
+  settler seam as #55 (torsion/Γ dormant but plumbed — `Transport` already
+  accepts them), and open **#60** for the per-claim torsion/curvature
+  transport layer where boundary geometry is actually visible. This lands
+  real value now and names the gap honestly rather than faking full-metric
+  coverage at a seam that cannot see claims.
 
 **Suggested order:** #49 → #52 → #50 → #53 → #54 → #55 → #51.
 
