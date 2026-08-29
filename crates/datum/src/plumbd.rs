@@ -340,14 +340,32 @@ fn remember(seen: &mut Vec<Vec<u8>>, envelope: Vec<u8>) {
 /// Credit a work value — through the posted market when the claim
 /// inhabits the poser's universe (settling the bounty and returning
 /// the signed receipt on the wire), through the plain book otherwise.
-fn credit_value(
-    stream: &mut dyn ReadWrite,
+/// The stream-free outcome of settling one work value: the receipt frame
+/// to write back (if any), and how it counted. Verification produces this
+/// on a settler pool ordered by the transport metric; the reader that owns
+/// the connection writes `receipt` and applies the counts — so the
+/// expensive homological work is scheduled, not the cheap I/O.
+struct SettleOutcome {
+    receipt: Option<Vec<u8>>,
+    credited: bool,
+    refused: bool,
+}
+
+impl SettleOutcome {
+    fn refused() -> Self {
+        Self { receipt: None, credited: false, refused: true }
+    }
+}
+
+/// Settle one work value against the book — the whole of the expensive
+/// verification, with NO stream. Produces the receipt bytes instead of
+/// writing them, so it can run off the connection thread.
+fn settle_work(
     layout: &Layout,
     rules: &SessionRules,
     book: &mut RewardBook,
     value: &[u8],
-    report: &mut SessionReport,
-) -> Result<(), NodeBroken> {
+) -> SettleOutcome {
     if let Some(market) = &rules.market {
         match settle_answer(&market.bounty, &market.query, value, book) {
             Ok(answer) => {
@@ -364,40 +382,66 @@ fn credit_value(
                 let mut body = signed.receipt.encode();
                 body.extend_from_slice(&signed.attestation.encode());
                 let mut wire = Vec::new();
-                isthmus::frame::put_frame(layout, isthmus::work::RECEIPT_TAG, &body, &mut wire)
-                    .map_err(|_| NodeBroken::CannotFrame)?;
-                stream.write_all(&wire)?;
-                report.credited += 1;
-                return Ok(());
+                let receipt =
+                    isthmus::frame::put_frame(layout, isthmus::work::RECEIPT_TAG, &body, &mut wire)
+                        .ok()
+                        .map(|()| wire);
+                return SettleOutcome { receipt, credited: true, refused: false };
             }
             Err(crate::bounty::AnswerRefused::NotThePosersUniverse)
             | Err(crate::bounty::AnswerRefused::NotAProof)
             | Err(crate::bounty::AnswerRefused::NotDeclared(_)) => {
-                // Not an answer to the question — ordinary work. This
-                // has to cover BOTH market shapes: a plain-universe
-                // market's "wrong universe" (NotThePosersUniverse) and
-                // a conjecture market's "not even a proof"
-                // (NotAProof) / "not even a declared claim"
-                // (NotDeclared) all mean the same thing — the
-                // submission never engaged with what was posed. A
-                // court's ordinary background traffic (a producer's
-                // plain claims, unrelated to whatever question is
-                // posted) must credit the same way regardless of
-                // which shape of question happens to be live; before
-                // this, a conjecture-shaped market silently refused
-                // every non-market claim it ever saw.
+                // Not an answer to the question — ordinary work (both
+                // market shapes' "didn't engage with what was posed" mean
+                // the same thing). Fall through to the plain credit.
             }
-            Err(_) => {
-                report.refused += 1;
-                return Ok(());
-            }
+            Err(_) => return SettleOutcome::refused(),
         }
     }
     match book.credit_claim(value) {
-        Ok(_) => report.credited += 1,
-        Err(_) => report.refused += 1,
+        Ok(_) => SettleOutcome { receipt: None, credited: true, refused: false },
+        Err(_) => SettleOutcome::refused(),
     }
-    Ok(())
+}
+
+/// Per-domain graded torsion, extracted **once** from the `Act::Declare`'d
+/// complex and looked up in O(1) thereafter — so dynamic matrix reduction
+/// (SNF) never runs in the dispatch path. A tag with no registered
+/// declaration (ordinary work) caches an empty vector (a flat lift).
+#[derive(Default)]
+struct TorsionCache {
+    inner: Mutex<std::collections::HashMap<u64, std::sync::Arc<[u64]>>>,
+}
+
+impl TorsionCache {
+    /// The graded torsion for `tag`: a cached lookup, computed once from
+    /// the registered universe the first time the domain is seen.
+    fn torsion_of(&self, tag: u64, ledger: &Arc<Mutex<Ledger>>) -> std::sync::Arc<[u64]> {
+        if let Ok(cache) = self.inner.lock() {
+            if let Some(torsion) = cache.get(&tag) {
+                return std::sync::Arc::clone(torsion);
+            }
+        }
+        // Miss: resolve the declared complex and reduce it exactly once.
+        let torsion: std::sync::Arc<[u64]> = ledger
+            .lock()
+            .ok()
+            .and_then(|guard| guard.declaration_of(tag))
+            .and_then(|bytes| assay::complex::DeclaredComplex::decode(&bytes).ok())
+            .map(|complex| crate::geometry::graded_torsion(&complex).into())
+            .unwrap_or_else(|| Vec::new().into());
+        if let Ok(mut cache) = self.inner.lock() {
+            cache.insert(tag, std::sync::Arc::clone(&torsion));
+        }
+        torsion
+    }
+}
+
+/// A settlement job on the work-transit: the value to verify and a channel
+/// back to the reader that owns the connection (which writes the receipt).
+struct WorkJob {
+    value: Vec<u8>,
+    reply: std::sync::mpsc::SyncSender<SettleOutcome>,
 }
 
 /// What one court session did.
@@ -555,6 +599,27 @@ impl Survey {
         }
     }
 
+    /// Write a settlement's receipt (if any) to the connection this
+    /// session owns and apply its counts. The verification that produced
+    /// the outcome may have run on another thread (scheduled by the
+    /// transport metric); the connection write always happens here.
+    fn apply_settlement(
+        &mut self,
+        stream: &mut Box<dyn ReadWrite>,
+        outcome: SettleOutcome,
+    ) -> Result<(), NodeBroken> {
+        if let Some(receipt) = &outcome.receipt {
+            stream.write_all(receipt)?;
+        }
+        if outcome.credited {
+            self.report.credited += 1;
+        }
+        if outcome.refused {
+            self.report.refused += 1;
+        }
+        Ok(())
+    }
+
     /// Dispatch ONE already-read record. Returns [`Flow::Stop`] only for
     /// the refused-registration case that closes the session (exactly as
     /// the single-shot loop's early `return` did); every other outcome
@@ -571,14 +636,15 @@ impl Survey {
         book: &Arc<Mutex<RewardBook>>,
         witnesses: &WitnessLog,
         challenge_frame: &[u8],
+        settle: &dyn Fn(&[u8]) -> SettleOutcome,
     ) -> Result<Flow, NodeBroken> {
         let enforce = rules.enforce;
         if isthmus::work::is_work_tag(tag) && tag != isthmus::work::RECEIPT_TAG {
             if !enforce {
                 let value = frame.get(layout.header()..).unwrap_or(&[]).to_vec();
                 remember(&mut self.seen_envelopes, frame.clone());
-                let mut guard = book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
-                credit_value(&mut **stream, layout, rules, &mut guard, &value, &mut self.report)?;
+                let outcome = settle(&value);
+                self.apply_settlement(stream, outcome)?;
             } else if !self.session_live {
                 self.report.refused += 1; // work before the challenge was answered
             } else {
@@ -703,9 +769,11 @@ impl Survey {
                     let value = envelope.get(layout.header()..).unwrap_or(&[]).to_vec();
                     remember(&mut self.seen_envelopes, envelope.clone());
                     drop(guard);
-                    let mut relocked =
-                        book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
-                    credit_value(&mut **stream, layout, rules, &mut relocked, &value, &mut self.report)?;
+                    // Settlement is scheduled off this thread by the
+                    // transport metric (or run inline on a single-shot
+                    // session); either way it hands back the receipt bytes.
+                    let outcome = settle(&value);
+                    self.apply_settlement(stream, outcome)?;
                 }
                 Err(_) => self.report.refused += 1,
             }
@@ -791,6 +859,7 @@ fn drain_records(
     book: &Arc<Mutex<RewardBook>>,
     witnesses: &WitnessLog,
     challenge_frame: &[u8],
+    settle: &dyn Fn(&[u8]) -> SettleOutcome,
 ) -> Result<SessionReport, NodeBroken> {
     let bound = rules.bound;
     while let Some((tag, frame)) = read_record(stream, buffer, layout, bound)? {
@@ -804,6 +873,7 @@ fn drain_records(
             book,
             witnesses,
             challenge_frame,
+            settle,
         )? {
             Flow::Continue => {}
             Flow::Stop => return Ok(survey.report),
@@ -833,6 +903,11 @@ pub fn court_settle(state: SessionState) -> Result<SessionReport, NodeBroken> {
         mut buffer,
     } = state;
     let survey = Survey::new(!rules.enforce);
+    // Single-shot: settle inline against the book, no metric scheduling.
+    let settle = |value: &[u8]| match book.lock() {
+        Ok(mut guard) => settle_work(layout, rules, &mut guard, value),
+        Err(_) => SettleOutcome::refused(),
+    };
     drain_records(
         survey,
         &mut stream,
@@ -843,6 +918,7 @@ pub fn court_settle(state: SessionState) -> Result<SessionReport, NodeBroken> {
         book,
         witnesses,
         &challenge_frame,
+        &settle,
     )
 }
 
@@ -934,9 +1010,44 @@ pub fn serve(
     // fresh registration has no authenticated holder yet.
     let settler_queue: Arc<crate::sched::Transit<LiveSession>> =
         Arc::new(crate::sched::Transit::tuned());
+    // Reader → per-WORK-CLAIM transit (#60): the full metric. Each work
+    // record a reader pulls off its connection is offered here with its
+    // support (cheap witness decode) and graded torsion (O(1) cached from
+    // the Act::Declare'd complex); a settler pool drains it in metric order
+    // — escrow × torsion quantum, diagonal support curvature — and verifies
+    // it off the connection thread, handing the receipt bytes back.
+    let work_transit: Arc<crate::sched::Transit<WorkJob>> =
+        Arc::new(crate::sched::Transit::tuned());
+    let torsion_cache: Arc<TorsionCache> = Arc::new(TorsionCache::default());
+
+    // Settler pool: drains the work-transit in full-metric order, verifies
+    // against the shared book (the one settlement resource — the metric
+    // decides who reaches it next), and replies with the receipt.
+    for _ in 0..settler_count {
+        let work_transit = Arc::clone(&work_transit);
+        let ledger = Arc::clone(ledger);
+        let book = Arc::clone(book);
+        let layout = layout.clone();
+        let rules = rules.clone();
+        std::thread::spawn(move || {
+            while let Some(claim) = work_transit
+                .take_blocking(|h| ledger.lock().map(|g| g.escrow_of(h)).unwrap_or(0))
+            {
+                let crate::sched::Claim { payload: job, support, .. } = claim;
+                let outcome = match book.lock() {
+                    Ok(mut guard) => settle_work(&layout, &rules, &mut guard, &job.value),
+                    Err(_) => SettleOutcome::refused(),
+                };
+                let _ = job.reply.send(outcome);
+                work_transit.complete(&support);
+            }
+        });
+    }
 
     for _ in 0..settler_count {
         let settler_queue = Arc::clone(&settler_queue);
+        let work_transit = Arc::clone(&work_transit);
+        let torsion_cache = Arc::clone(&torsion_cache);
         let layout = layout.clone();
         let ledger = Arc::clone(ledger);
         let rules = rules.clone();
@@ -944,12 +1055,10 @@ pub fn serve(
         let witnesses = Arc::clone(witnesses);
         let on_session = Arc::clone(&on_session);
         std::thread::spawn(move || {
-            // #55: the settler pool drains the escrow-weighted transit
-            // scheduler. Escrow is PROJECTED from the ledger at take-time
-            // (#57) — a chain fact turned into a local quantum, never
-            // stored — so a higher-staked holder is served proportionally
-            // more often. `escrow_of` is a fold; on a poisoned ledger it
-            // yields the base weight (0), never a panic.
+            // The READER pool drains the escrow-weighted session scheduler
+            // (#55: escrow PROJECTED from the ledger at take-time, #57), then
+            // reads each session's records and hands every work claim to the
+            // work-transit for metric-ordered settlement off this thread.
             while let Some(claim) = settler_queue
                 .take_blocking(|h| ledger.lock().map(|g| g.escrow_of(h)).unwrap_or(0))
             {
@@ -961,6 +1070,26 @@ pub fn serve(
                     survey,
                     ip,
                 } = live;
+                let holder = survey.holder.clone().unwrap_or_default();
+                // #60: settle each work claim through the full metric. The
+                // support is decoded from the claim's witness (no SNF); the
+                // torsion is an O(1) cached lookup of the declared universe.
+                // Offer to the work-transit, then block for the receipt —
+                // the reader is idle while a settler verifies, so the metric
+                // orders which claim reaches the book next.
+                let settle = |value: &[u8]| -> SettleOutcome {
+                    let tag = rules.market.as_ref().map_or(0, |m| m.query.domain_tag);
+                    let support = crate::geometry::claim_support(value, tag).into_boxed_slice();
+                    let torsion = torsion_cache.torsion_of(tag, &ledger);
+                    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+                    work_transit.offer(crate::sched::Claim {
+                        holder: holder.clone(),
+                        support,
+                        torsion: torsion.to_vec().into_boxed_slice(),
+                        payload: WorkJob { value: value.to_vec(), reply: tx },
+                    });
+                    rx.recv().unwrap_or_else(|_| SettleOutcome::refused())
+                };
                 let result = drain_records(
                     survey,
                     &mut stream,
@@ -971,12 +1100,11 @@ pub fn serve(
                     &book,
                     &witnesses,
                     &challenge_frame,
+                    &settle,
                 );
                 // The wall was charged at accept and held across the
                 // handshake AND the queue wait; release it however the
-                // session ends. Clear the claim's axes from the congestion
-                // field (empty at this seam, but the contract is: every
-                // taken claim completes).
+                // session ends.
                 release_wall(&rules.connections, ip);
                 settler_queue.complete(&support);
                 match result {
@@ -1138,6 +1266,13 @@ fn greet_session(
     } = state;
     let bound = rules.bound;
     let mut survey = Survey::new(!rules.enforce);
+    // Pre-go-live pump never credits (work before go-live is refused), so
+    // this inline settle is a formality; the reader's metric-scheduled
+    // settle handles all real crediting after go-live.
+    let settle = |value: &[u8]| match book.lock() {
+        Ok(mut guard) => settle_work(layout, rules, &mut guard, value),
+        Err(_) => SettleOutcome::refused(),
+    };
     // Pump only until go-live: a non-enforce court is already live and
     // reads zero frames here (holder stays None → base lane); an
     // enforcing court reads through the challenge-answering attestation,
@@ -1155,6 +1290,7 @@ fn greet_session(
                 book,
                 witnesses,
                 &challenge_frame,
+                &settle,
             ) {
                 Ok(Flow::Continue) => {}
                 Ok(Flow::Stop) => return GreetOutcome::Done(survey.report),

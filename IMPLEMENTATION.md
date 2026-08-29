@@ -666,16 +666,33 @@ vectorized, bounded, bridged, and wired:
   `Transit`, escrow PROJECTED from the ledger at take-time
   (`escrow_of`, #57). Live-validated: courts HEALTHY, credits advancing.
 
-**The honest boundary (the open #60 remainder).** At the session seam,
-only **escrow** differentiates ordering (holder is known at enqueue). The
-full **torsion/curvature** differentiation needs each *work claim*'s
-geometry, which is known only *after* dequeue, inside `drain_records`, on
-a connection-bound settler thread — and a court's market `domain_tag` is
-uniform across its sessions, so it cannot differentiate them either. So
-per-work-claim reordering by the full metric requires **decoupling
-settlement from its TCP connection** (self-attesting claims demultiplexed
-into the shared `Transit`, Directive 4). The metric is built and unit-
-tested; making it *live* is that demux rework, not a wiring tweak.
+**#60 demux — DONE 2026-08-29. The full metric is live.** Settlement is
+decoupled from its TCP connection. `serve()` now runs three pools:
+- a **greeter** (handshake, per-IP wall),
+- a **reader** pool that drains the escrow-weighted session `Transit`,
+  reads each session's records, and for every work claim offers a `WorkJob`
+  to a shared **work-transit** with its full geometry — **support** decoded
+  from the claim's witness cells (no SNF) and **graded torsion** looked up
+  in **O(1)** from a `TorsionCache` (extracted once from the
+  `Act::Declare`'d complex, per the declaration-phase rule), then blocks for
+  the receipt;
+- a **settler** pool that drains the work-transit in **full-metric order**
+  (escrow × torsion quantum, diagonal support curvature), runs the
+  expensive verification off the connection via `settle_work` (the
+  stream-free split of `credit_value`), and replies with the receipt bytes
+  the reader writes.
+
+`credit_value` → `settle_work` (returns `SettleOutcome{receipt, credited,
+refused}`; no stream); `pump_one`/`drain_records` take a `settle` closure
+(inline for the single-shot `court_settle`, transit-routed for `serve`).
+The book is the one settlement resource, so verification serializes on it —
+which means **the metric decides which claim reaches the book next**, the
+exact ordering guarantee. Validated: full datum suite green; live simnet —
+court-a/b HEALTHY, credits advancing through the demux, no panics, kernel
+deriving-and-settling. Mathematical proof of the ordering it applies is the
+sched/geometry unit suite (escrow weight, graded-torsion lift, diagonal
+curvature dilation, determinism-within-a-court, bounded depth), all
+falsified-and-restored.
 
 **Suggested order:** #49 → #52 → #50 → #53 → #54 → #55 → #51.
 

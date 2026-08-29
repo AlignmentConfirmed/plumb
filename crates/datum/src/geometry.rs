@@ -57,6 +57,28 @@ pub fn global_gen(tag: u64, dim: u32, cell: u32) -> u64 {
 /// (empty for a cycle-shape claim with no prescribed target). The result is
 /// deduplicated and sorted, so it is a canonical set of [`Axis`] ready for
 /// `sched::Claim.support`.
+/// The support of a **work value on the wire** — decode the claim body
+/// (either shape) and read the cells its witness (and, for a proof, its
+/// target) touch, in global identity under `tag`. Cheap: decoding parses
+/// structure only, running **no** SNF — so the scheduler can order a
+/// claim's expensive verification without first doing it. A body that does
+/// not decode yields an empty support (it schedules at the base lane; the
+/// settler will refuse it on its own terms).
+#[must_use]
+pub fn claim_support(value: &[u8], tag: u64) -> Vec<Axis> {
+    use assay::complex::{DeclaredClaim, ProofClaim};
+    if let Ok(proof) = ProofClaim::decode(value) {
+        let witness: Vec<u32> = proof.witness.iter().map(|&(cell, _)| cell).collect();
+        let target: Vec<u32> = proof.target.iter().map(|&(cell, _)| cell).collect();
+        return support_axes(tag, proof.dim, &witness, &target);
+    }
+    if let Ok(claim) = DeclaredClaim::decode(value) {
+        let witness: Vec<u32> = claim.witness.iter().map(|&(cell, _)| cell).collect();
+        return support_axes(tag, claim.dim, &witness, &[]);
+    }
+    Vec::new()
+}
+
 #[must_use]
 pub fn support_axes(
     tag: u64,
