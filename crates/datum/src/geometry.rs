@@ -177,6 +177,33 @@ pub fn grade_shapes(complex: &DeclaredComplex) -> Vec<GradeShape> {
         .collect()
 }
 
+/// The grades a settled claim engages, each with its homology shape — the
+/// input to a convergence-section deposit (§6h). Decodes the claim's complex
+/// once (`grade_shapes` = the exact SNF book leg) and pairs each grade the
+/// witness (and, for a proof, its target) dimension touches with that
+/// grade's shape. Empty if the value does not decode as a claim.
+#[must_use]
+pub fn claim_grades(value: &[u8], tag: u64) -> Vec<((u64, u32), GradeShape)> {
+    use assay::complex::{DeclaredClaim, ProofClaim};
+    let (complex, dims): (DeclaredComplex, Vec<u32>) = if let Ok(proof) = ProofClaim::decode(value) {
+        let dim = proof.dim;
+        let dims = if dim > 0 { vec![dim, dim - 1] } else { vec![dim] };
+        (proof.complex, dims)
+    } else if let Ok(claim) = DeclaredClaim::decode(value) {
+        (claim.complex, vec![claim.dim])
+    } else {
+        return Vec::new();
+    };
+    let shapes = grade_shapes(&complex);
+    let mut grades = Vec::new();
+    for dim in dims {
+        if let Some(shape) = shapes.get(dim as usize) {
+            grades.push(((tag, dim), shape.clone()));
+        }
+    }
+    grades
+}
+
 /// The crystallographic class of a universe's torsion (#70).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GradeClass {

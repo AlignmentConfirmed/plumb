@@ -429,6 +429,7 @@ fn settle_work_parallel(
     layout: &Layout,
     rules: &SessionRules,
     book: &Arc<RwLock<RewardBook>>,
+    section: &Arc<Mutex<crate::section::Section>>,
     value: &[u8],
 ) -> SettleOutcome {
     let credit_plain = || match book.write() {
@@ -460,6 +461,11 @@ fn settle_work_parallel(
             match crate::bounty::commit_answer(&mut guard, value, verified) {
                 Ok(answer) => {
                     let epoch = guard.open_epoch().unwrap_or(0);
+                    drop(guard); // release the book before the section deposit
+                    // §6h: the settled claim is deposited into the CONVERGENCE
+                    // section, built forward from settlement — the section is
+                    // the convergent state itself, not derived from the log.
+                    deposit_section(section, value, market.query.domain_tag);
                     SettleOutcome {
                         receipt: receipt_for(layout, market, epoch, &answer),
                         credited: true,
@@ -473,6 +479,34 @@ fn settle_work_parallel(
         | Err(crate::bounty::AnswerRefused::NotAProof)
         | Err(crate::bounty::AnswerRefused::NotDeclared(_)) => credit_plain(),
         Err(_) => SettleOutcome::refused(),
+    }
+}
+
+/// Deposit a settled claim into the **convergence section** (§6h): a unit per
+/// axis of each grade it engages — torsion axes converge (mod `m`, finite),
+/// free axes accumulate (the market). Built forward from settlement (the
+/// domain `tag` and the claim's geometry are in hand at commit), so it needs
+/// no change to the act format — the section IS the convergent state, not a
+/// thing reconstructed from a replicated log (that was consensus thinking).
+/// The exact SNF (`grade_shapes`) runs here, off the book lock, once per
+/// settled claim — the book's exact leg. Logs when a new grade first appears
+/// (a genuine read of the growing convergent state).
+fn deposit_section(section: &Arc<Mutex<crate::section::Section>>, value: &[u8], tag: u64) {
+    for ((tag, dim), shape) in crate::geometry::claim_grades(value, tag) {
+        let delta = crate::section::AxialCredit::of(
+            vec![1i128; shape.free_rank],
+            vec![1u64; shape.torsion.len()],
+        );
+        if let Ok(mut guard) = section.lock() {
+            let is_new = guard.at((tag, dim)).is_none();
+            guard.deposit((tag, dim), &shape, &delta);
+            if is_new {
+                println!(
+                    "plumbd: convergence section grew to {} grade(s) — new (domain {tag}, dim {dim})",
+                    guard.spanned()
+                );
+            }
+        }
     }
 }
 
@@ -1105,6 +1139,12 @@ pub fn serve(
     let work_transit: Arc<crate::sched::Transit<WorkJob>> =
         Arc::new(crate::sched::Transit::tuned());
     let torsion_cache: Arc<TorsionCache> = Arc::new(TorsionCache::default());
+    // The CONVERGENCE section (§6h): the court's convergent settlement state,
+    // built forward as the settler pool deposits each settled claim (torsion
+    // per grade converges, free axes accumulate). Held here so it is WRITTEN
+    // by real settlement, not a disconnected type; a court reports its growth.
+    let section: Arc<Mutex<crate::section::Section>> =
+        Arc::new(Mutex::new(crate::section::Section::new()));
 
     // Settler pool: drains the work-transit in full-metric order, verifies
     // against the shared book (the one settlement resource — the metric
@@ -1113,6 +1153,7 @@ pub fn serve(
         let work_transit = Arc::clone(&work_transit);
         let ledger = Arc::clone(ledger);
         let book = Arc::clone(book);
+        let section = Arc::clone(&section);
         let layout = layout.clone();
         let rules = rules.clone();
         std::thread::spawn(move || {
@@ -1121,8 +1162,9 @@ pub fn serve(
             {
                 let crate::sched::Claim { payload: job, support, .. } = claim;
                 // Verify under a shared read lock (concurrent across the
-                // settler pool), commit under the exclusive write lock.
-                let outcome = settle_work_parallel(&layout, &rules, &book, &job.value);
+                // settler pool), commit under the exclusive write lock, then
+                // deposit the settled claim into the convergence section.
+                let outcome = settle_work_parallel(&layout, &rules, &book, &section, &job.value);
                 let _ = job.reply.send(outcome);
                 work_transit.complete(&support);
             }
