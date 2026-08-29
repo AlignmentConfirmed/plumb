@@ -55,7 +55,7 @@ implementation in any language can be checked against:
   every ruling (signatures, universal checker, freshness, x402,
   topological track) with its task ladder and open operator questions
 
-## What this is, honestly
+## What this is:
 
 A complete, tested **model** of a settlement layer: the wire, the
 court, the economics, ~300 tests. It is not yet a deployable network.
@@ -80,7 +80,7 @@ what is verified versus pending builds more trust than delay. The gaps:
    with `require_signatures = true` refuse forged, stale, and unbound
    presentations (S1–S7 complete). A stranger with no genesis-time
    bind can join a live court and get one (`plumbd join`, P2) — no
-   restart, no operator hand-editing a config. Remaining honesty:
+   restart, no operator hand-editing a config. Remaining:
    enforcement and live registration are both config flags until a
    testnet genesis turns them on by default.
 2. **Transport stands.** `plumbd` runs signed, fresh sessions over
@@ -90,7 +90,7 @@ what is verified versus pending builds more trust than delay. The gaps:
    chain-pinned certificate, no CA, since a court has neither a DNS
    name nor a CA to answer to) with admission walls (connection caps,
    a handshake deadline) bounding what an unauthenticated connection
-   can hold. Remaining honesty: TCP is the only transport, TLS is
+   can hold. Remaining: TCP is the only transport, TLS is
    opt-in per court rather than default, and there is no NAT
    traversal or peer discovery — peers are configured, not found.
 3. **IS-4 witness built (IS-4/1).** The frame (arm ‖ observer ‖
