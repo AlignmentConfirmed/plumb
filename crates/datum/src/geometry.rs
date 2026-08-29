@@ -20,7 +20,7 @@
 
 use crate::sched::Axis;
 use assay::complex::DeclaredComplex;
-use assay::homology::betti;
+use assay::homology::{betti, betti_fast};
 
 /// A generator's **global** identity: a deterministic 64-bit hash of
 /// `(registered-domain tag, homological dimension, cell index)`.
@@ -114,17 +114,21 @@ pub fn support_axes(
 /// into a metric we ruled must price only structure (flat-unit-cost). So we
 /// count cycles, which is bounded by the cell count and stays quantized.
 ///
-/// A dimension whose homology cannot be computed (a non-integer coefficient
-/// slipped past admission, say) contributes `0` — a claim is never granted
-/// a torsion lift it cannot substantiate. `betti` is exact, so on an
-/// admitted complex this branch does not arise.
+/// Computed by the **fast leg** `assay::homology::betti_fast` — field ranks
+/// over `𝔽_p`, no integer Smith Normal Form on the scheduler's hot path
+/// (#68). Exact for prime-smooth torsion (the crystallographic range); the
+/// book's exact `betti` remains the settlement authority. A dimension whose
+/// homology cannot be computed contributes `0` — a claim is never granted a
+/// torsion lift it cannot substantiate.
 #[must_use]
 pub fn graded_torsion(complex: &DeclaredComplex) -> Vec<u64> {
     (0..complex.cells.len())
         .map(|d| {
             let dim = u32::try_from(d).unwrap_or(u32::MAX);
-            betti(complex, dim)
-                .map(|b| u64::try_from(b.torsion.len()).unwrap_or(u64::MAX))
+            // FAST leg (#68): the scheduler's torsion count via field ranks,
+            // no integer SNF. grade_shapes (the book) keeps the exact betti.
+            betti_fast(complex, dim)
+                .map(|b| u64::try_from(b.torsion_count).unwrap_or(u64::MAX))
                 .unwrap_or(0)
         })
         .collect()

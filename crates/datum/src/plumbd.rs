@@ -476,10 +476,11 @@ fn settle_work_parallel(
     }
 }
 
-/// Per-domain graded torsion, extracted **once** from the `Act::Declare`'d
-/// complex and looked up in O(1) thereafter — so dynamic matrix reduction
-/// (SNF) never runs in the dispatch path. A tag with no registered
-/// declaration (ordinary work) caches an empty vector (a flat lift).
+/// Per-domain graded torsion, memoized per tag and looked up in O(1). The
+/// value is the **fast leg** (`graded_torsion` → `betti_fast`, field ranks
+/// over `𝔽_p`), so no integer Smith Normal Form runs on the dispatch path —
+/// or anywhere in scheduling. A tag with no registered declaration
+/// (ordinary work) caches an empty vector (a flat lift).
 #[derive(Default)]
 struct TorsionCache {
     inner: Mutex<std::collections::HashMap<u64, std::sync::Arc<[u64]>>>,

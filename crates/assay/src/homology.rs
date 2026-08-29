@@ -100,6 +100,76 @@ pub fn betti(complex: &DeclaredComplex, dim: u32) -> Result<Betti, HomologyRefus
     })
 }
 
+/// The primes swept for the fast field-rank leg. `rank_ℚ` is their **max**
+/// (rank only drops mod `p`, so the maximum over primes is the rational
+/// rank); the torsion count is `rank_ℚ − their min` (the minimum is hit at
+/// a prime dividing the smallest torsion factor). Exact for torsion whose
+/// factors are smooth over this set — `{2,3}` already covers the
+/// crystallographic orders `{2,3,4,6}`; the larger entries extend exactness
+/// and make `rank_ℚ` robust against an unlucky bad prime.
+const SWEEP: [u64; 8] = [2, 3, 5, 7, 11, 13, 1_000_003, 1_000_033];
+
+/// `H_dim`'s free rank and torsion **count** — via cheap field ranks only,
+/// no integer Smith Normal Form. The fast leg (#68): the scheduler needs
+/// the count, not the invariant-factor values, and field ranks never suffer
+/// the coefficient explosion that makes integer SNF expensive.
+///
+/// Exact for prime-smooth torsion (the whole crystallographic range). A
+/// torsion factor with a prime divisor outside [`SWEEP`] is undercounted —
+/// a bounded, turn-order-only error for the scheduler; the book's exact
+/// [`betti`] remains the settlement authority (#70 verifies whether plumb's
+/// universes stay crystallographic, making this exact everywhere).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BettiFast {
+    /// The Betti number: `H_dim`'s free rank.
+    pub free_rank: usize,
+    /// The number of torsion cycles (invariant factors `> 1`) of `H_dim`.
+    pub torsion_count: usize,
+}
+
+/// `(rank_ℚ, torsion_count)` of a boundary, from the prime sweep.
+fn field_ranks(b: &crate::snf::Boundary) -> (usize, usize) {
+    let mut max = 0usize;
+    let mut min = usize::MAX;
+    for prime in SWEEP {
+        let r = crate::snf::rank_mod(b, prime);
+        max = max.max(r);
+        min = min.min(r);
+    }
+    (max, max.saturating_sub(min))
+}
+
+/// `H_dim`'s free rank and torsion count via field ranks — the fast leg.
+/// `betti_fast(C, k).torsion_count == betti(C, k).torsion.len()` for
+/// prime-smooth torsion, with no integer SNF.
+pub fn betti_fast(complex: &DeclaredComplex, dim: u32) -> Result<BettiFast, HomologyRefused> {
+    let dim = dim as usize;
+    let n_k = *complex.cells.get(dim).ok_or(HomologyRefused::NoSuchDimension)?;
+
+    let rank_k = if dim == 0 {
+        0
+    } else {
+        let rows = *complex.cells.get(dim - 1).ok_or(HomologyRefused::NoSuchDimension)?;
+        match complex.ops.get(dim - 1) {
+            Some(op) => field_ranks(&to_boundary(rows, n_k, op)?).0,
+            None => 0,
+        }
+    };
+
+    let (rank_k1, torsion_count) = match complex.ops.get(dim) {
+        Some(op) => {
+            let cols = *complex.cells.get(dim + 1).unwrap_or(&0);
+            field_ranks(&to_boundary(n_k, cols, op)?)
+        }
+        None => (0, 0),
+    };
+
+    Ok(BettiFast {
+        free_rank: (n_k as usize).saturating_sub(rank_k).saturating_sub(rank_k1),
+        torsion_count,
+    })
+}
+
 /// Are `a` and `b` — two `dim`-chains — equivalent up to a filling
 /// `(dim+1)`-chain? `true` exactly when `solve(dim+1, a − b)` finds a
 /// witness; `a == b` is always `true` here (the zero chain trivially
@@ -207,6 +277,39 @@ mod tests {
         let h0 = betti(&complex, 0).expect("H_0 exists");
         assert_eq!(h0.free_rank, 1, "3 cells, rank-2 image consumes 2 of them");
         assert!(h0.torsion.is_empty(), "invariant factors of 1 are not torsion");
+    }
+
+    #[test]
+    fn betti_fast_matches_betti_without_snf() {
+        // (2,4) torsion at H_0: the fast field-rank leg agrees with the
+        // exact SNF leg on the free rank and the torsion COUNT.
+        let mut op = vec![
+            Entry { row: 0, col: 0, coeff: whole(2) },
+            Entry { row: 1, col: 0, coeff: whole(6) },
+            Entry { row: 0, col: 1, coeff: whole(4) },
+            Entry { row: 1, col: 1, coeff: whole(8) },
+        ];
+        op.sort_by_key(|e| (e.col, e.row));
+        let torsioned = DeclaredComplex { cells: vec![2, 2], ops: vec![op] };
+        let slow = betti(&torsioned, 0).expect("H_0");
+        let fast = betti_fast(&torsioned, 0).expect("H_0 fast");
+        assert_eq!(fast.free_rank, slow.free_rank);
+        assert_eq!(fast.torsion_count, slow.torsion.len(), "2 cycles, no SNF");
+        assert_eq!(fast.torsion_count, 2);
+
+        // Torsion-free (invariant factors 1,1): free rank 1, zero torsion.
+        let flat = DeclaredComplex {
+            cells: vec![3, 2],
+            ops: vec![vec![
+                Entry { row: 0, col: 0, coeff: whole(1) },
+                Entry { row: 1, col: 1, coeff: whole(1) },
+            ]],
+        };
+        let slow = betti(&flat, 0).expect("H_0");
+        let fast = betti_fast(&flat, 0).expect("H_0 fast");
+        assert_eq!(fast.free_rank, slow.free_rank);
+        assert_eq!(fast.torsion_count, 0);
+        assert!(slow.torsion.is_empty());
     }
 
     #[test]
