@@ -133,7 +133,7 @@ chain, and runs the node daemon. Grouped by concern.
 
 | module | responsibility | key types |
 |---|---|---|
-| `section.rs` | the convergent settlement section (valued per grade); durable codec and anchor | `Section`, `GradeShape`, `SectionBroken` |
+| `section.rs` | the convergent settlement section (valued per grade); durable codec, committed anchor, cross-node merge | `Section`, `GradeShape`, `SectionBroken` |
 | `geometry.rs` | the bridge from verification geometry (`assay`) to scheduling | `graded_torsion`, `grade_shapes`, `claim_grades` |
 | `sched.rs` | local admission scheduling, kept separate from settlement | `ResourceGovernor`, `Turned` |
 

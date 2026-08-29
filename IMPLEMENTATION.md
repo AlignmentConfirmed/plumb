@@ -902,7 +902,8 @@ parallel reduction), #64 (closure conservation = confluence, per-cell),
 #65 → **anchor-on-section = the converged torsion normal form** (LANDED —
 section codec, durable persistence, committed anchor resumes across a
 restart with the identical value), #66 (parallel verify, DONE), #67 →
-**confluence test** (path-independent limit).
+**confluence test** (path-independent limit — LANDED at the library level
+via `Section::merge`; the live two-court federation exercise is #72).
 New: #68 `betti_fast` functor (retire SNF cache), #69 class-settlement
 (class-id = torsion normal form; replay-or-refine), #70 verify the
 crystallographic domain assumption, #71 confluence guardrail (proof
