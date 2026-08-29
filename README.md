@@ -45,7 +45,7 @@ implementation in any language can be checked against:
 - [`PLUMBLINE.md`](PLUMBLINE.md) — the language, and how it is
   multi-dimensional
 - [`POWPP.md`](POWPP.md) — the physics, the proofs, and the
-  economics: what the engine verifies and why credit is honest
+  economics: what the engine verifies and why credit is earned
 - [`protocols/`](protocols/) — IS-1 (wire) through IS-6 (chain)
 - [`conformance/`](conformance/) — the vectors, the manifest, and a
   Python reference reader
@@ -55,7 +55,7 @@ implementation in any language can be checked against:
   every ruling (signatures, universal checker, freshness, x402,
   topological track) with its task ladder and open operator questions
 
-## What this is:
+## What this is
 
 A complete, tested **model** of a settlement layer: the wire, the
 court, the economics, ~300 tests. It is not yet a deployable network.
@@ -69,41 +69,36 @@ reaches nothing outside its own directory.
 
 ## Known gaps
 
-Published with these gaps **stated, not hidden**. An earlier publishing
-policy held release until they closed; that hold was **waived by a
-recorded decision (2026-08-27)** on the grounds that transparency about
-what is verified versus pending builds more trust than delay. The gaps:
+plumb is a tested model, not a deployed network. What stands, and what
+does not, yet:
 
-1. **Cryptographic identity is enforced at the court, opt-in per
-   deployment.** Ed25519 over BLAKE3 envelopes (scheme 0x01), keys
-   bound to grants on the chain (`Act::Bind`, IS-6/4), and courts
-   with `require_signatures = true` refuse forged, stale, and unbound
-   presentations (S1–S7 complete). A stranger with no genesis-time
-   bind can join a live court and get one (`plumbd join`, P2) — no
-   restart, no operator hand-editing a config. Remaining:
-   enforcement and live registration are both config flags until a
-   testnet genesis turns them on by default.
-2. **Transport stands.** `plumbd` runs signed, fresh sessions over
-   TCP (IS-2/2 session challenge, closed — a replayed session's
-   answer covers a dead token), the court federates durably, and the
-   channel itself can run encrypted (`tls = true`, IS-6/6 — a
-   chain-pinned certificate, no CA, since a court has neither a DNS
-   name nor a CA to answer to) with admission walls (connection caps,
-   a handshake deadline) bounding what an unauthenticated connection
-   can hold. Remaining: TCP is the only transport, TLS is
-   opt-in per court rather than default, and there is no NAT
-   traversal or peer discovery — peers are configured, not found.
-3. **IS-4 witness built (IS-4/1).** The frame (arm ‖ observer ‖
-   subject ‖ derivation), the court's witness log, and a watcher held
-   to all four prohibitions — may not observe, repair, canonicalize,
-   or answer bare. The verdict *frame* remains unsettled (§8), by
-   design: reports live above the substrate.
-4. **Tag-51 closed (IS-1/5).** The closure now carries its shape as
-   a declared-complex definition — a hexagon and a five-simplex over
-   the same six orbs are distinct bytes (vectors V17/V18), and the
-   legacy grain is explicit "shape unknown," never an inferred
-   simplex.
-5. **No independent reader yet.** Every specification gap found so far
-   (four) was found by the author re-reading. If you implement IS-1
-   from the documents and the conformance vectors alone, what you trip
-   over is exactly the feedback this project wants — file it.
+1. **Cryptographic identity — built, opt-in.** Ed25519 over BLAKE3
+   envelopes (scheme 0x01), with keys bound to grants on the chain
+   (`Act::Bind`, IS-6/4). Courts set to `require_signatures = true`
+   reject forged, stale, and unbound presentations (S1–S7). A party
+   with no genesis-time bind can join a running court and register one
+   (`plumbd join`, P2) without a restart or a hand-edited config.
+   Enforcement and live registration are config flags today; a testnet
+   genesis would make them the default.
+2. **Transport — built, TCP only.** `plumbd` runs signed, fresh
+   sessions over TCP (IS-2/2 session challenge: a replayed session's
+   answer covers a dead token), courts federate durably, and the
+   channel can run encrypted (`tls = true`, IS-6/6 — a chain-pinned
+   certificate, no CA, since a court has no DNS name to answer to).
+   Admission limits (connection caps, a handshake deadline) bound what
+   an unauthenticated connection can hold. TLS is opt-in per court, TCP
+   is the only transport, and there is no NAT traversal or peer
+   discovery — peers are configured, not found.
+3. **IS-4 witness — built (IS-4/1).** The frame (arm ‖ observer ‖
+   subject ‖ derivation), the court's witness log, and a watcher bound
+   by four prohibitions: it may not observe, repair, canonicalize, or
+   answer bare. The verdict *frame* is deliberately left open (§8):
+   reports live above the substrate.
+4. **Tag-51 — closed (IS-1/5).** The closure carries its shape as a
+   declared-complex definition: a hexagon and a five-simplex over the
+   same six orbs are distinct bytes (vectors V17/V18), and the legacy
+   grain is explicit "shape unknown," never an inferred simplex.
+5. **No independent implementation yet.** Every specification gap found
+   so far surfaced in review. If you implement IS-1 from the documents
+   and the conformance vectors alone, the places you trip over are the
+   feedback this project most wants — please file them.
