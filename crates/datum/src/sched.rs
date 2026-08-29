@@ -260,8 +260,16 @@ impl EscrowWeight {
 ///   lift never perturbs an `H_0` axis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Axis {
-    /// The generator's identity in the global vector space.
-    pub gen: u32,
+    /// The generator's **global** identity. A `DeclaredComplex`'s cell
+    /// indices are local (`0..cells[k]`), so two universes' "cell 3" are
+    /// different generators; `gen` is a collision-resistant 64-bit hash of
+    /// `(registered-domain tag, dim, cell)` (`datum::geometry`), which
+    /// gives cells in the *same* chain-registered universe a shared axis
+    /// and cells in different universes disjoint ones. A 64-bit space is
+    /// not injective (a `Tag` alone is 64 bits), but curvature is
+    /// turn-order-only, so an astronomically-rare collision is a harmless
+    /// scheduling hint, never a settlement fault.
+    pub gen: u64,
     /// The homological dimension `k` of the generator (which `C_k` it
     /// spans). Selects the graded torsion `T_k`.
     pub dim: u32,
@@ -270,7 +278,7 @@ pub struct Axis {
 impl Axis {
     /// A generator axis at homological grade `dim`.
     #[must_use]
-    pub fn new(gen: u32, dim: u32) -> Self {
+    pub fn new(gen: u64, dim: u32) -> Self {
         Self { gen, dim }
     }
 }
@@ -404,7 +412,7 @@ impl Transport {
 /// axes could no longer transport without contaminating one another.
 #[derive(Debug, Clone, Default)]
 pub struct Fibre {
-    deficit: BTreeMap<u32, i64>,
+    deficit: BTreeMap<u64, i64>,
 }
 
 impl Fibre {
@@ -417,7 +425,7 @@ impl Fibre {
     /// Grant `quantum` of transit credit to a single generator axis at the
     /// start of a turn: `V[gen] += Q`. Saturating, so an unbounded run of
     /// turns cannot overflow the coordinate.
-    pub fn grant(&mut self, gen: u32, quantum: u64) {
+    pub fn grant(&mut self, gen: u64, quantum: u64) {
         let credit = i64::try_from(quantum).unwrap_or(i64::MAX);
         let v = self.deficit.entry(gen).or_insert(0);
         *v = v.saturating_add(credit);
@@ -428,7 +436,7 @@ impl Fibre {
     /// moves as one rigid body through the fibre. `costs` is `(gen, cost)`
     /// per support axis.
     #[must_use]
-    pub fn can_transport(&self, costs: &[(u32, u64)]) -> bool {
+    pub fn can_transport(&self, costs: &[(u64, u64)]) -> bool {
         costs.iter().all(|&(gen, cost)| {
             self.deficit.get(&gen).copied().unwrap_or(0) >= i64::try_from(cost).unwrap_or(i64::MAX)
         })
@@ -442,7 +450,7 @@ impl Fibre {
     /// guarantee: each active axis is granted a quantum ≥ 1 per round, so
     /// after enough rounds its deficit clears any finite `1 + inflight`.
     /// Even a maximally congested axis transports — later, never *never*.
-    pub fn transport(&mut self, costs: &[(u32, u64)]) {
+    pub fn transport(&mut self, costs: &[(u64, u64)]) {
         for &(gen, cost) in costs {
             if let Some(v) = self.deficit.get_mut(&gen) {
                 *v = v.saturating_sub(i64::try_from(cost).unwrap_or(i64::MAX));
@@ -452,7 +460,7 @@ impl Fibre {
 
     /// The carried deficit on one generator axis (0 if untouched).
     #[must_use]
-    pub fn deficit_of(&self, gen: u32) -> i64 {
+    pub fn deficit_of(&self, gen: u64) -> i64 {
         self.deficit.get(&gen).copied().unwrap_or(0)
     }
 
@@ -475,14 +483,14 @@ impl Fibre {
     /// that returns to a long-idle generator starts it fresh. That is the
     /// price of a closed manifold — bounded volume costs the credit on
     /// rarely-touched axes, never the exactness of any settlement.
-    pub fn retract(&mut self, protected: &[u32], depth: usize) {
+    pub fn retract(&mut self, protected: &[u64], depth: usize) {
         if self.deficit.len() <= depth {
             return;
         }
-        let guarded: BTreeSet<u32> = protected.iter().copied().collect();
+        let guarded: BTreeSet<u64> = protected.iter().copied().collect();
         // Candidates for eviction: everything not protected, ranked by
         // (deficit desc, gen asc) so the survivors are deterministic.
-        let mut others: Vec<(u32, i64)> = self
+        let mut others: Vec<(u64, i64)> = self
             .deficit
             .iter()
             .filter(|(gen, _)| !guarded.contains(gen))
@@ -493,7 +501,7 @@ impl Fibre {
         // budget allows (never negative: a claim's support is itself capped
         // at `depth`, so `guarded.len() ≤ depth`).
         let keep_others = depth.saturating_sub(guarded.len());
-        let survivors: BTreeSet<u32> = guarded
+        let survivors: BTreeSet<u64> = guarded
             .iter()
             .copied()
             .chain(others.iter().take(keep_others).map(|&(gen, _)| gen))
@@ -662,7 +670,7 @@ struct TransitInner<T> {
     /// concurrent claims dilates transit along that axis three-fold. A
     /// runtime hint that never touches consensus: it is literally
     /// who-else-is-working-on-this-generator-right-now.
-    inflight: BTreeMap<u32, u32>,
+    inflight: BTreeMap<u64, u32>,
     /// Total pending claims across all holders.
     total: usize,
 }
@@ -743,7 +751,7 @@ impl<T> Transit<T> {
     /// axis is priced independently — the connection is diagonal, so a
     /// congested generator dilates only its own coordinate, never a
     /// causally disjoint one.
-    fn axis_costs(support: &[Axis], inflight: &BTreeMap<u32, u32>) -> Vec<(u32, u64)> {
+    fn axis_costs(support: &[Axis], inflight: &BTreeMap<u64, u32>) -> Vec<(u64, u64)> {
         support
             .iter()
             .map(|axis| {
@@ -785,7 +793,7 @@ impl<T> Transit<T> {
             // fibre right now, not the actor's past.
             if !inner.open_turn.contains(&key) {
                 let escrow = escrow_of(&key);
-                let grants: Vec<(u32, u64)> = inner
+                let grants: Vec<(u64, u64)> = inner
                     .queues
                     .get(&key)
                     .and_then(VecDeque::front)
@@ -798,7 +806,7 @@ impl<T> Transit<T> {
                             .collect()
                     })
                     .unwrap_or_default();
-                let protected: Vec<u32> = grants.iter().map(|&(gen, _)| gen).collect();
+                let protected: Vec<u64> = grants.iter().map(|&(gen, _)| gen).collect();
                 let fibre = inner.fibres.entry(key.clone()).or_default();
                 for (gen, quantum) in grants {
                     fibre.grant(gen, quantum);
@@ -991,8 +999,8 @@ mod tests {
         let mut f = Fibre::new();
         f.grant(7, 10);
         f.grant(12, 10);
-        let hot = [(7u32, 5u64)]; // 7 is congested: cost 5
-        let cold = [(12u32, 1u64)]; // 12 is orthogonal: cost 1
+        let hot = [(7u64, 5u64)]; // 7 is congested: cost 5
+        let cold = [(12u64, 1u64)]; // 12 is orthogonal: cost 1
         assert!(f.can_transport(&hot));
         f.transport(&hot); // V[7]: 10 → 5
         f.transport(&hot); // V[7]: 5 → 0
@@ -1043,7 +1051,7 @@ mod tests {
         let depth = 3;
         let q: Transit<u32> = Transit::new(Transport::tuned().with_depth(depth));
         for i in 0..40u32 {
-            q.offer(claim("flood", &[axis(i, 0)], &[], i));
+            q.offer(claim("flood", &[axis(u64::from(i), 0)], &[], i));
         }
         let esc = |_: &str| 0u128;
         let mut max_span = 0;
@@ -1121,7 +1129,7 @@ mod tests {
         assert_eq!(throughput(q, cost, 800), 100);
     }
 
-    fn axis(gen: u32, dim: u32) -> Axis {
+    fn axis(gen: u64, dim: u32) -> Axis {
         Axis::new(gen, dim)
     }
 
