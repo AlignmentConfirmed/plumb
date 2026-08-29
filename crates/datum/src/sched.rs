@@ -21,7 +21,7 @@
 //! - [`BUSY_TAG`] — the wire tag a swamped court answers with, so a
 //!   producer *waits* cooperatively instead of stalling on a timeout.
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::{Condvar, Mutex};
 
 /// The record tag a court sends when it is shedding load: a producer
@@ -311,21 +311,35 @@ impl Axis {
 /// and is handed maximum un-dilated velocity — the reward for orthogonality
 /// is throughput, paid by the physics of the fibre, not a number minted on
 /// the manifold (which would violate the invariant).
+///
+/// `depth` is the **flag-filtration bound** `k`: the maximum number of
+/// generator-axes a fibre may span at once (contained expansion — the
+/// vector fibre cannot grow without limit, `Q(F_p) ⊆ F_p`). It bounds the
+/// *fibre*, never the *endpoint*: a claim's boundary is always verified
+/// exactly by `assay`, whatever its dimension; `depth` only caps how many
+/// axes the ephemeral scheduler *meters*.
 #[derive(Debug, Clone, Copy)]
 pub struct Transport {
     weight: EscrowWeight,
     ceiling: u64,
+    depth: usize,
 }
+
+/// The default flag-filtration depth: generous enough that real boundaries
+/// are metered in full, tight enough that a solver cannot expand a fibre
+/// without bound. Purely a resource cap; it never enters verification.
+const TUNED_DEPTH: usize = 256;
 
 impl Transport {
     /// A tuned transport: the tuned escrow weight, per-axis quantum capped
     /// at 4096 (the escrow ceiling of 64 lifted by a torsion grade of up
-    /// to 64), so no boundary, however knotted, buys unbounded velocity.
+    /// to 64), and the tuned flag-filtration depth.
     #[must_use]
     pub fn tuned() -> Self {
         Self {
             weight: EscrowWeight::tuned(),
             ceiling: 4096,
+            depth: TUNED_DEPTH,
         }
     }
 
@@ -335,7 +349,22 @@ impl Transport {
         Self {
             weight,
             ceiling: ceiling.max(1),
+            depth: TUNED_DEPTH,
         }
+    }
+
+    /// Set the flag-filtration depth `k` (clamped to ≥ 1). Builder-style,
+    /// for tests and pinned deployments.
+    #[must_use]
+    pub fn with_depth(mut self, depth: usize) -> Self {
+        self.depth = depth.max(1);
+        self
+    }
+
+    /// The flag-filtration depth `k` — the maximum axes a fibre may span.
+    #[must_use]
+    pub fn depth(&self) -> usize {
+        self.depth
     }
 
     /// The per-axis serving quantum for a holder staking `escrow`,
@@ -425,6 +454,51 @@ impl Fibre {
     #[must_use]
     pub fn deficit_of(&self, gen: u32) -> i64 {
         self.deficit.get(&gen).copied().unwrap_or(0)
+    }
+
+    /// The number of generator-axes this fibre currently spans — its
+    /// dimension in the flag filtration.
+    #[must_use]
+    pub fn spanned(&self) -> usize {
+        self.deficit.len()
+    }
+
+    /// Retract the fibre onto at most `depth` axes (the flag-filtration
+    /// bound `Q(F_p) ⊆ F_p`, #57 contained-expansion): keep every
+    /// `protected` axis (the head claim's support — it must survive so the
+    /// active claim can transport), then fill the remaining budget with the
+    /// highest-deficit carried axes, and drop the rest. Ties break on the
+    /// smaller generator id, so the retract is **deterministic** — same
+    /// fibre, same bound, same survivors on every node.
+    ///
+    /// Dropping a carried axis forfeits its accumulated credit: a fibre
+    /// that returns to a long-idle generator starts it fresh. That is the
+    /// price of a closed manifold — bounded volume costs the credit on
+    /// rarely-touched axes, never the exactness of any settlement.
+    pub fn retract(&mut self, protected: &[u32], depth: usize) {
+        if self.deficit.len() <= depth {
+            return;
+        }
+        let guarded: BTreeSet<u32> = protected.iter().copied().collect();
+        // Candidates for eviction: everything not protected, ranked by
+        // (deficit desc, gen asc) so the survivors are deterministic.
+        let mut others: Vec<(u32, i64)> = self
+            .deficit
+            .iter()
+            .filter(|(gen, _)| !guarded.contains(gen))
+            .map(|(&gen, &v)| (gen, v))
+            .collect();
+        others.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        // Keep all guarded axes plus as many top-ranked others as the depth
+        // budget allows (never negative: a claim's support is itself capped
+        // at `depth`, so `guarded.len() ≤ depth`).
+        let keep_others = depth.saturating_sub(guarded.len());
+        let survivors: BTreeSet<u32> = guarded
+            .iter()
+            .copied()
+            .chain(others.iter().take(keep_others).map(|&(gen, _)| gen))
+            .collect();
+        self.deficit.retain(|gen, _| survivors.contains(gen));
     }
 }
 
@@ -724,10 +798,15 @@ impl<T> Transit<T> {
                             .collect()
                     })
                     .unwrap_or_default();
+                let protected: Vec<u32> = grants.iter().map(|&(gen, _)| gen).collect();
                 let fibre = inner.fibres.entry(key.clone()).or_default();
                 for (gen, quantum) in grants {
                     fibre.grant(gen, quantum);
                 }
+                // Contained expansion: hold the fibre inside the flag
+                // filtration, protecting the head axes so the active claim
+                // still transports (#57, Q(F_p) ⊆ F_p).
+                fibre.retract(&protected, transport.depth());
                 inner.open_turn.insert(key.clone());
             }
             // Diagonal cost: each support axis dilated by its own live
@@ -921,6 +1000,64 @@ mod tests {
         // Generator 12 is completely unperturbed — still full velocity.
         assert_eq!(f.deficit_of(12), 10, "orthogonal axis uncontaminated");
         assert!(f.can_transport(&cold));
+    }
+
+    #[test]
+    fn fibre_retract_bounds_the_span_protecting_the_head() {
+        let mut f = Fibre::new();
+        f.grant(1, 5);
+        f.grant(2, 50);
+        f.grant(3, 10);
+        f.grant(4, 40);
+        f.grant(5, 1);
+        f.grant(6, 30);
+        assert_eq!(f.spanned(), 6);
+        // Retract to depth 3, protecting head axis 5 (the LOWEST deficit).
+        f.retract(&[5], 3);
+        assert_eq!(f.spanned(), 3, "the fibre is bounded to depth 3");
+        // The head survives despite lowest deficit; the two remaining slots
+        // go to the highest-deficit others (2=50, 4=40). 6,3,1 are evicted
+        // and forfeit their credit.
+        assert!(f.deficit_of(5) > 0, "protected head axis kept");
+        assert_eq!(f.deficit_of(2), 50, "highest-deficit other kept");
+        assert_eq!(f.deficit_of(4), 40, "second-highest other kept");
+        assert_eq!(f.deficit_of(6), 0, "evicted axis forfeits its credit");
+        assert_eq!(f.deficit_of(1), 0);
+    }
+
+    #[test]
+    fn fibre_retract_is_a_noop_within_depth() {
+        let mut f = Fibre::new();
+        f.grant(1, 3);
+        f.grant(2, 7);
+        f.retract(&[1], 5);
+        assert_eq!(f.spanned(), 2, "within depth: nothing dropped");
+        assert_eq!(f.deficit_of(2), 7);
+    }
+
+    #[test]
+    fn transit_fibre_stays_within_the_flag_depth() {
+        // A holder floods claims each on a DISTINCT generator. Without a
+        // bound its fibre would accumulate one axis per generator forever;
+        // the flag filtration retracts it to `depth` on every grant.
+        let depth = 3;
+        let q: Transit<u32> = Transit::new(Transport::tuned().with_depth(depth));
+        for i in 0..40u32 {
+            q.offer(claim("flood", &[axis(i, 0)], &[], i));
+        }
+        let esc = |_: &str| 0u128;
+        let mut max_span = 0;
+        let mut served = 0;
+        for _ in 0..40 {
+            let Some(c) = q.take(esc) else { break };
+            served += 1;
+            if let Some(f) = q.inner.lock().expect("lock").fibres.get("flood") {
+                max_span = max_span.max(f.spanned());
+            }
+            q.complete(&c.support);
+        }
+        assert!(max_span <= depth, "fibre never exceeds the flag depth: {max_span}");
+        assert!(served > 30, "the holder was actually drained, not stalled");
     }
 
     #[test]
