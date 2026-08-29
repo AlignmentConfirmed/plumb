@@ -105,10 +105,9 @@ work record refuses.
 What this buys, precisely: a **replayed session dies**. The recorded
 answer an attacker captures covers a token the court never issues
 again — the token never repeats, so the old signature binds dead
-bytes. What it deliberately does not buy: work replay protection
-(that was never the session's job — §6.1 stands; `work_id` is the
-primary identity) or payload inspection (a carrier relays the
-challenge verbatim, and the freshness survives carriage for the same
+bytes. Work replay is a separate concern, handled by `work_id` (§6.1, the
+primary identity). A carrier relays the challenge verbatim without
+inspecting the payload, and the freshness survives carriage for the same
 reason the signature does: the answer binds bytes, not routes).
 
 Lenient courts emit the challenge and do not demand the answer; an
@@ -367,7 +366,7 @@ This is `datum`'s reference rule in `src/session.rs`. `strand::wire::whole_recor
 and `session::Inbox` still stall, and changing them is a proposal rather
 than something applied from here.
 
-## 8. What this document does not cover
+## 8. Related specifications
 
-The wire record and the exact rational rule — `IS-1`. The registry and
-its grants — `IS-3`.
+The wire record and the exact rational rule: `IS-1`. The registry and
+its grants: `IS-3`.

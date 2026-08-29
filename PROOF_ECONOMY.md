@@ -150,7 +150,7 @@ The SDK surface a kernel uses:
 
 ---
 
-## 5 · Status — what is built and what is not
+## 5 · Status
 
 Built and enforced by tests:
 

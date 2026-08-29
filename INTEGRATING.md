@@ -147,18 +147,12 @@ rule about the reader; §4 now states both.
 
 ## 5. Asking for tag numbers
 
-Tags are one byte. `IS-3` §5 partitions them:
+Tags are one byte. `IS-3` §5 carries the full partition; the ranges an
+integrator needs:
 
 ```
-0            never issued
-1–31         frozen. Ancestral, and claimed by both projects with
-             different meanings — not grantable to anybody
-32–54, 60, 62–63   encumbered by netstratum's registry
-55–59, 61    free, too small to grant
-64–79        isthmus, transport
-80–127       assay, proofs
-128–159      lith
-160–191      chitin
+80–86        isthmus / datum work and court tags
+128–191      reserved for external kernels
 192–239      linking meshes — six ranges of eight, issued on request
 240–255      held back, so exhausting the space refuses rather than wraps
 ```
@@ -166,14 +160,8 @@ Tags are one byte. `IS-3` §5 partitions them:
 Ask for a range from 192–239. What a value means inside your range is
 yours. One tag, one meaning, forever; a retired tag is never reissued.
 
-Two rules:
-
-- A claim not on `master` is not a claim. A range claimed on a branch
-  read as *unclaimed* on `master`, and a lane wrote a 142-line frame
-  against a tag already taken. Claim on `master`.
-- A table is authoritative only over what it enumerates. A grant table
-  written against one registry was a claim about two. Every range above
-  is checked against both, by a test.
+Claim a range in the source of truth — `IS-3` §5 renders the chain — not
+in prose: a tag named only in a sentence is protected by no merge check.
 
 ## 6. Saying what you speak
 

@@ -368,10 +368,10 @@ The corpus is generated and checked against the live codec by
 `datum/tests/conformance.rs`, so the bytes and the verdicts cannot drift
 from what the reference does.
 
-## 11. What this document does not cover
+## 11. Related specifications
 
-The session and its sequencing — `IS-2`. The registry and its grants —
-`IS-3`. The witness category — `IS-4`. The declaration — `IS-5`.
+The session and its sequencing: `IS-2`. The registry and its grants:
+`IS-3`. The witness category: `IS-4`. The declaration: `IS-5`.
 
 ## 12. Revisions
 

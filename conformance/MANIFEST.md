@@ -41,9 +41,9 @@ Cases 09, 15 and 16 rest on `MAX_RECORD = 1 << 20`, one mebibyte of value. **Mea
 
 The bound is what makes *unsatisfiable* separable from *not yet arrived* — without one they are the same observation and a reader can only wait. A peer may agree a LARGER bound in the handshake and may not agree a smaller one silently.
 
-## What this corpus does not cover
+## Corpus scope
 
-The session. Every case here is one record or two, hand-fed. Sequencing and freshness are `IS-2` §6, still unbuilt. The silent stall of §7 is resolved and cases 09, 15 and 16 carry it.
+Every case is one record or two, hand-fed. Session sequencing and freshness are specified in `IS-2` §6; the silent stall of §7 is resolved, and cases 09, 15 and 16 carry it.
 
 ## IS-1/5 — the shaped closures (§9.4.1)
 
