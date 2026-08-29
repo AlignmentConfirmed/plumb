@@ -367,6 +367,60 @@ pub enum Act {
         /// BLAKE3 of the certificate's exact DER bytes.
         fingerprint: [u8; 32],
     },
+
+    /// A holder locked `amount` of its own earned balance as a
+    /// refundable stake (`IS-6/7`, Phase 5 Fork B).
+    ///
+    /// Escrow buys **scheduling priority** at a court, nothing more — a
+    /// court reads a holder's current locked amount ([`Ledger::escrow_of`])
+    /// and weights its place in line by it, exactly as it reads a bind.
+    /// The lock is voluntary and self-directed (a holder stakes its OWN
+    /// balance, signed like any act), so it needs no more authority than
+    /// a self-bind. What a court may LOCK is the court's rule, applied at
+    /// admission (a lock may not exceed the holder's available balance) —
+    /// not the chain's, which only records that the holder locked this.
+    ///
+    /// Additive, like every act since the founding: an older reader
+    /// refuses the tag rather than misfolding. Like a bind, a lock covers
+    /// no ground — safe to append to a live chain, never collides with a
+    /// deed.
+    Escrow {
+        /// Whose stake this is, as the holder names itself.
+        holder: String,
+        /// How much balance is locked by this act, added to any already
+        /// locked. **Never a settlement fact**: what a court weights this
+        /// into is local scheduling policy, never a reward.
+        amount: u128,
+    },
+
+    /// A holder unlocked its entire stake, returning it to spendable
+    /// balance (`IS-6/7`). Refund, not extraction: releasing costs the
+    /// holder only the priority the stake was buying.
+    Release {
+        /// Whose stake is released, as the holder names itself.
+        holder: String,
+    },
+
+    /// A court destroyed `amount` of a holder's locked stake for a
+    /// **consensus-verifiable** offence (`IS-6/7`, #56 ruling).
+    ///
+    /// The one involuntary act on a balance, and deliberately narrow: a
+    /// slash may be triggered ONLY by something every court re-checks and
+    /// agrees on — an attested-but-false proof, a double submission, a
+    /// broken signed commitment — never by a scheduling or load judgment,
+    /// which no federation can agree on. The chain records that the stake
+    /// was destroyed; whether the trigger was legitimate is verified
+    /// against the same chain by anyone, which is what keeps a slash a
+    /// consensus act rather than one court's private punishment. Slashed
+    /// value is burned, never redistributed (redistribution would pay a
+    /// court to accuse). Covers no ground, like a bind.
+    Slash {
+        /// Whose stake is slashed, as the holder names itself.
+        holder: String,
+        /// How much locked stake is destroyed, subtracted from the
+        /// holder's locked amount (saturating at zero).
+        amount: u128,
+    },
 }
 
 /// What [`Ledger::binding_of`] answers: the key a holder presents
@@ -454,7 +508,13 @@ impl Act {
             | Act::Anchor { .. }
             | Act::Bind { .. }
             | Act::Declare { .. }
-            | Act::Certify { .. } => return None,
+            | Act::Certify { .. }
+            // A stake covers no ground either: locking, releasing, or
+            // slashing a balance is an economic fact, not a claim on the
+            // tag line — safe to append to a live chain like a bind.
+            | Act::Escrow { .. }
+            | Act::Release { .. }
+            | Act::Slash { .. } => return None,
         };
         if region.len() > axes {
             return None;
@@ -1666,6 +1726,44 @@ impl Ledger {
         })
     }
 
+    /// How much `holder` currently has locked as a stake (`IS-6/7`,
+    /// Phase 5). A FORWARD fold, not last-wins: each [`Act::Escrow`]
+    /// adds, a [`Act::Release`] returns the whole stake to zero, and a
+    /// [`Act::Slash`] subtracts (saturating). The number a court reads to
+    /// weight this holder's place in line — an escrow amount is a shared,
+    /// verifiable chain fact, but the WEIGHT a court derives from it is
+    /// local scheduling policy and never re-enters consensus.
+    #[must_use]
+    pub fn escrow_of(&self, holder: &str) -> u128 {
+        let mut locked: u128 = 0;
+        for act in &self.acts {
+            match act {
+                Act::Escrow { holder: h, amount } if h == holder => {
+                    locked = locked.saturating_add(*amount);
+                }
+                Act::Release { holder: h } if h == holder => locked = 0,
+                Act::Slash { holder: h, amount } if h == holder => {
+                    locked = locked.saturating_sub(*amount);
+                }
+                _ => {}
+            }
+        }
+        locked
+    }
+
+    /// How much of `holder`'s stake has been destroyed by slashing over
+    /// all time (`IS-6/7`). Unlike [`Ledger::escrow_of`], a release does
+    /// not reset this — slashed value is gone for good, so it is
+    /// subtracted from earned balance permanently (see the court's
+    /// `balance_of`).
+    #[must_use]
+    pub fn slashed_of(&self, holder: &str) -> u128 {
+        self.acts.iter().fold(0u128, |sum, act| match act {
+            Act::Slash { holder: h, amount } if h == holder => sum.saturating_add(*amount),
+            _ => sum,
+        })
+    }
+
     /// The definition governing `tag`, if a **current holder** of the
     /// tag ever published one (UC4).
     ///
@@ -1818,6 +1916,9 @@ impl Ledger {
                 // A certificate fingerprint issues nothing either —
                 // transport hygiene, not ground.
                 Act::Certify { .. } => {}
+                // A stake issues nothing: locking, releasing, or slashing
+                // a balance is economics, not ground.
+                Act::Escrow { .. } | Act::Release { .. } | Act::Slash { .. } => {}
                 Act::Issue { holder, .. } | Act::IssueBox { holder, .. } => {
                     let Some(mut region) = act.region(axes_now) else {
                         continue;
@@ -2060,6 +2161,9 @@ impl Ledger {
                 Act::Declare { .. } => {}
                 // Likewise a certify: it names no ground either.
                 Act::Certify { .. } => {}
+                // A stake names no ground either — locking, releasing, or
+                // slashing a balance cannot trip a horizontal rule.
+                Act::Escrow { .. } | Act::Release { .. } | Act::Slash { .. } => {}
                 Act::Retire { holder } => {
                     live.remove(holder);
                 }
@@ -2303,6 +2407,16 @@ pub mod chain {
     /// Chain-record tag for an [`Act::Certify`] — the transport
     /// certificate fingerprint (`IS-6/6`). Additive, same rule.
     pub const CERTIFY: u64 = 12;
+    /// Chain-record tag for an [`Act::Escrow`] — a balance locked as a
+    /// stake (`IS-6/7`). Additive: an older reader refuses tag 13 rather
+    /// than misfolding, as with every act added since the founding.
+    pub const ESCROW: u64 = 13;
+    /// Chain-record tag for an [`Act::Release`] — a stake unlocked
+    /// (`IS-6/7`). Additive, same rule.
+    pub const RELEASE: u64 = 14;
+    /// Chain-record tag for an [`Act::Slash`] — a stake destroyed for a
+    /// verifiable offence (`IS-6/7`). Additive, same rule.
+    pub const SLASH: u64 = 15;
 
     /// A length-framed opaque blob: `LE32(len) ‖ bytes`.
     ///
@@ -2460,6 +2574,20 @@ pub mod chain {
                     value.extend_from_slice(fingerprint);
                     CERTIFY
                 }
+                Act::Escrow { holder, amount } => {
+                    put_text(holder, &mut value);
+                    value.extend_from_slice(&amount.to_le_bytes());
+                    ESCROW
+                }
+                Act::Release { holder } => {
+                    put_text(holder, &mut value);
+                    RELEASE
+                }
+                Act::Slash { holder, amount } => {
+                    put_text(holder, &mut value);
+                    value.extend_from_slice(&amount.to_le_bytes());
+                    SLASH
+                }
             };
             // The founding layout holds tags 1..=3 and every value here
             // fits its length field; ignoring the Ok is the total path.
@@ -2585,6 +2713,20 @@ pub mod chain {
                         holder,
                         fingerprint,
                     }
+                }
+                ESCROW => {
+                    let holder = take_text(&mut reader)?;
+                    let amount = reader.u128()?;
+                    Act::Escrow { holder, amount }
+                }
+                RELEASE => {
+                    let holder = take_text(&mut reader)?;
+                    Act::Release { holder }
+                }
+                SLASH => {
+                    let holder = take_text(&mut reader)?;
+                    let amount = reader.u128()?;
+                    Act::Slash { holder, amount }
                 }
                 found => {
                     return Err(Malformed::UnexpectedTag {

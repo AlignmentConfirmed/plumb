@@ -895,6 +895,116 @@ mod bind_laws {
     }
 }
 
+/// IS-6/7 — a holder's stake as a chain fact (Phase 5 Fork B).
+mod escrow_laws {
+    use isthmus::deed::{chain, Act, Ledger};
+    use isthmus::layout::Layout;
+
+    fn escrow(holder: &str, amount: u128) -> Act {
+        Act::Escrow {
+            holder: holder.to_owned(),
+            amount,
+        }
+    }
+
+    #[test]
+    fn escrow_of_folds_forward_locks_add_release_zeroes_slash_subtracts() {
+        let mut ledger = Ledger::new(Layout::founding());
+        assert_eq!(ledger.escrow_of("kernel-a"), 0, "nothing locked yet");
+
+        ledger.record(escrow("kernel-a", 100));
+        ledger.record(escrow("kernel-a", 50));
+        assert_eq!(ledger.escrow_of("kernel-a"), 150, "locks accumulate");
+
+        ledger.record(Act::Slash {
+            holder: "kernel-a".to_owned(),
+            amount: 30,
+        });
+        assert_eq!(ledger.escrow_of("kernel-a"), 120, "a slash subtracts");
+
+        // A different holder's stake is independent.
+        ledger.record(escrow("kernel-b", 9));
+        assert_eq!(ledger.escrow_of("kernel-b"), 9);
+        assert_eq!(ledger.escrow_of("kernel-a"), 120, "holders do not mix");
+
+        ledger.record(Act::Release {
+            holder: "kernel-a".to_owned(),
+        });
+        assert_eq!(ledger.escrow_of("kernel-a"), 0, "release returns to zero");
+        assert_eq!(ledger.escrow_of("kernel-b"), 9, "only the named holder");
+    }
+
+    #[test]
+    fn slashed_total_survives_a_release_but_locked_does_not() {
+        let mut ledger = Ledger::new(Layout::founding());
+        ledger.record(escrow("kernel-a", 100));
+        ledger.record(Act::Slash {
+            holder: "kernel-a".to_owned(),
+            amount: 40,
+        });
+        ledger.record(Act::Release {
+            holder: "kernel-a".to_owned(),
+        });
+        // Locked resets on release; slashed value is gone for good, so a
+        // court's balance_of can subtract it from earned permanently.
+        assert_eq!(ledger.escrow_of("kernel-a"), 0);
+        assert_eq!(ledger.slashed_of("kernel-a"), 40);
+    }
+
+    #[test]
+    fn a_slash_cannot_drive_locked_below_zero() {
+        let mut ledger = Ledger::new(Layout::founding());
+        ledger.record(escrow("kernel-a", 10));
+        ledger.record(Act::Slash {
+            holder: "kernel-a".to_owned(),
+            amount: 999,
+        });
+        assert_eq!(
+            ledger.escrow_of("kernel-a"),
+            0,
+            "saturating: a stake cannot go negative"
+        );
+    }
+
+    #[test]
+    fn a_stake_covers_no_ground() {
+        let mut ledger = Ledger::new(Layout::founding());
+        ledger.encumber(1, 31, "ancestral", "founding registries");
+        ledger.issue("kernel-a", 16).expect("room");
+        let held_before = ledger.deeds();
+        ledger.record(escrow("kernel-a", 1_000));
+        ledger.record(Act::Release {
+            holder: "kernel-a".to_owned(),
+        });
+        assert_eq!(
+            ledger.deeds(),
+            held_before,
+            "a stake is economics, not ground — no deed moved"
+        );
+        assert!(
+            ledger.well_formed().is_ok(),
+            "no horizontal rule trips on a balance fact"
+        );
+    }
+
+    #[test]
+    fn a_stake_round_trips_and_a_huge_amount_survives_the_u128_field() {
+        let acts = vec![
+            escrow("kernel-a", u128::MAX),
+            Act::Slash {
+                holder: "kernel-a".to_owned(),
+                amount: 1,
+            },
+            Act::Release {
+                holder: "kernel-a".to_owned(),
+            },
+        ];
+        let bytes = chain::encode(&acts);
+        let back = chain::decode(&bytes).expect("its own bytes");
+        assert_eq!(back, acts, "byte-identical, full u128 amount included");
+    }
+}
+
 mod containment_laws {
 
 
@@ -2439,6 +2549,26 @@ mod replay_laws {
                     fingerprint: [9u8; 32],
                 },
             ),
+            (
+                chain::ESCROW,
+                Act::Escrow {
+                    holder: "beta".to_owned(),
+                    amount: 1_000_000_000_000_000_000_000u128,
+                },
+            ),
+            (
+                chain::RELEASE,
+                Act::Release {
+                    holder: "beta".to_owned(),
+                },
+            ),
+            (
+                chain::SLASH,
+                Act::Slash {
+                    holder: "beta".to_owned(),
+                    amount: 7,
+                },
+            ),
         ]
     }
 
@@ -2460,6 +2590,9 @@ mod replay_laws {
             Act::Bind { .. } => chain::BIND,
             Act::Declare { .. } => chain::DECLARE,
             Act::Certify { .. } => chain::CERTIFY,
+            Act::Escrow { .. } => chain::ESCROW,
+            Act::Release { .. } => chain::RELEASE,
+            Act::Slash { .. } => chain::SLASH,
         }
     }
 

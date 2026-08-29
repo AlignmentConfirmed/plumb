@@ -503,11 +503,29 @@ Tracked as an ordered, dependency-wired graph (#49–#55):
   magnitude and destination (burn vs. redistribute) are the one
   remaining detail to pin at #50, deliberately small and separable from
   the offence set decided here.*
-- **#50 P5-A1** — the on-chain economic facts: `Act::Escrow`/`Release`
-  (voluntary self-lock of earned balance) plus `Act::Slash` (involuntary,
-  consensus-verifiable trigger only), and the balance fold
-  `balance_of(holder)` / `escrow_of(holder) -> u128` over them *(needs
-  #49 + the slashable-offence sub-ruling)*.
+- **#50 P5-A1** — the on-chain economic facts. **DONE 2026-08-29** —
+  `isthmus::deed::Act::{Escrow, Release, Slash}` (chain tags 13/14/15,
+  additive: an older reader refuses rather than misfolds), each covering
+  no ground like a `Bind` (safe to append to a live chain). Read folds:
+  `Ledger::escrow_of(holder) -> u128` (forward: locks add, a release
+  zeroes, a slash subtracts, saturating) and `Ledger::slashed_of` (total
+  destroyed, survives a release). Court side (`datum::escrow`):
+  `available_balance(earned, ledger, holder) = earned − locked − slashed`
+  (saturating), `lock(..)` refusing a stake beyond available balance, and
+  `slash(..)` refusing to destroy more than is locked (the caller having
+  already verified the #56 offence). Validated: isthmus exhaustive
+  round-trip now covers all three acts, the fold semantics are
+  falsification-tested (flipping slash's subtract to add fails the fold
+  test at 180≠120), the balance/lock/slash rules are unit-tested, and
+  the whole workspace stays green with clippy `-D warnings` clean and the
+  sched boundary test intact. **Honest boundary carried to #51:**
+  `available_balance` takes `earned` as an *explicit input* because the
+  reward book credits work by **content address, not by holder** (the
+  crate's "not a name" design). Sourcing a per-holder `earned` figure
+  means attributing credit to a holder in the settlement record — a real
+  change to the name-free consensus shape — so it is a #51 decision, not
+  smuggled in here. The escrow *primitive* is complete and correct; what
+  it is *fed* is the open wire.
 - **#51 P5-A2** — wire the deposit/lock, withdraw/release, and the
   verifiable-fraud slash path *(needs #49, #50)*.
 - **#52 P5-C1** — the concave, float-free weight

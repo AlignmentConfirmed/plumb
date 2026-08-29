@@ -320,6 +320,16 @@ impl<'a> Reader<'a> {
         Ok(u64::from_le_bytes(array))
     }
 
+    /// Take a little-endian `u128` — a chain amount (escrow, IS-6/7).
+    pub fn u128(&mut self) -> Result<u128, Malformed> {
+        let slice = self.take(16)?;
+        let array = <[u8; 16]>::try_from(slice).map_err(|_| Malformed::Truncated {
+            want: 16,
+            have: slice.len(),
+        })?;
+        Ok(u128::from_le_bytes(array))
+    }
+
     /// Take a `LE32`-prefixed byte string.
     ///
     /// Distinguishes *the length is longer than this record* from *the

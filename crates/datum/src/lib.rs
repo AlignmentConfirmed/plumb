@@ -47,6 +47,7 @@ pub mod court_live;
 pub mod court_service;
 pub mod corpus;
 pub mod domains;
+pub mod escrow;
 pub mod extent;
 pub mod hygiene;
 pub mod ledger;
