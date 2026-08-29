@@ -708,6 +708,15 @@ ledger entry.
 
 ## 6g · The multi-axial settlement section (Phase 6) — SCOPED 2026-08-29
 
+> **REFRAMED 2026-08-29 — read §6h first.** The mechanism below (the graded,
+> torsion-valued section; per-generator locking; closure conservation) is
+> correct and stands, but its *framing* was wrong: it is not "consensus"
+> and not "authority," and settlement is not byte-exact. The governing
+> principle is **convergence through asymmetric coboundary reduction over
+> cohomological torsion** (§6h). Where the text below says "consensus,"
+> read "convergence"; "authority," read "confluence"; "byte-exact replay,"
+> read "class-settlement / confluent normal form."
+
 **The gap.** `RewardBook` is one global structure behind one `Mutex`, so
 settlement serializes on it (§6f demux note). Two naive fixes both fail:
 holding the lock across verification wastes the parallelism (verification
@@ -786,6 +795,112 @@ locking) → #64 (closure/Stokes conservation + per-cell replay) → #65
 pool) → #67 (convergence/A4 test across nodes). #61 is a pure throughput
 win with no data change; the section (#62) is where the torsion mathematics
 lands.
+
+---
+
+## 6h · Convergence over cohomological torsion — the governing model (Phase 6+) — SCOPED 2026-08-29
+
+This section corrects the framing of §6f–§6g and sets the trajectory. The
+mechanisms already built are correct; the *labels* were borrowed from
+distributed-systems consensus and were wrong for what plumb is.
+
+**The principle.** Plumb does not run *consensus* (Byzantine agreement by
+comparison). It runs **convergence**: independent nodes each *reduce* their
+cochains, and because the reduction has a unique normal form, they arrive
+at the same place **without comparing** — the mathematics is the agreement,
+there is no protocol. Precisely: **convergence through asymmetric
+coboundary reduction over cohomological torsion.**
+- *Asymmetric* — reduction steps are directional (remove a coboundary,
+  descend toward denser/reduced; never un-reduce). The outcome is
+  path-independent because the reduction is **confluent** (Church-Rosser).
+  Asymmetric steps, unique limit. The `AxialCredit` order-independence
+  already proved (#62 math core) *is* confluence in the abelian case.
+- *Over torsion* — **torsion is finite** (`⊕ ℤ/m_iℤ`), so reduction over it
+  **terminates with a unique normal form**: convergence is *guaranteed by
+  finiteness*, no proof burden. The **free part is infinite** (`ℤ^b`) —
+  reduction toward a minimal representative is the shortest-vector problem,
+  unbounded and NP-hard, which is not a bug: **the free part is the market**
+  (density competition, never terminating). The torsion/free split *is* the
+  settle/economy split, and it is *why* one half agrees and the other earns.
+- *Cohomological* (not homological) — cohomology carries the **cup product**
+  (composition of propositions, the geometric-algebra/linguistic layer);
+  `δ` raises degree, building propositions up. `H^k` torsion `= H_{k-1}`
+  torsion, degree-shifted. Homology/SNF is the *computation*; cohomology is
+  the *semantics* of a language that composes.
+
+**The relabeling (align to these).**
+
+| Old (wrong) label | Corrected label |
+|---|---|
+| consensus | convergence (confluent reduction) |
+| authority / the single book | the convergent limit of everyone's reduction |
+| byte-exact replay | class-settlement (torsion normal form) |
+| `seen`: set of byte-hashes | `settled`: set of class-ids (canonical torsion normal forms) |
+| replay = same hash | replay = reduces into an already-normal class; **refinement** = reduces the free representative further |
+| anchor = hash of the ordered act log | anchor = commitment to the converged torsion normal form (order-independent) |
+| "settlement must be exact/replayable" | **the reduction must be confluent** (free over finite torsion) |
+| monotonic grow-only state | order-independent abelian section + a monotonic exactly-once guard |
+
+**The one guardrail — confluence.** This replaces "byte-exact" and
+"decidable equivalence" as the non-negotiable. Every admitted reduction
+operator MUST be confluent. Over finite torsion (linear `ℤ/mℤ` reduction)
+it is free. The danger is **non-linear** reduction — the Hodge-star genesis
+that mints new generators and changes `n`, the geometric-product packaging:
+confluence is *not* automatic there, and a non-confluent reduction makes
+two nodes reduce the same object down two paths to *different* normal forms
+— silent, undetectable divergence (worse than a consensus failure, because
+there is no comparison step to catch it). So: **a reduction enters only
+through a linear/finite door where confluence is given, or with a proof of
+confluence.** The genesis operator is the one to prove first.
+
+**Two computations of the same torsion (the coefficient-change functor).**
+`assay::betti` runs full integer SNF; the scheduler throws the magnitude
+away. Split the functor by coefficients:
+- **Fast leg `betti_fast` (𝔽_p / ℚ, scheduler):** `free_rank = n_k −
+  rank_ℚ(∂_k) − rank_ℚ(∂_{k+1})`; `torsion_count = rank_ℚ − minₚ
+  rank_{𝔽ₚ}` (exact by invariant-factor nesting; field ranks never suffer
+  coefficient explosion). Retire the SNF-at-`Act::Declare` cache in favour
+  of this — the scheduler path becomes SNF-free.
+- **Slow leg `betti` (ℤ, book, at settle):** full integer SNF for the
+  invariant-factor **values** the `ℤ/mℤ` accumulation needs.
+- **`GradeClass`:** a fixed prime sweep classifies torsion —
+  Crystallographic (orders `{2,3,4,6}`, rotor-representable) vs Exotic
+  (a drop at a prime `≥ 5`). **Exact only if plumb's universes are
+  crystallographic** (a domain fact to VERIFY, #70); otherwise `betti_fast`
+  is exact for prime-smooth torsion and the book's SNF is the authority.
+  Exotic is a **scheduling hint / anomaly signal**, never a settlement
+  tier — the book always settles by exact SNF.
+
+**What plumb supports for kernels.** The network's *guarantee* is
+crystallographic-exact (discrete, replayable, `{2,3,4,6}` torsion → exact
+`betti_fast`); the kernel *language* may be geometric-algebra blades over
+exact `ℤ/ℚ`. Fluid/continuous intelligence lives in **generation** (a
+producer may think in orbs, floats, ML — anything — to *find* a dense
+representative); the court **verifies exactly** that the output is in the
+class and leaner. Same producer-search / court-verify split, now: the court
+confirms class-membership and improvement, not byte-match.
+
+**Relay, not gossip.** Deterministic point-to-point exchange along the
+known `domain → owner` routing (rendezvous), carrying **condensed algebraic
+deltas** (sparse `(generator, credit-Δ)` + new class-ids, guarded
+exactly-once, merged by `⊕`) over a minimal framed TCP codec — HTTP stays
+quarantined at the x402 edge. Convergence + exactly-once guard together
+(since `⊕` is not idempotent). No epidemic flooding: the topology is known.
+
+**Revised task graph (Phase 6+):** the mechanism tasks stand, reframed —
+#62 (section = the convergence space; guard/section split), #63 (intra-node
+parallel reduction), #64 (closure conservation = confluence, per-cell),
+#65 → **anchor-on-section = the converged torsion normal form**, #66
+(parallel verify, DONE), #67 → **confluence test** (path-independent limit).
+New: #68 `betti_fast` functor (retire SNF cache), #69 class-settlement
+(class-id = torsion normal form; replay-or-refine), #70 verify the
+crystallographic domain assumption, #71 confluence guardrail (proof
+obligations; linear-door for new reductions), #72 deterministic delta-relay
++ codec, #73 Hodge-star genesis operator (confluence-proven; research-gated),
+#74 geometric-algebra blade kernel language (research-gated). Immediate,
+exact, low-risk first: **#68 `betti_fast`** and **#70 domain verification**,
+then #69/#65 (class-settlement + anchor-on-section) as the settlement
+reframe, then #71 confluence formalization before any non-linear reduction.
 
 ---
 
