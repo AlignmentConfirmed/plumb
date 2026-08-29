@@ -77,7 +77,7 @@ kernels exist.
 | `snf.rs` | the integer boundary calculus — invariants and filling chains | `Boundary`, `invariant_factors`, `rank`, `rank_mod`, `solve` |
 | `simplex.rs` | exact-rational two-phase simplex | `minimize_l1`, `minimize_forward` |
 | `rewrite.rs` | a rewriting calculus compiled into a polygraph | `RewriteBroken` |
-| `extent.rs` | per-axis coordinates, never collapsed | `Extent` |
+| `extent.rs` | per-axis coordinates, one component per axis | `Extent` |
 | `work.rs` | portable multi-axial work claims (boundary domain) | `WorkBody`, `Claim`, `WorkId`, `assess` |
 | `freshness.rs` | work-identity freshness — credit once per structure | `OnceCredit` |
 | `exact_codec.rs` | exact rational bytes shared across claim kinds | `put_exact`, `take_exact` |
@@ -122,12 +122,12 @@ chain, and runs the node daemon. Grouped by concern.
 | module | responsibility | key types |
 |---|---|---|
 | `board.rs` | applications, the survey, the price, the docket | `Ask`, the board |
-| `negotiation.rs` | positions, not scalars; folds, not gates | `Proposal` |
+| `negotiation.rs` | settlement positions and folds over multi-axial space | `Proposal` |
 | `settle.rs` | credit useful work against deed-priced multi-axis space | `court_settle` |
 | `reward.rs` | multi-axial credit, primary by `work_id` | `RewardBook`, `RewardAct` |
-| `extent.rs` | per-axis space with no way to flatten it | `Extent` |
+| `extent.rs` | per-axis space, one component per axis | `Extent` |
 | `merge.rs` | sphere merge: bulk, residual carry, PoUW/PoWC admit, payout | `MergeSettle` |
-| `bounty.rs` | the yield rebate — efficiency paid at discovery (O1) | yield accounting |
+| `bounty.rs` | the yield rebate for efficient work at discovery (O1) | yield accounting |
 
 ### Convergence (Phase 6)
 
@@ -135,7 +135,7 @@ chain, and runs the node daemon. Grouped by concern.
 |---|---|---|
 | `section.rs` | the convergent settlement section, valued per grade | `Section`, `GradeShape` |
 | `geometry.rs` | the bridge from verification geometry (`assay`) to scheduling | `graded_torsion`, `grade_shapes`, `claim_grades` |
-| `sched.rs` | local admission scheduling — the load physics, kept apart from settlement | `ResourceGovernor`, `Turned` |
+| `sched.rs` | local admission scheduling, kept separate from settlement | `ResourceGovernor`, `Turned` |
 
 ### Identity and enforcement
 
@@ -158,7 +158,7 @@ chain, and runs the node daemon. Grouped by concern.
 | `court_live.rs` | multi-host federation | live federation |
 | `bin/gateway.rs` | the court's x402 HTTP face (X3) | `Gateway` |
 | `onramp.rs` | tollway → superhighway on-ramp for useful work | shape → envelope |
-| `corpus.rs` | the live corpus a court actually prices (P5) | the priced question |
+| `corpus.rs` | the live corpus a court prices (P5) | the priced question |
 
 Binaries live in `crates/datum/src/bin/` (`plumbd.rs`, `gateway.rs`).
 Functions prefixed `demo_*` are synthetic fixtures for tests and

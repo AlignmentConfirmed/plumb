@@ -7,6 +7,9 @@ independent parties. Once verified, it settles: it is credited on a
 ledger, recorded, and protected against duplicate payment. A full
 description is given in [`PROOF_ECONOMY.md`](PROOF_ECONOMY.md).
 
+To navigate the code, start with [`ARCHITECTURE.md`](ARCHITECTURE.md) —
+a map of every crate and module to the responsibility it holds.
+
 ## Workspace
 
 Three crates:
