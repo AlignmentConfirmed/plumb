@@ -6,7 +6,7 @@
 //! [`rank`] (the torsion and free structure), [`rank_mod`] (the cheap field
 //! rank the fast leg `betti_fast` uses, over `𝔽_p`, no coefficient
 //! explosion), and [`solve`] (does an integral filling chain exist). The
-//! dense tableau the Smith algorithm mutates in place — `Matrix`,
+//! dense tableau the Smith algorithm mutates in place — `Tableau`,
 //! `decompose` — is a **private scratch representation**, not an API: it is
 //! the conventional `U·A·V = D` machinery, kept as the exact slow leg, and
 //! a longer-term move to a blade/versor calculus (research-gated behind the
@@ -73,13 +73,13 @@ fn magnitude(n: &BigInt) -> BigInt {
 /// universe sizes this workspace declares (hundreds of cells). Callers work
 /// in [`Boundary`] and ask for invariants; they never touch this.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Matrix {
+struct Tableau {
     rows: usize,
     cols: usize,
     data: Vec<BigInt>,
 }
 
-impl Matrix {
+impl Tableau {
     /// An all-zero matrix of the given shape.
     #[must_use]
     fn zeros(rows: usize, cols: usize) -> Self {
@@ -188,12 +188,12 @@ impl Matrix {
         }
     }
 
-    /// Matrix product `self · other`. Used only by tests here to
+    /// Tableau product `self · other`. Used only by tests here to
     /// check `U·A·V = D` directly against the defining property,
     /// rather than trusting the construction blind.
     #[must_use]
-    fn multiply(&self, other: &Matrix) -> Matrix {
-        let mut out = Matrix::zeros(self.rows, other.cols);
+    fn multiply(&self, other: &Tableau) -> Tableau {
+        let mut out = Tableau::zeros(self.rows, other.cols);
         for r in 0..self.rows {
             for k in 0..self.cols {
                 let a = self.get(r, k);
@@ -216,7 +216,7 @@ impl Matrix {
     fn from_rows(rows: &[Vec<i64>]) -> Self {
         let r = rows.len();
         let c = rows.first().map_or(0, Vec::len);
-        let mut m = Matrix::zeros(r, c);
+        let mut m = Tableau::zeros(r, c);
         for (i, row) in rows.iter().enumerate() {
             for (j, value) in row.iter().enumerate() {
                 m.set(i, j, BigInt::from(*value));
@@ -231,16 +231,16 @@ impl Matrix {
 #[derive(Debug, Clone)]
 struct Decomposition {
     /// Row transform, `rows(A) × rows(A)`.
-    pub u: Matrix,
+    pub u: Tableau,
     /// The diagonal form, same shape as `A`.
-    pub d: Matrix,
+    pub d: Tableau,
     /// Column transform, `cols(A) × cols(A)`.
-    pub v: Matrix,
+    pub v: Tableau,
 }
 
 /// The smallest-magnitude nonzero entry in `d`'s submatrix from
 /// `(from, from)` onward, if one exists.
-fn smallest_nonzero(d: &Matrix, from: usize) -> Option<(usize, usize)> {
+fn smallest_nonzero(d: &Tableau, from: usize) -> Option<(usize, usize)> {
     let mut best: Option<(usize, usize, BigInt)> = None;
     for r in from..d.rows() {
         for c in from..d.cols() {
@@ -263,7 +263,7 @@ fn smallest_nonzero(d: &Matrix, from: usize) -> Option<(usize, usize)> {
 
 /// A cell in `d`'s remaining submatrix not divisible by the pivot at
 /// `(t, t)`, if the pivot fails to divide everything there yet.
-fn first_indivisible(d: &Matrix, t: usize) -> Option<(usize, usize)> {
+fn first_indivisible(d: &Tableau, t: usize) -> Option<(usize, usize)> {
     let pivot = d.get(t, t);
     if pivot.is_zero() {
         return None;
@@ -279,11 +279,11 @@ fn first_indivisible(d: &Matrix, t: usize) -> Option<(usize, usize)> {
     None
 }
 
-fn column_clear(d: &Matrix, t: usize) -> bool {
+fn column_clear(d: &Tableau, t: usize) -> bool {
     (t + 1..d.rows()).all(|i| d.get(i, t).is_zero())
 }
 
-fn row_clear(d: &Matrix, t: usize) -> bool {
+fn row_clear(d: &Tableau, t: usize) -> bool {
     (t + 1..d.cols()).all(|j| d.get(t, j).is_zero())
 }
 
@@ -293,7 +293,7 @@ fn row_clear(d: &Matrix, t: usize) -> bool {
 /// swapped into the pivot position — repeat until every entry below
 /// the pivot is exactly zero. Every swap strictly shrinks `|pivot|`,
 /// a positive integer, so this always terminates.
-fn clear_column(d: &mut Matrix, u: &mut Matrix, t: usize) {
+fn clear_column(d: &mut Tableau, u: &mut Tableau, t: usize) {
     loop {
         let pivot = d.get(t, t);
         let mut swapped = false;
@@ -319,7 +319,7 @@ fn clear_column(d: &mut Matrix, u: &mut Matrix, t: usize) {
 }
 
 /// The column analogue of [`clear_column`], reducing row `t` instead.
-fn clear_row(d: &mut Matrix, v: &mut Matrix, t: usize) {
+fn clear_row(d: &mut Tableau, v: &mut Tableau, t: usize) {
     loop {
         let pivot = d.get(t, t);
         let mut swapped = false;
@@ -347,10 +347,10 @@ fn clear_row(d: &mut Matrix, v: &mut Matrix, t: usize) {
 /// Decompose `a` into Smith Normal Form. Private: the slow, exact engine
 /// behind [`invariant_factors`]/[`rank`]/[`solve`].
 #[must_use]
-fn decompose(a: &Matrix) -> Decomposition {
+fn decompose(a: &Tableau) -> Decomposition {
     let mut d = a.clone();
-    let mut u = Matrix::identity(a.rows());
-    let mut v = Matrix::identity(a.cols());
+    let mut u = Tableau::identity(a.rows());
+    let mut v = Tableau::identity(a.cols());
     let mut t = 0usize;
     while t < d.rows().min(d.cols()) {
         let Some((pr, pc)) = smallest_nonzero(&d, t) else {
@@ -401,15 +401,15 @@ fn decompose(a: &Matrix) -> Decomposition {
 /// with the free (kernel) coordinates of `y` set to zero for a
 /// particular solution. Private: the engine behind [`solve`].
 #[must_use]
-fn solve_integer(a: &Matrix, z: &[BigInt]) -> Option<Vec<BigInt>> {
+fn solve_integer(a: &Tableau, z: &[BigInt]) -> Option<Vec<BigInt>> {
     let decomposition = decompose(a);
-    let mut z_col = Matrix::zeros(a.rows(), 1);
+    let mut z_col = Tableau::zeros(a.rows(), 1);
     for (i, value) in z.iter().enumerate() {
         z_col.set(i, 0, value.clone());
     }
     let uz = decomposition.u.multiply(&z_col);
     let rank_bound = decomposition.d.rows().min(decomposition.d.cols());
-    let mut y = Matrix::zeros(decomposition.v.cols(), 1);
+    let mut y = Tableau::zeros(decomposition.v.cols(), 1);
     for i in 0..decomposition.d.rows() {
         let target = uz.get(i, 0);
         if i < rank_bound {
@@ -492,8 +492,8 @@ impl Boundary {
     }
 
     /// Densify into the private Smith tableau (accumulating repeats).
-    fn densify(&self) -> Matrix {
-        let mut m = Matrix::zeros(self.rows, self.cols);
+    fn densify(&self) -> Tableau {
+        let mut m = Tableau::zeros(self.rows, self.cols);
         for (r, c, v) in &self.entries {
             let existing = m.get(*r, *c);
             m.set(*r, *c, existing + v);
@@ -594,7 +594,7 @@ pub fn solve(b: &Boundary, target: &[BigInt]) -> Option<Vec<BigInt>> {
 mod tests {
     use super::*;
 
-    fn assert_decomposes(a: &Matrix) -> Decomposition {
+    fn assert_decomposes(a: &Tableau) -> Decomposition {
         let dec = decompose(a);
         let check = dec.u.multiply(a).multiply(&dec.v);
         assert_eq!(check, dec.d, "U*A*V must equal D exactly");
@@ -603,9 +603,9 @@ mod tests {
 
     #[test]
     fn the_identity_decomposes_to_itself() {
-        let a = Matrix::identity(3);
+        let a = Tableau::identity(3);
         let dec = assert_decomposes(&a);
-        assert_eq!(dec.d, Matrix::identity(3));
+        assert_eq!(dec.d, Tableau::identity(3));
     }
 
     /// A diagonal matrix that ALREADY has zero off the diagonal —
@@ -616,7 +616,7 @@ mod tests {
     /// invariant factors must come out as (1, 6), not (2, 3).
     #[test]
     fn diagonal_entries_that_do_not_divide_each_other_still_reduce() {
-        let a = Matrix::from_rows(&[vec![2, 0], vec![0, 3]]);
+        let a = Tableau::from_rows(&[vec![2, 0], vec![0, 3]]);
         let dec = assert_decomposes(&a);
         assert_eq!(dec.d.get(0, 0), BigInt::from(1));
         assert_eq!(dec.d.get(1, 1), BigInt::from(6));
@@ -629,7 +629,7 @@ mod tests {
     /// exactly as the theory demands.
     #[test]
     fn a_known_matrix_produces_its_textbook_invariant_factors() {
-        let a = Matrix::from_rows(&[vec![2, 4], vec![6, 8]]);
+        let a = Tableau::from_rows(&[vec![2, 4], vec![6, 8]]);
         let dec = assert_decomposes(&a);
         assert_eq!(dec.d.get(0, 0), BigInt::from(2));
         assert_eq!(dec.d.get(1, 1), BigInt::from(4));
@@ -640,7 +640,7 @@ mod tests {
     #[test]
     fn a_path_graph_incidence_matrix_solves_integrally() {
         // 0->1->2, columns are edges (∂edge = to - from).
-        let a = Matrix::from_rows(&[vec![-1, 0], vec![1, -1], vec![0, 1]]);
+        let a = Tableau::from_rows(&[vec![-1, 0], vec![1, -1], vec![0, 1]]);
         let z = vec![BigInt::from(-1), BigInt::from(0), BigInt::from(1)];
         let x = solve_integer(&a, &z).expect("0->2 is reachable via both edges");
         let mut check = vec![BigInt::zero(); a.rows()];
@@ -668,7 +668,7 @@ mod tests {
     /// and "this is an actual sequence of forward rule applications."
     #[test]
     fn a_reversed_target_is_still_solvable_by_negating_the_edge() {
-        let a = Matrix::from_rows(&[vec![-1, 0], vec![1, -1], vec![0, 1]]);
+        let a = Tableau::from_rows(&[vec![-1, 0], vec![1, -1], vec![0, 1]]);
         let reversed = vec![BigInt::from(1), BigInt::from(0), BigInt::from(-1)];
         let x = solve_integer(&a, &reversed).expect("solvable by using both edges negatively");
         assert_eq!(x, vec![BigInt::from(-1), BigInt::from(-1)]);
@@ -681,7 +681,7 @@ mod tests {
     /// case; the reversed-edge case above is not it.
     #[test]
     fn a_target_spanning_disjoint_components_has_no_integer_solution() {
-        let a = Matrix::from_rows(&[vec![-1, 0], vec![1, 0], vec![0, -1], vec![0, 1]]);
+        let a = Tableau::from_rows(&[vec![-1, 0], vec![1, 0], vec![0, -1], vec![0, 1]]);
         let z = vec![
             BigInt::from(-1),
             BigInt::from(0),
@@ -697,7 +697,7 @@ mod tests {
     /// is meaningless as "half a licensed step" — SNF must refuse it.
     #[test]
     fn a_rationally_solvable_system_with_no_integer_solution_refuses() {
-        let a = Matrix::from_rows(&[vec![2]]);
+        let a = Tableau::from_rows(&[vec![2]]);
         let z = vec![BigInt::from(1)];
         assert_eq!(
             solve_integer(&a, &z),
