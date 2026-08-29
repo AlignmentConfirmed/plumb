@@ -67,7 +67,7 @@
 //! — no operator, no restart, no hand-edited genesis config.
 
 use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use datum::plumbd;
 use datum::reward::RewardBook;
@@ -483,7 +483,7 @@ fn main() {
                     std::process::exit(1);
                 }
             };
-            let book = Arc::new(Mutex::new(RewardBook::new()));
+            let book = Arc::new(RwLock::new(RewardBook::new()));
             let service = datum::court_service::ServiceConfig {
                 snapshot: config.snapshot.clone().map(std::path::PathBuf::from),
                 snapshot_secs: config.snapshot_secs,
@@ -522,7 +522,7 @@ fn main() {
             }
             // R3 — epochs are LIVE: the court opens one at start if
             // none is open, so bind windows can actually bite.
-            if let Ok(mut guard) = book.lock() {
+            if let Ok(mut guard) = book.write() {
                 if guard.open_epoch().is_none() {
                     let label = config
                         .epoch_label

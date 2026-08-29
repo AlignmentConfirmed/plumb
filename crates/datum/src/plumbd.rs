@@ -20,7 +20,7 @@
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use isthmus::deed::Ledger;
 use isthmus::hello::Hello;
@@ -357,9 +357,34 @@ impl SettleOutcome {
     }
 }
 
-/// Settle one work value against the book — the whole of the expensive
-/// verification, with NO stream. Produces the receipt bytes instead of
-/// writing them, so it can run off the connection thread.
+/// Build the signed receipt frame for a settled market answer.
+fn receipt_for(
+    layout: &Layout,
+    market: &MarketPost,
+    epoch: u64,
+    answer: &crate::bounty::Answer,
+) -> Option<Vec<u8>> {
+    let signed = receipt::issue(
+        &market.court,
+        epoch,
+        market.query.query_id(),
+        answer.credit.work_id.as_bytes(),
+        answer.credit.axes.components(),
+        answer.payout,
+        &market.key,
+    );
+    let mut body = signed.receipt.encode();
+    body.extend_from_slice(&signed.attestation.encode());
+    let mut wire = Vec::new();
+    isthmus::frame::put_frame(layout, isthmus::work::RECEIPT_TAG, &body, &mut wire)
+        .ok()
+        .map(|()| wire)
+}
+
+/// Settle one work value against a LOCKED book — verify and commit together
+/// under the caller's lock. The single-shot `court_settle`/greeter paths use
+/// this; the settler pool uses [`settle_work_parallel`], which verifies off
+/// the lock.
 fn settle_work(
     layout: &Layout,
     rules: &SessionRules,
@@ -370,36 +395,83 @@ fn settle_work(
         match settle_answer(&market.bounty, &market.query, value, book) {
             Ok(answer) => {
                 let epoch = book.open_epoch().unwrap_or(0);
-                let signed = receipt::issue(
-                    &market.court,
-                    epoch,
-                    market.query.query_id(),
-                    answer.credit.work_id.as_bytes(),
-                    answer.credit.axes.components(),
-                    answer.payout,
-                    &market.key,
-                );
-                let mut body = signed.receipt.encode();
-                body.extend_from_slice(&signed.attestation.encode());
-                let mut wire = Vec::new();
-                let receipt =
-                    isthmus::frame::put_frame(layout, isthmus::work::RECEIPT_TAG, &body, &mut wire)
-                        .ok()
-                        .map(|()| wire);
-                return SettleOutcome { receipt, credited: true, refused: false };
+                return SettleOutcome {
+                    receipt: receipt_for(layout, market, epoch, &answer),
+                    credited: true,
+                    refused: false,
+                };
             }
             Err(crate::bounty::AnswerRefused::NotThePosersUniverse)
             | Err(crate::bounty::AnswerRefused::NotAProof)
             | Err(crate::bounty::AnswerRefused::NotDeclared(_)) => {
-                // Not an answer to the question — ordinary work (both
-                // market shapes' "didn't engage with what was posed" mean
-                // the same thing). Fall through to the plain credit.
+                // Ordinary work (both market shapes' "didn't engage with
+                // what was posed") — fall through to the plain credit.
             }
             Err(_) => return SettleOutcome::refused(),
         }
     }
     match book.credit_claim(value) {
         Ok(_) => SettleOutcome { receipt: None, credited: true, refused: false },
+        Err(_) => SettleOutcome::refused(),
+    }
+}
+
+/// Settle one work value with the book behind an `RwLock`, **verifying
+/// under a shared read lock** (#61/#66): the expensive metered
+/// re-derivation runs while other settlers verify concurrently (many
+/// readers hold the read lock at once), and the atomic commit takes the
+/// exclusive write lock only for its cheap step. Authority is the
+/// commit-with-replay-check; verification is pure, so concurrent — even
+/// duplicated — verifies are harmless. `seen` is read directly under the
+/// shared lock (no snapshot copy); settled work is monotonic, so a
+/// dependency present at verify is still present at commit.
+fn settle_work_parallel(
+    layout: &Layout,
+    rules: &SessionRules,
+    book: &Arc<RwLock<RewardBook>>,
+    value: &[u8],
+) -> SettleOutcome {
+    let credit_plain = || match book.write() {
+        Ok(mut guard) => match guard.credit_claim(value) {
+            Ok(_) => SettleOutcome { receipt: None, credited: true, refused: false },
+            Err(_) => SettleOutcome::refused(),
+        },
+        Err(_) => SettleOutcome::refused(),
+    };
+    let Some(market) = &rules.market else {
+        return credit_plain();
+    };
+    // Verify under the SHARED read lock — concurrent with other verifiers.
+    // The guard is dropped at the end of this block, before the write lock.
+    let verified = {
+        let guard = match book.read() {
+            Ok(guard) => guard,
+            Err(_) => return SettleOutcome::refused(),
+        };
+        crate::bounty::verify_answer(&market.bounty, &market.query, value, guard.seen())
+    };
+    match verified {
+        Ok(verified) => {
+            // Commit under the EXCLUSIVE write lock — the one atomic act.
+            let mut guard = match book.write() {
+                Ok(guard) => guard,
+                Err(_) => return SettleOutcome::refused(),
+            };
+            match crate::bounty::commit_answer(&mut guard, value, verified) {
+                Ok(answer) => {
+                    let epoch = guard.open_epoch().unwrap_or(0);
+                    SettleOutcome {
+                        receipt: receipt_for(layout, market, epoch, &answer),
+                        credited: true,
+                        refused: false,
+                    }
+                }
+                Err(_) => SettleOutcome::refused(),
+            }
+        }
+        Err(crate::bounty::AnswerRefused::NotThePosersUniverse)
+        | Err(crate::bounty::AnswerRefused::NotAProof)
+        | Err(crate::bounty::AnswerRefused::NotDeclared(_)) => credit_plain(),
         Err(_) => SettleOutcome::refused(),
     }
 }
@@ -481,7 +553,7 @@ pub struct SessionState<'a> {
     layout: &'a Layout,
     ledger: &'a Arc<Mutex<Ledger>>,
     rules: &'a SessionRules,
-    book: &'a Arc<Mutex<RewardBook>>,
+    book: &'a Arc<RwLock<RewardBook>>,
     witnesses: &'a WitnessLog,
     /// The IS-2/2 challenge frame this session issued — the token an
     /// admission attestation must answer.
@@ -501,7 +573,7 @@ pub fn court_handshake<'a>(
     layout: &'a Layout,
     ledger: &'a Arc<Mutex<Ledger>>,
     rules: &'a SessionRules,
-    book: &'a Arc<Mutex<RewardBook>>,
+    book: &'a Arc<RwLock<RewardBook>>,
     witnesses: &'a WitnessLog,
 ) -> Result<SessionState<'a>, NodeBroken> {
     let (holder, bound) = (rules.holder.as_str(), rules.bound);
@@ -633,7 +705,7 @@ impl Survey {
         layout: &Layout,
         ledger: &Arc<Mutex<Ledger>>,
         rules: &SessionRules,
-        book: &Arc<Mutex<RewardBook>>,
+        book: &Arc<RwLock<RewardBook>>,
         witnesses: &WitnessLog,
         challenge_frame: &[u8],
         settle: &dyn Fn(&[u8]) -> SettleOutcome,
@@ -685,7 +757,7 @@ impl Survey {
                         .map_err(|_| ())?;
                         let epoch = {
                             let guard =
-                                book.lock().map_err(|_| ())?;
+                                book.read().map_err(|_| ())?;
                             guard.open_epoch().unwrap_or(0)
                         };
                         let mut guard = ledger.lock().map_err(|_| ())?;
@@ -735,7 +807,7 @@ impl Survey {
                 // challenge. A stale answer — a replayed session —
                 // refuses, and the session never goes live.
                 let epoch = {
-                    let guard = book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
+                    let guard = book.read().map_err(|_| NodeBroken::CourtUnreachable)?;
                     guard.open_epoch().unwrap_or(0)
                 };
                 let admitted = {
@@ -758,7 +830,7 @@ impl Survey {
                 return Ok(Flow::Continue);
             };
             let attestation = frame.get(layout.header()..).unwrap_or(&[]);
-            let guard = book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
+            let guard = book.read().map_err(|_| NodeBroken::CourtUnreachable)?;
             let epoch = guard.open_epoch().unwrap_or(0);
             let admitted = {
                 let ledger_guard = ledger.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
@@ -796,7 +868,7 @@ impl Survey {
             };
             match verified {
                 Ok(_spent) => {
-                    let mut guard = book.lock().map_err(|_| NodeBroken::CourtUnreachable)?;
+                    let mut guard = book.write().map_err(|_| NodeBroken::CourtUnreachable)?;
                     match guard.credit_claim(value) {
                         Ok(_) => self.report.credited += 1,
                         Err(_) => self.report.refused += 1,
@@ -856,7 +928,7 @@ fn drain_records(
     layout: &Layout,
     ledger: &Arc<Mutex<Ledger>>,
     rules: &SessionRules,
-    book: &Arc<Mutex<RewardBook>>,
+    book: &Arc<RwLock<RewardBook>>,
     witnesses: &WitnessLog,
     challenge_frame: &[u8],
     settle: &dyn Fn(&[u8]) -> SettleOutcome,
@@ -903,8 +975,8 @@ pub fn court_settle(state: SessionState) -> Result<SessionReport, NodeBroken> {
         mut buffer,
     } = state;
     let survey = Survey::new(!rules.enforce);
-    // Single-shot: settle inline against the book, no metric scheduling.
-    let settle = |value: &[u8]| match book.lock() {
+    // Single-shot: settle inline under the write lock, no metric scheduling.
+    let settle = |value: &[u8]| match book.write() {
         Ok(mut guard) => settle_work(layout, rules, &mut guard, value),
         Err(_) => SettleOutcome::refused(),
     };
@@ -933,7 +1005,7 @@ pub fn court_session(
     layout: &Layout,
     ledger: &Arc<Mutex<Ledger>>,
     rules: &SessionRules,
-    book: &Arc<Mutex<RewardBook>>,
+    book: &Arc<RwLock<RewardBook>>,
     witnesses: &WitnessLog,
 ) -> Result<SessionReport, NodeBroken> {
     let state = court_handshake(stream, handshake_socket, layout, ledger, rules, book, witnesses)?;
@@ -986,7 +1058,7 @@ pub fn serve(
     layout: &Layout,
     ledger: &Arc<Mutex<Ledger>>,
     rules: &SessionRules,
-    book: &Arc<Mutex<RewardBook>>,
+    book: &Arc<RwLock<RewardBook>>,
     witnesses: &WitnessLog,
     on_session: impl Fn(&SessionReport) + Send + Sync + 'static,
 ) -> std::io::Error {
@@ -1034,10 +1106,9 @@ pub fn serve(
                 .take_blocking(|h| ledger.lock().map(|g| g.escrow_of(h)).unwrap_or(0))
             {
                 let crate::sched::Claim { payload: job, support, .. } = claim;
-                let outcome = match book.lock() {
-                    Ok(mut guard) => settle_work(&layout, &rules, &mut guard, &job.value),
-                    Err(_) => SettleOutcome::refused(),
-                };
+                // Verify under a shared read lock (concurrent across the
+                // settler pool), commit under the exclusive write lock.
+                let outcome = settle_work_parallel(&layout, &rules, &book, &job.value);
                 let _ = job.reply.send(outcome);
                 work_transit.complete(&support);
             }
@@ -1227,7 +1298,7 @@ fn greet_session(
     layout: &Layout,
     ledger: &Arc<Mutex<Ledger>>,
     rules: &SessionRules,
-    book: &Arc<Mutex<RewardBook>>,
+    book: &Arc<RwLock<RewardBook>>,
     witnesses: &WitnessLog,
 ) -> GreetOutcome {
     // P3's deadline is set on the RAW socket, before P4 might wrap it —
@@ -1269,7 +1340,7 @@ fn greet_session(
     // Pre-go-live pump never credits (work before go-live is refused), so
     // this inline settle is a formality; the reader's metric-scheduled
     // settle handles all real crediting after go-live.
-    let settle = |value: &[u8]| match book.lock() {
+    let settle = |value: &[u8]| match book.write() {
         Ok(mut guard) => settle_work(layout, rules, &mut guard, value),
         Err(_) => SettleOutcome::refused(),
     };

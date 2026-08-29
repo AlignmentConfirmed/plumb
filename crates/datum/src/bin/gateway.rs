@@ -15,7 +15,7 @@
 //! and returns a signed receipt any facilitator verifies offline.
 
 use std::net::TcpListener;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 use datum::bounty::Bounty;
 use datum::query::{Guarantee, Query};
@@ -133,7 +133,7 @@ fn main() {
     let gateway = Gateway {
         query,
         bounty,
-        book: Arc::new(Mutex::new(RewardBook::new())),
+        book: Arc::new(RwLock::new(RewardBook::new())),
         chain,
         court,
         key: sig::Keypair::from_seed(seed),
@@ -169,7 +169,7 @@ pub struct Gateway {
     /// Its priced budget and rates (O1).
     pub bounty: Bounty,
     /// The court's book, shared with whatever else settles.
-    pub book: Arc<Mutex<RewardBook>>,
+    pub book: Arc<RwLock<RewardBook>>,
     /// The chain receipts verify against.
     pub chain: Ledger,
     /// The issuing court's name on that chain.
@@ -271,7 +271,7 @@ pub fn handle(method: &str, path: &str, body: &[u8], gateway: &Gateway) -> (u16,
     match (method, path) {
         ("GET", "/query") => (402, challenge_json(gateway)),
         ("POST", "/answer") => {
-            let mut book = match gateway.book.lock() {
+            let mut book = match gateway.book.write() {
                 Ok(guard) => guard,
                 Err(_) => return (500, "{\"refused\":\"court unreachable\"}".into()),
             };
@@ -473,7 +473,7 @@ fn test_bind(ledger: &mut isthmus::deed::Ledger, holder: &str, key: &sig::Keypai
 mod tests {
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, RwLock};
 
     use datum::bounty::Bounty;
     use datum::query::{Guarantee, Query};
@@ -509,7 +509,7 @@ mod tests {
         Gateway {
             query,
             bounty,
-            book: Arc::new(Mutex::new(RewardBook::new())),
+            book: Arc::new(RwLock::new(RewardBook::new())),
             chain,
             court: "court-a".into(),
             key,

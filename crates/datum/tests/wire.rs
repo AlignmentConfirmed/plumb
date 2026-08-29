@@ -12,7 +12,7 @@ mod noded {
 
 
     use std::net::TcpListener;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, RwLock};
     use std::time::{Duration, Instant};
 
     use datum::plumbd;
@@ -30,7 +30,7 @@ mod noded {
     fn a_claim_crosses_tcp_and_credits_once() {
         let layout = Layout::founding();
         let court_ledger = edge_with("test-court");
-        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let book = Arc::new(RwLock::new(RewardBook::new()));
 
         // The court, on an ephemeral port.
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
@@ -74,7 +74,7 @@ mod noded {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             {
-                let guard = book.lock().expect("book");
+                let guard = book.read().expect("book");
                 if guard.seen().len() == 1 && guard.act_len() == 1 {
                     break; // one work_id, one credit act: the copy refused
                 }
@@ -82,7 +82,7 @@ mod noded {
             assert!(
                 Instant::now() < deadline,
                 "court never credited: book has {} work_ids",
-                book.lock().expect("book").seen().len()
+                book.read().expect("book").seen().len()
             );
             std::thread::sleep(Duration::from_millis(20));
         }
@@ -95,7 +95,7 @@ mod admission {
 
 
     use std::net::TcpListener;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, RwLock};
     use std::time::{Duration, Instant};
 
     use datum::admission::{self, AdmissionRefused};
@@ -252,7 +252,7 @@ mod admission {
         let solver_key = sig::Keypair::from_seed([7u8; 32]);
         let mut court_ledger = edge_with("test-court");
         bind(&mut court_ledger, "solver-a", &solver_key, 0, u64::MAX);
-        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let book = Arc::new(RwLock::new(RewardBook::new()));
 
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().expect("addr");
@@ -291,7 +291,7 @@ mod admission {
         .expect("session runs");
         std::thread::sleep(Duration::from_millis(300));
         assert_eq!(
-            book.lock().expect("book").act_len(),
+            book.read().expect("book").act_len(),
             0,
             "an unsigned envelope earns nothing under enforcement"
         );
@@ -308,7 +308,7 @@ mod admission {
         )
         .expect("session runs");
         let deadline = Instant::now() + Duration::from_secs(5);
-        while book.lock().expect("book").act_len() != 1 {
+        while book.read().expect("book").act_len() != 1 {
             assert!(Instant::now() < deadline, "signed claim never credited");
             std::thread::sleep(Duration::from_millis(20));
         }
@@ -326,7 +326,7 @@ mod admission {
         )
         .expect("session runs");
         std::thread::sleep(Duration::from_millis(300));
-        assert_eq!(book.lock().expect("book").act_len(), 1, "stranger earned nothing");
+        assert_eq!(book.read().expect("book").act_len(), 1, "stranger earned nothing");
     }
 }
 
@@ -335,7 +335,7 @@ mod session_freshness {
 
     use std::io::Write;
     use std::net::{TcpListener, TcpStream};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, RwLock};
     use std::time::Duration;
 
     use datum::admission;
@@ -349,7 +349,7 @@ mod session_freshness {
 
     use super::common::edge_with;
 
-    fn court(key: &sig::Keypair) -> (std::net::SocketAddr, Arc<Mutex<RewardBook>>) {
+    fn court(key: &sig::Keypair) -> (std::net::SocketAddr, Arc<RwLock<RewardBook>>) {
         let mut ledger = edge_with("court");
         ledger.record(Act::Bind {
             holder: "solver-a".into(),
@@ -358,7 +358,7 @@ mod session_freshness {
             from_epoch: 0,
             until_epoch: u64::MAX,
         });
-        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let book = Arc::new(RwLock::new(RewardBook::new()));
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().expect("addr");
         let (layout, book2) = (Layout::founding(), Arc::clone(&book));
@@ -434,7 +434,7 @@ mod session_freshness {
 
         std::thread::sleep(Duration::from_millis(400));
         assert_eq!(
-            book.lock().expect("book").act_len(),
+            book.read().expect("book").act_len(),
             0,
             "a replayed session earns nothing: its answer covers a dead token"
         );
@@ -446,7 +446,7 @@ mod carrier {
 
 
     use std::net::TcpListener;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, RwLock};
     use std::time::{Duration, Instant};
 
     use datum::plumbd;
@@ -472,7 +472,7 @@ mod carrier {
             from_epoch: 0,
             until_epoch: u64::MAX,
         });
-        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let book = Arc::new(RwLock::new(RewardBook::new()));
         let court_listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let court_addr = court_listener.local_addr().expect("addr");
         {
@@ -530,7 +530,7 @@ mod carrier {
         .expect("client attaches to the carrier");
 
         let deadline = Instant::now() + Duration::from_secs(5);
-        while book.lock().expect("book").act_len() != 1 {
+        while book.read().expect("book").act_len() != 1 {
             assert!(
                 Instant::now() < deadline,
                 "the claim never credited through the carrier"
@@ -585,7 +585,7 @@ mod carrier {
             key: court_key,
         });
 
-        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let book = Arc::new(RwLock::new(RewardBook::new()));
         let court_listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let court_addr = court_listener.local_addr().expect("addr");
         {
@@ -659,7 +659,7 @@ mod carrier {
 
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            let credited = book.lock().expect("book").act_len();
+            let credited = book.read().expect("book").act_len();
             if credited == ROUNDS as usize {
                 break;
             }
@@ -677,7 +677,7 @@ mod registered_wire {
 
     use std::io::Write;
     use std::net::{TcpListener, TcpStream};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, RwLock};
     use std::time::{Duration, Instant};
 
     use datum::plumbd::{self, SessionRules};
@@ -708,7 +708,7 @@ mod registered_wire {
             definition: datum::domains::demo_hexagon_universe().encode(),
         });
 
-        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let book = Arc::new(RwLock::new(RewardBook::new()));
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().expect("addr");
         {
@@ -768,7 +768,7 @@ mod registered_wire {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             {
-                let guard = book.lock().expect("book");
+                let guard = book.read().expect("book");
                 if guard.act_len() == 1 {
                     break; // the hexagon credited; the triangle refused
                 }
@@ -781,7 +781,7 @@ mod registered_wire {
         }
         std::thread::sleep(Duration::from_millis(200));
         assert_eq!(
-            book.lock().expect("book").act_len(),
+            book.read().expect("book").act_len(),
             1,
             "the wrong universe earned nothing on the registered tag"
         );
@@ -792,7 +792,7 @@ mod witnessing {
 
 
     use std::net::TcpListener;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, RwLock};
     use std::time::{Duration, Instant};
 
     use datum::plumbd::{self, SessionRules, WitnessLog};
@@ -825,7 +825,7 @@ mod witnessing {
     #[test]
     fn a_witness_goes_on_the_record_over_tcp() {
         let ledger = edge_with("court");
-        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let book = Arc::new(RwLock::new(RewardBook::new()));
         let log: WitnessLog = Arc::new(Mutex::new(Vec::new()));
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().expect("addr");
@@ -930,7 +930,7 @@ mod native_market {
     //! touches it.
 
     use std::net::TcpListener;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, RwLock};
 
     use datum::bounty::Bounty;
     use datum::plumbd::{self, MarketPost, SessionRules};
@@ -973,7 +973,7 @@ mod native_market {
             key: sig::Keypair::from_seed([7u8; 32]),
         };
 
-        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let book = Arc::new(RwLock::new(RewardBook::new()));
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().expect("addr");
         {
@@ -1069,7 +1069,7 @@ mod native_market {
             key: court_key,
         };
 
-        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let book = Arc::new(RwLock::new(RewardBook::new()));
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().expect("addr");
         {
@@ -1115,7 +1115,7 @@ mod native_market {
         .expect("attaches");
 
         await_true("ordinary work still credits under a conjecture market", || {
-            book.lock().expect("book").act_len() == 1
+            book.read().expect("book").act_len() == 1
         });
     }
 }
@@ -1128,7 +1128,7 @@ mod registered_calculus {
 
     use std::io::Write;
     use std::net::{TcpListener, TcpStream};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, RwLock};
 
     use datum::plumbd::{self, SessionRules};
     use datum::reward::RewardBook;
@@ -1163,7 +1163,7 @@ mod registered_calculus {
             definition: compiled.complex.encode(),
         });
 
-        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let book = Arc::new(RwLock::new(RewardBook::new()));
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().expect("addr");
         {
@@ -1224,7 +1224,7 @@ mod registered_calculus {
         drop(stream);
 
         await_true("the derivation settled", || {
-            book.lock().expect("book").act_len() == 1
+            book.read().expect("book").act_len() == 1
         });
     }
 }
@@ -1237,7 +1237,7 @@ mod session_watcher {
 
     use std::io::Write;
     use std::net::{TcpListener, TcpStream};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, RwLock};
 
     use datum::plumbd::{self, SessionRules, SessionReport};
     use datum::reward::RewardBook;
@@ -1265,7 +1265,7 @@ mod session_watcher {
     #[test]
     fn the_session_watches_what_it_carried_and_disputes_the_broken() {
         let ledger = edge_with("court");
-        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let book = Arc::new(RwLock::new(RewardBook::new()));
         let reports: Arc<Mutex<Vec<SessionReport>>> = Arc::new(Mutex::new(Vec::new()));
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().expect("addr");
@@ -1356,7 +1356,7 @@ mod session_watcher {
 
         let layout = Layout::founding();
         let court_ledger = edge_with("court");
-        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let book = Arc::new(RwLock::new(RewardBook::new()));
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().expect("addr");
         {
@@ -1402,7 +1402,7 @@ mod session_watcher {
         assert_eq!(outcome.from_epoch, 0);
 
         await_true("the stranger's claim credited", || {
-            let guard = book.lock().expect("book");
+            let guard = book.read().expect("book");
             guard.act_len() == 1
         });
     }
@@ -1413,7 +1413,7 @@ mod session_watcher {
         let mut court_ledger = edge_with("court");
         let incumbent = sig::Keypair::from_seed([21u8; 32]);
         super::common::bind(&mut court_ledger, "incumbent", &incumbent, 0, u64::MAX);
-        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let book = Arc::new(RwLock::new(RewardBook::new()));
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().expect("addr");
         {
@@ -1486,7 +1486,7 @@ mod walls {
 
     use std::io::Read;
     use std::net::{TcpListener, TcpStream};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, RwLock};
     use std::time::Duration;
 
     use datum::plumbd::{self, ConnectionCounts, SessionRules};
@@ -1499,7 +1499,7 @@ mod walls {
     fn walled_court(rules: SessionRules) -> (std::net::SocketAddr, Ledger) {
         let layout = Layout::founding();
         let ledger = edge_with("court");
-        let book = Arc::new(Mutex::new(RewardBook::new()));
+        let book = Arc::new(RwLock::new(RewardBook::new()));
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().expect("addr");
         let court_ledger = ledger.clone();

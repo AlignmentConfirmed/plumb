@@ -15,7 +15,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use crate::court_live;
@@ -69,7 +69,7 @@ pub struct ServiceHandle {
     stop: Arc<AtomicBool>,
     threads: Vec<std::thread::JoinHandle<()>>,
     snapshot: Option<PathBuf>,
-    book: Arc<Mutex<RewardBook>>,
+    book: Arc<RwLock<RewardBook>>,
 }
 
 impl ServiceHandle {
@@ -79,7 +79,7 @@ impl ServiceHandle {
         for handle in self.threads.drain(..) {
             let _ = handle.join();
         }
-        if let (Some(path), Ok(guard)) = (&self.snapshot, self.book.lock()) {
+        if let (Some(path), Ok(guard)) = (&self.snapshot, self.book.read()) {
             let _ = snapshot_atomic(path, &guard);
         }
     }
@@ -92,14 +92,14 @@ impl ServiceHandle {
 /// count with the handle so a caller can log the resume.
 pub fn start(
     config: &ServiceConfig,
-    book: &Arc<Mutex<RewardBook>>,
+    book: &Arc<RwLock<RewardBook>>,
 ) -> Result<(ServiceHandle, usize), court_store::StoreBroken> {
     let mut restored = 0usize;
     if let Some(path) = &config.snapshot {
         let loaded = load_book(path)?;
         restored = loaded.act_len();
         if restored > 0 {
-            if let Ok(mut guard) = book.lock() {
+            if let Ok(mut guard) = book.write() {
                 guard.merge_acts_from(&loaded);
             }
         }
@@ -115,7 +115,7 @@ pub fn start(
         let stop_flag = Arc::clone(&stop);
         threads.push(std::thread::spawn(move || {
             while !stop_flag.load(Ordering::SeqCst) {
-                if let Ok(guard) = book.lock() {
+                if let Ok(guard) = book.read() {
                     let _ = snapshot_atomic(&path, &guard);
                 }
                 let mut slept = Duration::ZERO;
@@ -144,7 +144,7 @@ pub fn start(
                         let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
                         let _ = stream.set_nonblocking(false);
                         if let Ok(bytes) = court_live::recv_snapshot(&mut stream) {
-                            if let Ok(mut guard) = book.lock() {
+                            if let Ok(mut guard) = book.write() {
                                 let _ = court_live::import_merge(&mut guard, &bytes);
                             }
                         }
@@ -165,7 +165,7 @@ pub fn start(
             let mut backoff = Duration::from_millis(200);
             while !stop_flag.load(Ordering::SeqCst) {
                 let sent = {
-                    match book.lock() {
+                    match book.read() {
                         Ok(guard) => court_live::push_to(peer.as_str(), &guard).is_ok(),
                         Err(_) => false,
                     }
