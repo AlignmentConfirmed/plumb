@@ -49,6 +49,7 @@ pub mod corpus;
 pub mod domains;
 pub mod escrow;
 pub mod extent;
+pub mod geometry;
 pub mod hygiene;
 pub mod ledger;
 pub mod merge;
