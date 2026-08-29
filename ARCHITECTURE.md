@@ -133,7 +133,7 @@ chain, and runs the node daemon. Grouped by concern.
 
 | module | responsibility | key types |
 |---|---|---|
-| `section.rs` | the convergent settlement section, valued per grade | `Section`, `GradeShape` |
+| `section.rs` | the convergent settlement section (valued per grade); durable codec and anchor | `Section`, `GradeShape`, `SectionBroken` |
 | `geometry.rs` | the bridge from verification geometry (`assay`) to scheduling | `graded_torsion`, `grade_shapes`, `claim_grades` |
 | `sched.rs` | local admission scheduling, kept separate from settlement | `ResourceGovernor`, `Turned` |
 
@@ -152,7 +152,7 @@ chain, and runs the node daemon. Grouped by concern.
 
 | module | responsibility | key types / entry points |
 |---|---|---|
-| `plumbd.rs` | the node daemon: sessions over TCP, serve, produce | `serve`, `court_session`, `produce`, `carrier_session`, `witness_to`, `solve_market` |
+| `plumbd.rs` | the node daemon: sessions over TCP, serve, produce | `serve`, `serve_with_snapshot`, `court_session`, `produce`, `carrier_session`, `witness_to`, `solve_market` |
 | `court_service.rs` | the durable court — snapshots that survive a kill (N3) | durable service |
 | `court_store.rs` | the durable `RewardBook` across restart | store codec |
 | `court_live.rs` | multi-host federation | live federation |
