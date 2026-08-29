@@ -22,10 +22,10 @@
 //! from the header alone:
 //!
 //! ```text
-//! len > bound            REFUSE   no arrival can satisfy this
-//! buffer < 5             WAIT     the header is incomplete
-//! buffer < 5 + len       WAIT     the value is incomplete
-//! otherwise              TAKE
+//! len > bound            refuse   no arrival can satisfy this
+//! buffer < 5             wait     the header is incomplete
+//! buffer < 5 + len       wait     the value is incomplete
+//! otherwise              take
 //! ```
 //!
 //! **The bound is what makes the first line decidable.** Without one,
@@ -49,12 +49,12 @@ use crate::layout::Layout;
 // imports. A title with larger records than that inherited the ceiling,
 // and the only way to raise it was to edit this line.
 //
-// The protocol says a bound EXISTS and is declared. What the number is
+// The protocol says a bound exists and is declared. What the number is
 // belongs to the deployment that measured it. `datum` supplies its own
 // from `measure/record-bound.md`, and a peer declares its own in the
 // opening declaration.
 //
-// A peer may declare a LARGER bound than its neighbour. It may not
+// A peer may declare a larger bound than its neighbour. It may not
 // enforce a smaller one silently: a reader refusing at a ceiling its
 // sender does not know about loses the record with nobody at fault.
 
@@ -101,7 +101,7 @@ pub fn step(layout: &Layout, bytes: &[u8], bound: usize) -> Step {
     let header = layout.header();
     // The header is not complete, so nothing about it can be read. The
     // offsets come from the layout rather than from a `1..5` written
-    // here, which is the hand answer a scalar HEADER used to force.
+    // here, which is the hand answer a scalar header used to force.
     if bytes.len() < header {
         return Step::Wait;
     }
@@ -152,7 +152,7 @@ pub fn max_held(layout: &Layout, bound: usize) -> usize {
 }
 
 // ===================================================================
-// THE SESSION — the stateful half of the rule above.
+// the session — the stateful half of the rule above.
 //
 // `step` is a pure function and until now nothing drove it: every
 // buffer it ever judged was built whole by the test asserting on it.

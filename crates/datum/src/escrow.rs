@@ -4,7 +4,7 @@
 //! The chain records how much a holder has **locked**
 //! ([`Ledger::escrow_of`]) and how much has been **slashed**
 //! ([`Ledger::slashed_of`]) — both pure folds over `Act::Escrow` /
-//! `Release` / `Slash`. What the chain deliberately does NOT record is
+//! `Release` / `Slash`. What the chain deliberately does not record is
 //! how much a holder has **earned**: the reward book credits work by
 //! content address, not by name (crate docs: rewards are *"not a
 //! name"*). So a holder's spendable balance is not a pure chain fold —
@@ -15,7 +15,7 @@
 //! lock may not exceed available balance; a slash may not exceed what is
 //! locked). Building the [`Act`] is separate from appending it: the
 //! caller records the returned act on its ledger, exactly as
-//! registration does with a live bind. WHERE `earned` comes from — and
+//! registration does with a live bind. where `earned` comes from — and
 //! whether attributing earned credit per holder is worth changing the
 //! name-free settlement record — is the court's wiring, tracked at #51.
 
@@ -87,7 +87,7 @@ pub fn release(holder: &str) -> Act {
 }
 
 /// Build the [`Act::Slash`] destroying `amount` of a holder's locked
-/// stake, refusing if it exceeds what is locked. The caller MUST have
+/// stake, refusing if it exceeds what is locked. The caller must have
 /// already verified the consensus-verifiable offence (#56 — an
 /// attested-but-false proof, a double submission, a broken signed
 /// commitment); this enforces only the arithmetic floor, that a slash

@@ -118,7 +118,7 @@ impl Shape {
         &self.edges
     }
 
-    /// Add an undirected charged edge. Refuses self-loop, OOR, zero charge,
+    /// Add an undirected charged edge. Refuses self-loop, oor, zero charge,
     /// duplicate.
     pub fn edge(&mut self, a: u32, b: u32, charge: Exact) -> Result<(), ShapeBroken> {
         if self.orbs == 0 {

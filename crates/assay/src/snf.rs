@@ -39,15 +39,15 @@
 //! with the invariant factors `d₁ ∣ d₂ ∣ … ∣ dᵣ`.
 //!
 //! **A real gap, stated plainly, not glossed over:** even restricted
-//! to a plain directed graph, this module answers a DIFFERENT
+//! to a plain directed graph, this module answers a different
 //! question than [`crate::rewrite`]'s directed walk does. Existence
-//! of an integral chain between two 0-cells is UNDIRECTED
+//! of an integral chain between two 0-cells is undirected
 //! connectivity — an edge may be used with a negative coefficient,
 //! which satisfies `∂c = z` exactly (and [`crate::complex::DeclaredComplex::closes_to`]
 //! cannot tell the difference) but corresponds to no rule ever
 //! licensed to run backward. `tests::a_reversed_target_is_still_solvable_by_negating_the_edge`
 //! exhibits this directly. Solving here answers "does a closing
-//! CHAIN exist" — not "does a legitimate forward DERIVATION exist."
+//! chain exist" — not "does a legitimate forward derivation exist."
 //! The two coincide only when the caller also insists on
 //! nonnegative, walk-shaped coefficients, which this module does not
 //! (and currently cannot) check.
@@ -363,11 +363,11 @@ fn decompose(a: &Tableau) -> Decomposition {
         loop {
             clear_column(&mut d, &mut u, t);
             clear_row(&mut d, &mut v, t);
-            // clear_row's own column swaps move WHOLE columns,
+            // clear_row's own column swaps move whole columns,
             // including rows below t — it can reintroduce nonzero
             // entries into a column clear_column just finished
             // clearing (and the reverse, symmetrically, on the next
-            // round). Only trust either once BOTH hold at once.
+            // round). Only trust either once both hold at once.
             if !column_clear(&d, t) || !row_clear(&d, t) {
                 continue;
             }
@@ -608,7 +608,7 @@ mod tests {
         assert_eq!(dec.d, Tableau::identity(3));
     }
 
-    /// A diagonal matrix that ALREADY has zero off the diagonal —
+    /// A diagonal matrix that already has zero off the diagonal —
     /// column-t and row-t clearing find nothing to do on the first
     /// pass — but the diagonal entries themselves don't divide each
     /// other (2 doesn't divide 3), which only the deeper-submatrix
@@ -656,14 +656,14 @@ mod tests {
     }
 
     /// The important, easy-to-get-wrong semantic difference from
-    /// `sdk::derivation`'s directed BFS: a target naming the REVERSE
+    /// `sdk::derivation`'s directed BFS: a target naming the reverse
     /// of the only licensed edge direction is still integrally
     /// solvable — negate the edge's coefficient (`c = -1`) and its
     /// boundary flips too. This is not a graph walk (no rule licenses
     /// running backward), but it IS a valid element of the free
     /// abelian group `∂` operates over, and `closes_to` cannot tell
     /// the difference. Existence of an integral chain between two
-    /// 0-cells tracks UNDIRECTED connectivity, not directed
+    /// 0-cells tracks undirected connectivity, not directed
     /// reachability — a real gap between "this equation is satisfied"
     /// and "this is an actual sequence of forward rule applications."
     #[test]
@@ -674,7 +674,7 @@ mod tests {
         assert_eq!(x, vec![BigInt::from(-1), BigInt::from(-1)]);
     }
 
-    /// A GENUINELY unreachable target: two disjoint edges (0->1,
+    /// A genuinely unreachable target: two disjoint edges (0->1,
     /// 2->3) share no cell at all, so no integer combination —
     /// forward, backward, or repeated — can ever produce a boundary
     /// touching both components. This is the honest "no solution"

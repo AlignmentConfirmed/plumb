@@ -3,7 +3,7 @@
 //! ## What was wrong
 //!
 //! ```rust,ignore
-//! pub const HEADER: usize = size_of::<u8>() + size_of::<u32>();
+//! pub const header: usize = size_of::<u8>() + size_of::<u32>();
 //! ```
 //!
 //! Two defects, and the second is worse.
@@ -134,7 +134,7 @@ impl Layout {
 
     /// Where a field begins, in bytes from the start of the record.
     ///
-    /// The question a scalar `HEADER` could not answer, and which was
+    /// The question a scalar `header` could not answer, and which was
     /// therefore being answered by hand at every call site.
     pub fn offset_of(&self, name: &str) -> Option<usize> {
         let mut at = 0usize;

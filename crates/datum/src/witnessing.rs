@@ -8,7 +8,7 @@
 //! The watcher (`IS-4` §6) lives here too, held to all four
 //! prohibitions:
 //!
-//! 1. it may not observe — the subject is HANDED to it, or it refuses;
+//! 1. it may not observe — the subject is handed to it, or it refuses;
 //! 2. it may not repair — a mismatched subject refuses, never fixes;
 //! 3. it may not require canonical form — verification is the test,
 //!    not equality of witnesses;
@@ -54,7 +54,7 @@ pub enum WatcherRefused {
 
 /// The watcher: pure, total, holds nothing.
 ///
-/// `subject_body` is HANDED in — the whole of §6.1. For the replay
+/// `subject_body` is handed in — the whole of §6.1. For the replay
 /// arm the watcher re-derives the claim in full (checking costs what
 /// producing costs); for the succinct arm it checks the derivation is
 /// consistent with the subject as far as it reaches without
@@ -65,7 +65,7 @@ pub fn watch(witness: &Witness, subject_envelope: &[u8]) -> Result<WatcherReport
     }
     let verified = match witness.arm {
         Arm::Replay => {
-            // THE REPLAY-COMPLETE LAW: re-derive the whole claim.
+            // the replay-complete law: re-derive the whole claim.
             let body = subject_envelope
                 .get(isthmus::layout::Layout::founding().header()..)
                 .unwrap_or(&[]);

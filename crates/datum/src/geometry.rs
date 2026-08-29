@@ -125,7 +125,7 @@ pub fn graded_torsion(complex: &DeclaredComplex) -> Vec<u64> {
     (0..complex.cells.len())
         .map(|d| {
             let dim = u32::try_from(d).unwrap_or(u32::MAX);
-            // FAST leg (#68): the scheduler's torsion count via field ranks,
+            // fast leg (#68): the scheduler's torsion count via field ranks,
             // no integer SNF. grade_shapes (the book) keeps the exact betti.
             betti_fast(complex, dim)
                 .map(|b| u64::try_from(b.torsion_count).unwrap_or(u64::MAX))
@@ -134,8 +134,8 @@ pub fn graded_torsion(complex: &DeclaredComplex) -> Vec<u64> {
         .collect()
 }
 
-/// The homological **shape** of a grade `k`: the number of FREE (ℤ) axes
-/// and the invariant factors `m_i` of its TORSION (ℤ/m_iℤ) axes. Together
+/// The homological **shape** of a grade `k`: the number of free (ℤ) axes
+/// and the invariant factors `m_i` of its torsion (ℤ/m_iℤ) axes. Together
 /// they type the credit a generator of this grade can carry — the free
 /// axes count in ℤ, the torsion axes count in ℤ/m_iℤ.
 ///
@@ -228,7 +228,7 @@ pub enum GradeClass {
 /// *detect* large-prime torsion). Crystallographic iff every invariant
 /// factor has order in `{2,3,4,6}`. This is verification/telemetry, never an
 /// admission gate here: settlement is exact for any torsion (#70). A court
-/// MAY choose to flag or refuse `Exotic` universes; nothing here forces it.
+/// may choose to flag or refuse `Exotic` universes; nothing here forces it.
 #[must_use]
 pub fn classify(complex: &DeclaredComplex) -> GradeClass {
     for shape in grade_shapes(complex) {
@@ -266,7 +266,7 @@ mod tests {
     #[test]
     fn torsion_at_a_grade_counts_its_independent_cycles_not_their_size() {
         // ∂_1 with Smith invariant factors (2, 4): H_0 has torsion
-        // ℤ/2 ⊕ ℤ/4 — TWO independent torsion cycles at grade 0.
+        // ℤ/2 ⊕ ℤ/4 — two independent torsion cycles at grade 0.
         let mut op = vec![
             Entry { row: 0, col: 0, coeff: whole(2) },
             Entry { row: 1, col: 0, coeff: whole(6) },
@@ -279,14 +279,14 @@ mod tests {
             ops: vec![op],
         };
         let graded = graded_torsion(&complex);
-        // Grade 0 carries two cycles (2 and 4); the count is 2, NOT 2+4 or
+        // Grade 0 carries two cycles (2 and 4); the count is 2, not 2+4 or
         // 2·4 — magnitude is not rewarded. Grade 1 is torsion-free.
         assert_eq!(graded, vec![2, 0], "H_0 has 2 torsion cycles, H_1 has none");
     }
 
     #[test]
     fn a_single_torsion_cycle_of_large_order_still_counts_one() {
-        // One invariant factor of large order → exactly ONE cycle, so the
+        // One invariant factor of large order → exactly one cycle, so the
         // lift is 1, the same a ℤ/2 would earn. Magnitude never enters.
         let op = vec![
             Entry { row: 0, col: 0, coeff: whole(1_000_000) },
@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     fn claims_in_different_universes_are_orthogonal() {
-        // The SAME local cell (3) under different domain tags maps to
+        // The same local cell (3) under different domain tags maps to
         // different global generators → curvature between them is zero. A
         // freshly-declared domain is uncontested ground (frontier incentive).
         let a = support_axes(100, 1, &[3], &[]);
@@ -351,8 +351,8 @@ mod tests {
 
     #[test]
     fn claims_in_the_same_universe_share_a_touched_generator() {
-        // Two claims under the SAME tag that both touch cell 3 at dim 1 land
-        // on the SAME axis → genuine interference on exactly that cell.
+        // Two claims under the same tag that both touch cell 3 at dim 1 land
+        // on the same axis → genuine interference on exactly that cell.
         let a = support_axes(100, 1, &[3, 5], &[]);
         let b = support_axes(100, 1, &[3, 9], &[]);
         let shared = a.iter().filter(|x| b.contains(x)).count();
@@ -393,7 +393,7 @@ mod tests {
         op.sort_by_key(|e| (e.col, e.row));
         let torsion_2_4 = DeclaredComplex { cells: vec![2, 2], ops: vec![op] };
         assert_eq!(classify(&torsion_2_4), GradeClass::Crystallographic);
-        // Exotic: an order outside {2,3,4,6} is flagged WITH its order.
+        // Exotic: an order outside {2,3,4,6} is flagged with its order.
         assert_eq!(classify(&one_cell_boundary(5)), GradeClass::Exotic { order: 5 });
         assert_eq!(classify(&one_cell_boundary(8)), GradeClass::Exotic { order: 8 });
     }
@@ -410,7 +410,7 @@ mod tests {
         let filled = demo_theta_filled_universe();
         assert_eq!(classify(&filled), GradeClass::Crystallographic);
         // It genuinely carries torsion (ℤ/2 in H_1) — proving the classifier
-        // ACCEPTS crystallographic torsion, not merely torsion-freeness.
+        // accepts crystallographic torsion, not merely torsion-freeness.
         assert!(
             grade_shapes(&filled).iter().any(|s| s.torsion.contains(&2)),
             "theta-filled has ℤ/2 torsion"

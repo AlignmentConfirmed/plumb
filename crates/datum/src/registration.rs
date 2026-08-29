@@ -3,14 +3,14 @@
 //!
 //! ```text
 //! REGISTER_TAG   the request: holder name ‖ scheme ‖ public key
-//! ATTESTATION    a SELF-signed proof of possession over the
+//! attestation    a self-signed proof of possession over the
 //!                session's own freshness challenge — the same rule
 //!                that keeps a replayed admission dead, applied
 //!                before the bind exists
 //! REGISTER_TAG   the court's ack: the granted range and bind window
 //! ```
 //!
-//! Before this module, the ONLY way a holder got bound was genesis
+//! Before this module, the only way a holder got bound was genesis
 //! time — hand-edit a `bind = holder:seedhex` line and re-run genesis.
 //! That is not a live network, it is a fixture with a restart button.
 //! A stranger who shows up after the network is already running has
@@ -18,12 +18,12 @@
 //! (`SessionRules::register`) accepts a register request from an
 //! unbound key, proves the requester actually holds it (never the
 //! seed — only a signature over a challenge this session minted), and
-//! appends `Act::Issue` + `Act::Bind` to its OWN live ledger.
+//! appends `Act::Issue` + `Act::Bind` to its own live ledger.
 //!
-//! What this module does NOT decide: whether appending is safe against
+//! What this module does not decide: whether appending is safe against
 //! a flood of holder names (that is [`crate::plumbd`]'s admission
 //! wall, a separate concern) or who may connect at all (TCP accept is
-//! wide open; this is the one check standing behind it for a NEW
+//! wide open; this is the one check standing behind it for a new
 //! identity).
 
 use isthmus::deed::{Act, Deed, Ledger};
@@ -47,7 +47,7 @@ pub struct RegisterRequest {
     /// Which scheme the accompanying key is. Unknown schemes are a
     /// named refusal at `verify_possession`, never a guess.
     pub scheme: u8,
-    /// The public key this request is FOR — never a seed. Proof that
+    /// The public key this request is for — never a seed. Proof that
     /// the requester holds the matching private half is the
     /// accompanying attestation, checked separately.
     pub key: [u8; 32],
@@ -151,7 +151,7 @@ impl RegisterOutcome {
 }
 
 /// Verify the self-signed proof of possession: the attestation's
-/// signer IS the key being registered, and it verifies over THIS
+/// signer IS the key being registered, and it verifies over this
 /// session's own freshness challenge. A captured request cannot be
 /// replayed against a different court or a different session — the
 /// same freshness rule S4 already applies to a bound key, applied
@@ -176,7 +176,7 @@ pub fn verify_possession(
 
 /// Bind a freshly proven key to a chain that had never heard of it —
 /// live, no restart. Proof of possession is the caller's job
-/// ([`verify_possession`], BEFORE this runs); this enforces only the
+/// ([`verify_possession`], before this runs); this enforces only the
 /// ledger-level rules: the name is not already held, the key is not
 /// already bound to someone else, and there is room to issue it a
 /// deed.
@@ -246,7 +246,7 @@ mod tests {
         let genuine = key.attest(&challenge);
         verify_possession(&request, &challenge, &genuine.encode()).expect("proves possession");
 
-        // Signed over a DIFFERENT session's challenge: not this one.
+        // Signed over a different session's challenge: not this one.
         let stale = key.attest(b"a different session's challenge");
         assert_eq!(
             verify_possession(&request, &challenge, &stale.encode()),

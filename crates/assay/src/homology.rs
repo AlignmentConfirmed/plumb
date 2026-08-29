@@ -4,17 +4,17 @@
 //! Two things this buys, kept as two functions rather than one,
 //! because they answer different questions:
 //!
-//! - [`homologous`] — are two SPECIFIC witnesses equivalent up to a
+//! - [`homologous`] — are two specific witnesses equivalent up to a
 //!   filling `(k+1)`-chain (`c' = c + ∂ₖ₊₁h`)? A direct consumer of
 //!   [`crate::complex::DeclaredComplex::solve`]: `c` and `c'` are
 //!   homologous exactly when `solve(k+1, c − c')` finds an `h`. This
-//!   is what `with_confluences`' diamonds are FOR — two derivations
+//!   is what `with_confluences`' diamonds are for — two derivations
 //!   of one lemma are homologous when a compiled diamond fills their
 //!   difference, checked here by linear algebra instead of the
 //!   brute-force "ask every diamond" scan a caller would otherwise
 //!   need to write.
 //!
-//! - [`betti`] — the GLOBAL structure of `H_k` itself: its free rank
+//! - [`betti`] — the global structure of `H_k` itself: its free rank
 //!   (the Betti number) and torsion coefficients, independent of any
 //!   particular witness. The standard Smith-Normal-Form algorithm for
 //!   chain-complex homology: because `∂_k ∘ ∂_{k+1} = 0` is already
@@ -35,7 +35,7 @@ pub enum HomologyRefused {
     /// `dim` names a dimension this complex has no cells for.
     NoSuchDimension,
     /// A boundary entry carries a non-integer coefficient. Torsion is
-    /// only meaningful for the TRUE integer matrix — unlike
+    /// only meaningful for the true integer matrix — unlike
     /// [`crate::complex::DeclaredComplex::solve`], this cannot rescale
     /// its way past a fraction, since rescaling would corrupt the
     /// actual invariant-factor values homology reports.
@@ -233,7 +233,7 @@ mod tests {
         assert!(h1.torsion.is_empty(), "a circle's H_1 has no torsion");
     }
 
-    /// A synthetic ∂_1 with a KNOWN invariant-factor pair (the same
+    /// A synthetic ∂_1 with a known invariant-factor pair (the same
     /// textbook matrix `snf` itself validates against) — this complex
     /// corresponds to no real geometric object; it exists only to
     /// prove `betti` actually reports torsion when it is genuinely
@@ -282,7 +282,7 @@ mod tests {
     #[test]
     fn betti_fast_matches_betti_without_snf() {
         // (2,4) torsion at H_0: the fast field-rank leg agrees with the
-        // exact SNF leg on the free rank and the torsion COUNT.
+        // exact SNF leg on the free rank and the torsion count.
         let mut op = vec![
             Entry { row: 0, col: 0, coeff: whole(2) },
             Entry { row: 1, col: 0, coeff: whole(6) },

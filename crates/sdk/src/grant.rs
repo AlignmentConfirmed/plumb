@@ -17,7 +17,7 @@ use isthmus::layout::Tag;
 /// forward reading does.
 #[must_use]
 pub fn holder_of_key(ledger: &Ledger, scheme: u8, key: &[u8]) -> Option<String> {
-    // Collect holders that ever bound, then ask each for its CURRENT
+    // Collect holders that ever bound, then ask each for its current
     // binding — so a rotated-away key does not still name its holder.
     let mut holders: Vec<String> = ledger
         .acts()

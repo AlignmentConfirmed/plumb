@@ -3,9 +3,9 @@
 //! Three roles, and none of them is optional:
 //!
 //! ```text
-//! OBSERVER   holds the subject, at the depth it has standing to see
-//! WITNESS    the claim, and the derivation that reached it
-//! WATCHER    re-derives, and returns a verdict. Holds nothing.
+//! observer   holds the subject, at the depth it has standing to see
+//! witness    the claim, and the derivation that reached it
+//! watcher    re-derives, and returns a verdict. Holds nothing.
 //! ```
 //!
 //! This module implements the **witness** — the frame. The observer is

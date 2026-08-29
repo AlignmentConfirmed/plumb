@@ -1,16 +1,16 @@
 //! K2 — the derivation core: find a witness the kernel was not given.
 //!
 //! A court's fixed evaluator ([`assay::complex::DeclaredComplex::closes_to`])
-//! only ever CHECKS a witness someone hands it. This is the other half:
+//! only ever checks a witness someone hands it. This is the other half:
 //! given the universe alone and the boundary a conjecture prescribes,
-//! walk the complex's OWN licensed 1-cells until a chain closing onto
+//! walk the complex's own licensed 1-cells until a chain closing onto
 //! that boundary turns up, or the budget runs out.
 //!
 //! This is deliberately not "search" in the generic tree/heuristic
 //! sense — there is no open-ended possibility space to explore. The
 //! complex already licenses which single steps exist as 1-cells (SQ3):
 //! `ops[0]` names, for every 1-cell, the exact pair of 0-cells it
-//! connects and which way. What a deriver does is TRAVERSE that
+//! connects and which way. What a deriver does is traverse that
 //! already-licensed step-graph — never invent, weight, or guess at a
 //! step the complex did not already declare.
 //!
@@ -56,7 +56,7 @@ pub enum DerivationRefused {
     /// The derivation budget was spent before a chain closing the
     /// target was found — production may be expensive, but it is
     /// never unbounded. Distinct from a court's verification fuel:
-    /// this prices FINDING a witness, not checking one.
+    /// this prices finding a witness, not checking one.
     BudgetExhausted {
         /// The budget the attempt was given.
         budget: u64,

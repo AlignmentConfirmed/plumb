@@ -5,7 +5,7 @@
 //! holder ──Act::Declare(tag, definition)──► chain
 //!                                             │
 //! claim under tag ──► court: resolve tag ─────┘
-//!                     definition from CHAIN STATE — no rebuild
+//!                     definition from chain state — no rebuild
 //!                     claim's universe must BE the registered one
 //!                     witness must close, under a priced fuel budget
 //! ```
@@ -57,7 +57,7 @@ pub fn verify_registered(
     let registered =
         DeclaredComplex::decode(&definition).map_err(DomainRefused::BadDefinition)?;
     // Two claim shapes inhabit a registered universe: a cycle
-    // (domain 3, ∂c = 0) and a DERIVATION (domain 4, ∂c = target —
+    // (domain 3, ∂c = 0) and a derivation (domain 4, ∂c = target —
     // the proof shape, SQ3). Either way the universe must BE the
     // registered one; the target, when present, is the claim's own
     // assertion and is verified exactly.
@@ -95,7 +95,7 @@ pub fn fuel_budget(price: &Extent, axis: usize) -> u64 {
 }
 
 /// The n-cycle universe: n vertices, n edges in a ring. The demo
-/// family for proofnet and simnet — every n is a DIFFERENT structure,
+/// family for proofnet and simnet — every n is a different structure,
 /// so a client that walks n produces fresh work each round while a
 /// repeated n refuses as replay.
 #[must_use]
@@ -132,7 +132,7 @@ pub fn demo_cycle_claim(n: u32, transport: u64) -> DeclaredClaim {
 }
 
 /// The n-cycle with charge `k` on every edge — still a perfect cycle,
-/// and a DIFFERENT structure for every `k`. This is how a client
+/// and a different structure for every `k`. This is how a client
 /// produces unbounded fresh work inside a bounded record size: walk
 /// `n` to a bound-safe cap, then lap with a new charge. (The audit's
 /// lesson: a client that only grows eventually outgrows every bound.)

@@ -97,7 +97,7 @@ impl AxialCredit {
 /// Torsion is a property of a *grade's* homology (it appears only in the SNF
 /// basis, never on an individual cell), so credit accumulates per grade —
 /// the type-correct home of the free⊕torsion structure [`AxialCredit`]
-/// carries. The `Section` stores these NESTED, so the domain is a first-class
+/// carries. The `Section` stores these nested, so the domain is a first-class
 /// base point rather than half of a flat key.
 pub type GradeId = (u64, u32);
 
@@ -112,7 +112,7 @@ pub type Stalk = BTreeMap<u32, AxialCredit>;
 /// sparse at every level. A domain is a base point; its stalk is the graded
 /// homology fibre over it; each grade's cell is an [`AxialCredit`] in
 /// `H_k = ℤ^free ⊕ (⊕ ℤ/m_iℤ)`. Sparse maps at the identity levels (domain,
-/// grade), dense `Vec` bases inside `AxialCredit` (the axes ARE a basis) —
+/// grade), dense `Vec` bases inside `AxialCredit` (the axes are a basis) —
 /// the right representation per level, never a dense `Vec<Vec<Vec>>` tower
 /// that would materialize the empty product space.
 ///
@@ -197,7 +197,7 @@ impl Section {
     /// merged the same contributions in different orders reached the same
     /// section yet **different** digests: phantom divergence. Here the digest
     /// is a function of the section *value*: because the section is
-    /// order-independent AND zero cells (the homology identity —
+    /// order-independent and zero cells (the homology identity —
     /// present-but-zero equals never-deposited) are skipped, any two nodes
     /// that reached the same net section, in any order and via any reduction
     /// path, commit to the **same** anchor.
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn accumulation_is_order_independent_the_convergence_guarantee() {
-        // The heart of A4 under parallel commit: a ⊕ b == b ⊕ a on BOTH
+        // The heart of A4 under parallel commit: a ⊕ b == b ⊕ a on both
         // free (ℤ) and torsion (ℤ/mℤ) axes, so the settled section does not
         // depend on which disjoint commit landed first.
         let s = shape(2, &[6, 5]);
@@ -320,8 +320,8 @@ mod tests {
 
     #[test]
     fn the_section_converges_regardless_of_deposit_order() {
-        // THE #62 guarantee at the section level: the same deposits into the
-        // same grades, in ANY order, fold to the identical section — so
+        // the #62 guarantee at the section level: the same deposits into the
+        // same grades, in any order, fold to the identical section — so
         // disjoint commits parallelize and every node reaches one limit.
         let g0: GradeId = (100, 0); // domain 100, dim 0 — H_0 with a ℤ/6
         let g1: GradeId = (100, 1); // domain 100, dim 1 — free
@@ -380,7 +380,7 @@ mod tests {
 
     #[test]
     fn a_domain_stalk_is_a_first_class_unit() {
-        // The sheaf structure: a domain's grades form a STALK you can pull
+        // The sheaf structure: a domain's grades form a stalk you can pull
         // out whole (for routing/anchoring), and domains are disjoint base
         // points. cells() flattens in a deterministic (tag, dim) order.
         let mut section = Section::new();
@@ -407,7 +407,7 @@ mod tests {
 
     #[test]
     fn the_anchor_is_independent_of_deposit_order() {
-        // #65: the anchor commits to the section VALUE, so the same net
+        // #65: the anchor commits to the section value, so the same net
         // section reached in any order commits to the same digest — the fix
         // for the order-dependent act-log hash.
         let s0 = shape(1, &[6]);
@@ -437,7 +437,7 @@ mod tests {
     #[test]
     fn the_anchor_skips_zero_cells() {
         // A grade whose torsion wrapped back to zero (5 deposits of ℤ/5) is
-        // PRESENT with zero value, but must anchor the same as a section that
+        // present with zero value, but must anchor the same as a section that
         // never touched it — present-but-zero == absent (homology identity).
         let s = shape(0, &[5]);
         let mut wrapped = Section::new();

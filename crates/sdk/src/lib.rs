@@ -1,12 +1,12 @@
 //! # SDK — the kernel attach surface.
 //!
 //! What an outside kernel needs to join the proof economy, and nothing
-//! it must not have. The SDK imports the LEAVES only (K1, ratified
+//! it must not have. The SDK imports the leaves only (K1, ratified
 //! 2026-08-28: isthmus, assay, sig — laws, not the court): it builds
 //! declarations, checks grants against chain state, carries the
 //! portable market vocabulary a kernel derives against
 //! ([`query`]/[`receipt`]), and wraps portable claim bodies in opaque
-//! highway envelopes. It **never verifies a CLAIM** — that a body
+//! highway envelopes. It **never verifies a claim** — that a body
 //! closes a boundary is the court's act, and a kernel that wants to
 //! verify claims runs a court. Checking a receipt's signature and
 //! chain-binding ([`receipt::verify`]) is a different, narrower thing

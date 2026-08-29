@@ -7,8 +7,8 @@
 //!                 +---------------------------+
 //! ```
 //!
-//! Ed25519 attestations authenticate CONTENT — who signed a claim.
-//! Nothing before this module authenticated the CHANNEL: deployed on
+//! Ed25519 attestations authenticate content — who signed a claim.
+//! Nothing before this module authenticated the channel: deployed on
 //! a public IP, every claim, receipt, and corpus body a peer ever
 //! sent crossed the wire in the clear.
 //!
@@ -16,15 +16,15 @@
 //! **nothing about identity** — a plumb court has no DNS name and
 //! answers to no CA, so the usual "does this certificate chain to a
 //! trust anchor" question has no honest answer here. The one thing a
-//! connecting peer CAN check a certificate against is a fact the
+//! connecting peer can check a certificate against is a fact the
 //! chain already vouches for: `Act::Certify` records that a named
 //! holder's certificate hashes to a specific fingerprint. Verifying a
 //! TLS session then means exactly one thing — "the certificate this
-//! socket just presented is the one THIS chain says this holder
+//! socket just presented is the one this chain says this holder
 //! uses" — never "some CA vouches for this," which nothing here has.
 //!
 //! What TLS still does for real, and what [`FingerprintVerifier`]
-//! does NOT skip: the handshake signature is checked against the
+//! does not skip: the handshake signature is checked against the
 //! certificate's embedded key with the same cryptographic primitives
 //! any TLS stack uses ([`webpki::EndEntityCert::verify_signature`]).
 //! Skipping chain-of-trust is a deliberate, narrow substitution of
@@ -106,7 +106,7 @@ pub fn generate_identity(holder: &str) -> Result<Identity, TlsBroken> {
 }
 
 fn install_crypto_provider() {
-    // Safe to call repeatedly: only the FIRST call in a process
+    // Safe to call repeatedly: only the first call in a process
     // installs anything, and every later one is a harmless no-op —
     // exactly what a court and everything it dials out to both doing
     // this independently needs.
@@ -116,7 +116,7 @@ fn install_crypto_provider() {
 /// A court's own server config: presents `identity`'s certificate,
 /// signs the handshake with its matching key. No client-certificate
 /// requirement — a connecting peer's identity is the Ed25519
-/// attestation it sends INSIDE the encrypted channel, never a TLS
+/// attestation it sends inside the encrypted channel, never a TLS
 /// client cert.
 pub fn server_config(identity: &Identity) -> Result<rustls::ServerConfig, TlsBroken> {
     install_crypto_provider();
@@ -128,7 +128,7 @@ pub fn server_config(identity: &Identity) -> Result<rustls::ServerConfig, TlsBro
         .map_err(|e| TlsBroken::Configure(e.to_string()))
 }
 
-/// A client's config for dialing a SPECIFIC holder: trusts exactly
+/// A client's config for dialing a specific holder: trusts exactly
 /// one certificate, the one whose fingerprint matches what the chain
 /// says that holder certified. No CA, no chain-of-trust list.
 #[must_use]
@@ -194,11 +194,11 @@ impl ServerCertVerifier for FingerprintVerifier {
     }
 }
 
-/// The signature check chain-of-trust skipping does NOT skip: does
+/// The signature check chain-of-trust skipping does not skip: does
 /// this handshake message's signature actually verify against the
 /// certificate's own embedded public key? A verifier that answered
 /// [`ServerCertVerifier::verify_server_cert`] honestly but rubber-
-/// stamped this would let anyone who ever SAW the (public, unsecret)
+/// stamped this would let anyone who ever saw the (public, unsecret)
 /// certificate bytes replay them without holding the private key.
 fn verify_ed25519_handshake_signature(
     message: &[u8],

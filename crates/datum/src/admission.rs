@@ -5,7 +5,7 @@
 //!         │                        │
 //!         └────────► admit ◄───────┘
 //!                      │
-//!     1. attestation verifies over the ENVELOPE BYTES   (S4/S5)
+//!     1. attestation verifies over the envelope bytes   (S4/S5)
 //!     2. the signer's key is bound on the chain          (S4)
 //!     3. the court's epoch is inside the bind window     (S4)
 //!     4. an unknown scheme is a named refusal            (S7)

@@ -38,7 +38,7 @@ pub enum RewardRefused {
         price: Extent,
     },
     /// A proof cites a lemma this book has not settled (SQ2). A
-    /// citation is a claim about the LEDGER, and the ledger answers.
+    /// citation is a claim about the ledger, and the ledger answers.
     UnsettledDependency {
         /// The cited content address nothing here has settled.
         work_id: WorkId,
@@ -134,7 +134,7 @@ pub enum RewardAct {
     /// never a rewrite**: old citations keep their frozen meaning;
     /// new work selects the cheap id because the record advertises
     /// it. Both ids are settled credits in their own right — this act
-    /// records the RELATION and the savings.
+    /// records the relation and the savings.
     Equivalent {
         /// The settled work that was refined.
         old: WorkId,
@@ -445,7 +445,7 @@ impl RewardBook {
     /// `work_id`s are skipped. Epoch open/close acts are replayed as
     /// markers only when not already present at the same epoch id.
     /// O3 — record a settled refinement. Grow-only, deduplicated by
-    /// the pair; both ids must already be settled on THIS book, so an
+    /// the pair; both ids must already be settled on this book, so an
     /// equivalence can never advertise work nobody verified.
     pub fn record_equivalence(
         &mut self,
@@ -475,7 +475,7 @@ impl RewardBook {
 
     /// The refinements the record advertises for a settled work:
     /// `(leaner id, saved fuel, saved bytes)`. New work reads this to
-    /// SELECT the cheap articulation — nothing is ever rerouted.
+    /// select the cheap articulation — nothing is ever rerouted.
     #[must_use]
     pub fn refinements_of(&self, old: &WorkId) -> Vec<(WorkId, u64, u64)> {
         self.acts

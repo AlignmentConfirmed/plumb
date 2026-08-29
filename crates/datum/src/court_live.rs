@@ -1,6 +1,6 @@
 //! Wave 4 **V16 / D-L3c** — court live multi-host federation.
 //!
-//! Spec: monorepo `docs/WAVE4-FEDERATION.md`.
+//! Spec: monorepo `docs/WAVE4-federation.md`.
 //! Extends D-L3b file carriers with **TCP exchange of XDCT snapshots**.
 //!
 //! ```text

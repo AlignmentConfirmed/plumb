@@ -12,9 +12,9 @@
 //! (Basis Pursuit — split each variable into its positive and
 //! negative part and minimize their sum) is the tractable convex
 //! stand-in, biased toward sparse solutions without being one. It
-//! answers a DIFFERENT question than [`crate::snf`]: that module asks
-//! "does an INTEGER chain exist"; this one asks "what is the
-//! RATIONAL-least-total-magnitude chain" — the two need not agree,
+//! answers a different question than [`crate::snf`]: that module asks
+//! "does an integer chain exist"; this one asks "what is the
+//! rational-least-total-magnitude chain" — the two need not agree,
 //! and this module never rounds one into the other.
 
 use crate::{whole, zero, Exact};
@@ -106,7 +106,7 @@ fn pivot(t: &mut Tableau, row: usize, col: usize) {
 /// degenerate (an L1 formulation's artificial-variable rows often
 /// land on exactly zero). Returns `false` if unbounded.
 ///
-/// `eligible_cols` bounds which columns may ENTER — phase 1 passes
+/// `eligible_cols` bounds which columns may enter — phase 1 passes
 /// `t.cols` (every column, artificials included, is fair game while
 /// hunting for feasibility); phase 2 must pass the count of real
 /// variables only. An artificial variable is retired once phase 1
@@ -185,7 +185,7 @@ fn minimize(a: &[Vec<Exact>], b: &[Exact], c: &[Exact]) -> Option<Vec<Exact>> {
     // The phase-1 objective row, in reduced-cost form: `c_j - Σᵢ
     // t[i][j]` (every artificial starts basic with phase-1 cost 1, so
     // `c_j` is 1 for an artificial column and 0 for a real one — this
-    // is NOT optional bookkeeping: without it, an artificial's own
+    // is not optional bookkeeping: without it, an artificial's own
     // column reads as having reduced cost -1 instead of the 0 a basic
     // column's reduced cost must always be, and phase 1 can pivot an
     // already-basic artificial "in" over itself, corrupting the run).
@@ -339,7 +339,7 @@ mod tests {
     }
 
     /// The real point of this module: a genuinely underdetermined
-    /// system where the SPARSEST solution is not the first one a
+    /// system where the sparsest solution is not the first one a
     /// naive elimination would hand back. `x2 = 1` alone satisfies
     /// both equations (L1 norm 1); `(1, 0, 1)` also satisfies them
     /// (L1 norm 2) and is exactly what plain row-reduction tends to

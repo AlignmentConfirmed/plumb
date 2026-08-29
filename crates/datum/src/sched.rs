@@ -2,7 +2,7 @@
 //! from the settlement physics.
 //!
 //! The court verifies correctness by exact algebra and credits by
-//! content address; NONE of that may depend on how busy a machine is,
+//! content address; none of that may depend on how busy a machine is,
 //! because a federation cannot agree on load (`bounty.rs`: "never cpu
 //! cycles, never memory — machine facts are unverifiable by a
 //! federation"). So this module governs exactly one thing — **who is
@@ -653,7 +653,7 @@ impl<T> Claim<T> {
 }
 
 struct TransitInner<T> {
-    /// Per-holder FIFO of pending claims.
+    /// Per-holder fifo of pending claims.
     queues: HashMap<String, VecDeque<Claim<T>>>,
     /// Round-robin order over active (non-empty) holders.
     order: VecDeque<String>,
@@ -882,7 +882,7 @@ impl<T> Transit<T> {
 
     /// Signal that an in-flight claim has settled: decrement each of its
     /// generators from the congestion field, so they no longer dilate the
-    /// transit of claims dispatched after it. A worker MUST call this once
+    /// transit of claims dispatched after it. A worker must call this once
     /// per taken claim (settled or failed) — an uncompleted claim would
     /// congest its axes forever. `support` is the taken claim's own support.
     pub fn complete(&self, support: &[Axis]) {
@@ -912,7 +912,7 @@ mod tests {
         q.offer("A", 2);
         q.offer("A", 3);
         q.offer("B", 9);
-        // Round-robin: B is served SECOND, not stuck behind all of A.
+        // Round-robin: B is served second, not stuck behind all of A.
         let order: Vec<(&str, u32)> = std::iter::from_fn(|| q.take()).collect();
         assert_eq!(order, vec![("A", 1), ("B", 9), ("A", 2), ("A", 3)]);
     }
@@ -921,8 +921,8 @@ mod tests {
     fn escrow_weight_is_concave_diminishing_returns_not_merely_sub_additive() {
         let w = EscrowWeight::with(1, 1, 1_000_000);
         // True midpoint concavity: weight(a) + weight(b) < 2·weight(mid)
-        // for the arithmetic midpoint. A LINEAR schedule (base + k·e)
-        // satisfies this only as EQUALITY, so a strict `<` fails the
+        // for the arithmetic midpoint. A linear schedule (base + k·e)
+        // satisfies this only as equality, so a strict `<` fails the
         // moment the √ is removed — this is what makes the test
         // load-bearing, where a plain "doubling buys less than double"
         // would pass even for a linear function because of the base
@@ -982,8 +982,8 @@ mod tests {
     #[test]
     fn the_diagonal_connection_prices_each_axis_by_its_own_congestion() {
         // cost[g] = 1 + inflight[g]. An uncontested (novel) axis is the
-        // un-dilated floor; each concurrent claim on the SAME generator
-        // adds one. Multiplicity COUNTS — the presence-collapse (where any
+        // un-dilated floor; each concurrent claim on the same generator
+        // adds one. Multiplicity counts — the presence-collapse (where any
         // congestion was a flat "+1") is gone: cost(4) is 5, not 2.
         assert_eq!(Transport::cost(0), 1, "uncontested / novel axis: floor 1");
         assert_eq!(Transport::cost(1), 2, "one concurrent claim: +1");
@@ -992,7 +992,7 @@ mod tests {
 
     #[test]
     fn fibre_orthogonal_axes_transport_independently() {
-        // THE anti-collapse guarantee (#57): a deficit on generator 7 is
+        // the anti-collapse guarantee (#57): a deficit on generator 7 is
         // untouched by spending on generator 12. Under the old scalar
         // fibre a single pool served both, so congestion on one starved the
         // other; the vector fibre gives each axis its own volume.
@@ -1020,7 +1020,7 @@ mod tests {
         f.grant(5, 1);
         f.grant(6, 30);
         assert_eq!(f.spanned(), 6);
-        // Retract to depth 3, protecting head axis 5 (the LOWEST deficit).
+        // Retract to depth 3, protecting head axis 5 (the lowest deficit).
         f.retract(&[5], 3);
         assert_eq!(f.spanned(), 3, "the fibre is bounded to depth 3");
         // The head survives despite lowest deficit; the two remaining slots
@@ -1045,7 +1045,7 @@ mod tests {
 
     #[test]
     fn transit_fibre_stays_within_the_flag_depth() {
-        // A holder floods claims each on a DISTINCT generator. Without a
+        // A holder floods claims each on a distinct generator. Without a
         // bound its fibre would accumulate one axis per generator forever;
         // the flag filtration retracts it to `depth` on every grant.
         let depth = 3;
@@ -1218,7 +1218,7 @@ mod tests {
     #[test]
     fn transit_congestion_dilates_a_holder_by_multiplicity() {
         // Two single-claim seeds (escrow-rich, so they serve at once) are
-        // left IN FLIGHT on generator 1 → inflight[1] = 2, so A's cost on
+        // left IN flight on generator 1 → inflight[1] = 2, so A's cost on
         // generator 1 is 1+2 = 3, while B on generator 2 costs 1. B settles
         // strictly more, and by ~3× — multiplicity compounds, it does not
         // saturate at "present" (the anti-presence-collapse).
@@ -1232,7 +1232,7 @@ mod tests {
             q.offer(claim("B", &[axis(2, 0)], &[], 200 + i));
         }
         let esc = |h: &str| if h.starts_with("seed") { 1_000_000u128 } else { 0 };
-        // Take both seeds and hold them in flight (do NOT complete).
+        // Take both seeds and hold them in flight (do not complete).
         assert_eq!(q.take(esc).expect("seedX").holder, "seedX");
         assert_eq!(q.take(esc).expect("seedY").holder, "seedY");
         assert_eq!(
@@ -1275,9 +1275,9 @@ mod tests {
     #[test]
     fn transit_dispatch_is_deterministic_within_a_court() {
         // Identical offer/take/escrow sequences produce identical served
-        // order: the fibre is non-deterministic ACROSS courts (in-flight
+        // order: the fibre is non-deterministic across courts (in-flight
         // fields differ by live timing), but a pure integer state machine
-        // WITHIN one. This is what keeps it testable and pinnable.
+        // within one. This is what keeps it testable and pinnable.
         let run = || {
             let q: Transit<u32> = Transit::tuned();
             for i in 0..10 {

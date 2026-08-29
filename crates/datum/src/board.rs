@@ -1,13 +1,13 @@
-//! THE BOARD — applications, the survey, the price, the docket.
+//! The board — applications, the survey, the price, the docket.
 //!
-//! A new kernel arrives and says *"I want to join the POWC network."*
+//! A new kernel arrives and says *"I want to join the powc network."*
 //! What happens, in order:
 //!
 //! ```text
 //! Application      applicant, requested shape, claimed work
 //!      |
 //! survey()         the calculation: where does this estate fit, and
-//!      |           if nowhere, what space must be MADE (a new axis)
+//!      |           if nowhere, what space must be made (a new axis)
 //! Proposal         the acts that would grant it, the estate class,
 //!      |           the price
 //! validate()       authenticity: the court's chain plus the proposed
@@ -36,7 +36,7 @@
 //! ## The economics
 //!
 //! `price = the space granted`, and for a galaxy `price = the space
-//! CREATED`, which is larger than the box requested — opening a
+//! created`, which is larger than the box requested — opening a
 //! direction multiplies everyone's room, and whoever causes that pays
 //! for what it makes, not just for what they take.
 //!
@@ -240,7 +240,7 @@ pub fn survey(court: &Ledger, application: &Application) -> Result<Proposal, Tur
 
     // First: does it fit in the space that exists?
     //
-    // A shape with MORE axes than the court skips this branch entirely.
+    // A shape with more axes than the court skips this branch entirely.
     // An earlier draft `resize`d the shape down to the court's axes —
     // silently truncating an 11-D kernel's requirement to whatever the
     // mesh happened to have. A dimensional requirement is a
@@ -274,7 +274,7 @@ pub fn survey(court: &Ledger, application: &Application) -> Result<Proposal, Tur
             Err(other) => return Err(Turned::NoSpace { refusal: other }),
         }
 
-        // Second: the planet is relatively full — BUY the space from an
+        // Second: the planet is relatively full — buy the space from an
         // owner. A slab of the requested shape, cut from a live estate,
         // with the owner paid for the space they would have occupied.
         if let Some(proposal) = purchase(court, application, &shape, needed.clone()) {
@@ -282,7 +282,7 @@ pub fn survey(court: &Ledger, application: &Application) -> Result<Proposal, Tur
         }
     }
 
-    // Third: space must be MADE — as many axes as the kernel's
+    // Third: space must be made — as many axes as the kernel's
     // mathematics requires, each wide enough for its extent.
     let extent_before = crate::extent::Extent::of_court(court);
     let mut making = court.clone();
@@ -312,9 +312,9 @@ pub fn survey(court: &Ledger, application: &Application) -> Result<Proposal, Tur
     match making.issue_box(&application.applicant, &shape) {
         Ok(deed) => {
             // Opening directions multiplies everyone's room; the opener
-            // pays for what was CREATED, not just what they took.
+            // pays for what was created, not just what they took.
             // Opening directions multiplies everyone's room; the opener
-            // pays for what was CREATED, per axis. Created space on an
+            // pays for what was created, per axis. Created space on an
             // axis is what the court gained there, and the opener pays
             // at least the extent it took.
             let after = crate::extent::Extent::of_court(&making);
@@ -420,7 +420,7 @@ fn priced(
     settlement: Vec<(String, crate::extent::Extent)>,
     needed: crate::extent::Extent,
 ) -> Result<Proposal, Turned> {
-    // ONE DEMAND PER AXIS, named by the axis it is for.
+    // one demand per axis, named by the axis it is for.
     //
     // This folded the price into a single number and put it on one
     // pole, which was two collapses in a row: the axes multiplied out,
@@ -430,7 +430,7 @@ fn priced(
     //
     // The pole names come from the court, so an edge that opens a
     // direction gets a demand on it without anybody adding a constant.
-    // Named from the TRIAL court, not the original: the price is
+    // Named from the trial court, not the original: the price is
     // measured in the space that will exist, so a galaxy's new
     // direction is named by the axis that was opened rather than by a
     // synthetic fallback.

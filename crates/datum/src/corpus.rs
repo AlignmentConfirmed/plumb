@@ -95,7 +95,7 @@ mod tests {
         // exactly six elements, a fact independent of this codebase.
         // A word is irreducible iff none of the three left-sides
         // occurs in it — checked directly here rather than through
-        // the BOUNDED compiled step graph, since a length-preserving
+        // the bounded compiled step graph, since a length-preserving
         // rule (`ba→aab`) can need more room than `max_len` allows
         // before a later rule shrinks the word again (the "bigger
         // telescope" caveat `rewrite.rs` itself documents).

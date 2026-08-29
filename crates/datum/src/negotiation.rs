@@ -1,4 +1,4 @@
-//! THE NEGOTIATION — positions, not scalars; folds, not gates.
+//! The negotiation — settlement positions and folds over multi-axial space.
 //!
 //! Ruled: *you cannot have a scalar in a negotiation, nor a boolean
 //! gate hold it — at light speed both get destroyed.*

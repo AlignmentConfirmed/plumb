@@ -27,9 +27,9 @@
 //! a const table              a deed
 //! ─────────────────          ──────────────────────────────
 //! compile time               issued during negotiation
-//! global                     scoped to ONE attachment
+//! global                     scoped to one attachment
 //! capacity fixed at 6        capacity is however many attached
-//! "who holds 200?"           "who holds 200 ON THIS EDGE?"
+//! "who holds 200?"           "who holds 200 ON this edge?"
 //! ```
 //!
 //! ## Why the space is not actually scarce
@@ -42,8 +42,8 @@
 //! This is the same split the rest of the substrate already runs on:
 //!
 //! ```text
-//! the MEANING of a frame     gauge-invariant   S, T
-//! the NUMBER carrying it     frame-dependent   G
+//! the meaning of a frame     gauge-invariant   S, T
+//! the number carrying it     frame-dependent   G
 //! ```
 //!
 //! A tag is a coordinate. A deed records which coordinate system one
@@ -122,7 +122,7 @@ pub enum Act {
     },
 
     // ===============================================================
-    // THE AXES. Everything above acts on one line — an interval of
+    // the axes. Everything above acts on one line — an interval of
     // tags, issuance marching along it, exhaustion at the end of it.
     // That is linear progression, and it was the only shape the space
     // had. The acts below open more.
@@ -199,7 +199,7 @@ pub enum Act {
     ///
     /// ```text
     /// H2   live deeds are pairwise disjoint
-    /// H2'  live deeds AT THE SAME DEPTH are pairwise disjoint,
+    /// H2'  live deeds AT the same depth are pairwise disjoint,
     ///      and every deed is strictly inside its parent
     /// ```
     ///
@@ -229,7 +229,7 @@ pub enum Act {
     },
 
     // ===============================================================
-    // THE VERTICAL. Every act above is HORIZONTAL: it moves this
+    // the vertical. Every act above is horizontal: it moves this
     // chain's own fold, and this chain's acts are totally ordered
     // among themselves because one party appends them.
     //
@@ -327,8 +327,8 @@ pub enum Act {
     /// bind's key and an anchor's digest are: what an evaluation
     /// definition means is the court's leaf's business (the declared-
     /// complex codec today; whatever a fixed evaluator speaks
-    /// tomorrow), never the chain's. The chain records that THIS
-    /// holder published THESE bytes for THIS tag — and a court that
+    /// tomorrow), never the chain's. The chain records that this
+    /// holder published these bytes for this tag — and a court that
     /// resolves the tag learns the discipline from the chain alone,
     /// with no rebuild.
     ///
@@ -353,7 +353,7 @@ pub enum Act {
     /// identity — that is what `Bind` and an attestation are for. A
     /// peer with no DNS name and no CA has nothing else to check a
     /// presented certificate against, so the chain carries the one
-    /// fact that lets it: THIS holder's certificate hashes to THIS.
+    /// fact that lets it: this holder's certificate hashes to this.
     /// A holder connecting to itself needs no round trip — it may
     /// record its own certify the same way genesis records a bind.
     ///
@@ -374,9 +374,9 @@ pub enum Act {
     /// Escrow buys **scheduling priority** at a court, nothing more — a
     /// court reads a holder's current locked amount ([`Ledger::escrow_of`])
     /// and weights its place in line by it, exactly as it reads a bind.
-    /// The lock is voluntary and self-directed (a holder stakes its OWN
+    /// The lock is voluntary and self-directed (a holder stakes its own
     /// balance, signed like any act), so it needs no more authority than
-    /// a self-bind. What a court may LOCK is the court's rule, applied at
+    /// a self-bind. What a court may lock is the court's rule, applied at
     /// admission (a lock may not exceed the holder's available balance) —
     /// not the chain's, which only records that the holder locked this.
     ///
@@ -405,7 +405,7 @@ pub enum Act {
     /// **consensus-verifiable** offence (`IS-6/7`, #56 ruling).
     ///
     /// The one involuntary act on a balance, and deliberately narrow: a
-    /// slash may be triggered ONLY by something every court re-checks and
+    /// slash may be triggered only by something every court re-checks and
     /// agrees on — an attested-but-false proof, a double submission, a
     /// broken signed commitment — never by a scheduling or load judgment,
     /// which no federation can agree on. The chain records that the stake
@@ -719,7 +719,7 @@ impl Deed {
     /// So two edges that deed the same holder different ranges still
     /// agree, exactly, on what a `head` record *is*.
     pub fn offset_for(&self, kind: &str) -> Option<Tag> {
-        // A deed with NO REGION is the case to refuse, and `width()`
+        // A deed with NO region is the case to refuse, and `width()`
         // does not report it: `low()` and `high()` both answer 0 for an
         // empty region, so the width reads as 1 and the derivation
         // lands on tag 0 — the void, which a zero-filled buffer decodes
@@ -1303,7 +1303,7 @@ impl Ledger {
             });
         }
         // Siblings do not overlap — H2′ at the child's depth. The
-        // owner's OWN region is expected to overlap and is not
+        // owner's own region is expected to overlap and is not
         // consulted here; that is the nesting.
         for moon in self.contained_in(from) {
             let mut theirs = moon.region.clone();
@@ -1727,11 +1727,11 @@ impl Ledger {
     }
 
     /// How much `holder` currently has locked as a stake (`IS-6/7`,
-    /// Phase 5). A FORWARD fold, not last-wins: each [`Act::Escrow`]
+    /// Phase 5). A forward fold, not last-wins: each [`Act::Escrow`]
     /// adds, a [`Act::Release`] returns the whole stake to zero, and a
     /// [`Act::Slash`] subtracts (saturating). The number a court reads to
     /// weight this holder's place in line — an escrow amount is a shared,
-    /// verifiable chain fact, but the WEIGHT a court derives from it is
+    /// verifiable chain fact, but the weight a court derives from it is
     /// local scheduling policy and never re-enters consensus.
     #[must_use]
     pub fn escrow_of(&self, holder: &str) -> u128 {
@@ -1768,7 +1768,7 @@ impl Ledger {
     /// tag ever published one (UC4).
     ///
     /// The resolver's rule, applied at read time: the last `Declare`
-    /// for the tag whose declarer holds the tag's live deed NOW.
+    /// for the tag whose declarer holds the tag's live deed now.
     /// A definition published by a since-retired holder lapses with
     /// the deed — a vocabulary does not outlive its grant.
     #[must_use]
@@ -2126,7 +2126,7 @@ impl Ledger {
             match act {
                 // A repeated `Open` is a replay and folds to nothing
                 // ([`Ledger::axes`]), so it is not a flaw. The same
-                // name with a DIFFERENT extent is not a replay — it is
+                // name with a different extent is not a replay — it is
                 // two irreconcilable statements about one direction,
                 // and the fold silently keeps the first. Naming it is
                 // the difference between an idempotent effect and a
@@ -2202,7 +2202,7 @@ impl Ledger {
                     taken.push((region, None));
                 }
                 // H2′ at the child's depth. The owner's own region is
-                // EXPECTED to contain this one — that is the nesting —
+                // expected to contain this one — that is the nesting —
                 // so the taken-set is not consulted. What is checked is
                 // that the moon is inside its planet and clear of its
                 // siblings.
@@ -2356,9 +2356,9 @@ pub fn cocycle(a: &Ledger, p: &[Tag], b: &Ledger, q: &[Tag]) -> bool {
 }
 
 // ===================================================================
-// THE CHAIN — acts as stored bytes.
+// the chain — acts as stored bytes.
 //
-// The issuer executes; the AUTHORITY is whoever holds the chain, and a
+// The issuer executes; the authority is whoever holds the chain, and a
 // chain that cannot be stored is not a chain. Acts serialize as TLV
 // records so the authority's ground truth is the same `.tlv` everything
 // else in the hierarchy grounds in:

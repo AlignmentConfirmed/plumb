@@ -19,7 +19,7 @@ pub const QUERY_TAG: Tag = 85;
 
 /// The tag a load-shedding court answers with instead of serving a
 /// session: its value is `retry_after_secs` (LE u32). A producer that
-/// reads this as its FIRST frame after connecting backs off for that
+/// reads this as its first frame after connecting backs off for that
 /// long rather than stalling — cooperative backpressure. Canonical
 /// here (not in the court) so a leaf-only producer honors it without
 /// linking `datum`.

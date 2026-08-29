@@ -8,7 +8,7 @@
 //! takes the receipt (tag 81) — looping, forever, on its own clock.
 //!
 //! Built against `sdk` and the leaves (`isthmus`, `assay`, `sig`)
-//! ONLY. There is no `datum` dependency anywhere in this crate's
+//! only. There is no `datum` dependency anywhere in this crate's
 //! manifest (see `tests/no_court_dependency.rs`) — a kernel joins a
 //! court without linking it, which is the entire point of moving the
 //! market vocabulary out of the court in K1.
@@ -125,9 +125,9 @@ enum Round {
     /// resubmission attempted (it would only draw a replay refusal),
     /// no receipt awaited.
     AlreadySettled,
-    /// The court was shedding load and answered with BUSY: back off
+    /// The court was shedding load and answered with busy: back off
     /// for this many seconds before trying again (cooperative
-    /// backpressure — the kernel WAITS instead of hammering).
+    /// backpressure — the kernel waits instead of hammering).
     Busy(u32),
 }
 
@@ -192,7 +192,7 @@ impl Config {
     }
 
     /// The seed feeding this kernel's key: a `plumbd keygen`-made
-    /// FILE (never round-tripped through a config a person might
+    /// file (never round-tripped through a config a person might
     /// commit), or — for fixtures only — inline hex.
     fn resolve_seed(&self) -> Option<[u8; 32]> {
         if let Some(path) = &self.seed_file {
@@ -238,7 +238,7 @@ enum KernelRefused {
     NoSharedRevision,
     /// The posed query is not a conjecture (SQ4) — a plain-closure
     /// market asks for something a kernel does not attempt: finding
-    /// ANY closing cycle is a different, unscoped problem. Named
+    /// any closing cycle is a different, unscoped problem. Named
     /// honestly rather than guessed at.
     NotAConjecture,
     /// No forward derivation closes the announced target at any
@@ -281,7 +281,7 @@ fn derive_and_settle(
 
     let (first_tag, first_frame) =
         read_record(&mut stream, &mut buffer, layout)?.ok_or(KernelRefused::Malformed)?;
-    // A swamped court answers BUSY instead of its declaration: back off
+    // A swamped court answers busy instead of its declaration: back off
     // the amount it asks for rather than proceeding into a session it
     // will not serve.
     if first_tag == sdk::submit::BUSY_TAG {
@@ -316,7 +316,7 @@ fn derive_and_settle(
     // Already earned this exact question? Then submitting again would
     // only draw the court's (correct) replay refusal, which it answers
     // with silence — so we would stall on a receipt that never comes.
-    // Disconnect cleanly instead and idle until a NEW query appears.
+    // Disconnect cleanly instead and idle until a new query appears.
     let query_id = query.query_id();
     if settled.contains(&query_id) {
         return Ok(Round::AlreadySettled);
@@ -325,7 +325,7 @@ fn derive_and_settle(
     let conjecture = sdk::query::Conjecture::decode(&query.statement)
         .map_err(|_| KernelRefused::NotAConjecture)?;
 
-    // K2 (#42): DERIVE by the court's own algebra, not a graph walk.
+    // K2 (#42): derive by the court's own algebra, not a graph walk.
     // No lemmas cited — a fresh kernel builds from the announced
     // conjecture alone, nothing it was handed.
     let (dim, witness) = solve_conjecture(&conjecture.universe, &conjecture.target, config.budget)
@@ -380,7 +380,7 @@ fn derive_and_settle(
 /// walk. Returns the winning `(dim, witness)`.
 ///
 /// `solve_forward` is `min Σx s.t. ∂ₖx = target, x ≥ 0`: the
-/// cost-minimal FORWARD chain (the non-negativity keeps every step a
+/// cost-minimal forward chain (the non-negativity keeps every step a
 /// licensed forward rewrite, SQ3), which is exactly the profit the O1
 /// rebate pays for. The dimension isn't on the wire, so the kernel
 /// tries each dimension the universe declares, lowest first, and takes

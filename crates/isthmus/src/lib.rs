@@ -1,4 +1,4 @@
-//! # Isthmus — THE ISSUER (superhighway substrate)
+//! # Isthmus — the issuer (superhighway substrate)
 //!
 //! The up-level mesh wire: generalized frames for **all content, all
 //! kernels, mesh-to-mesh connectivity**. Domain meshes are **tollways**
@@ -6,7 +6,7 @@
 //! highway.
 //!
 //! ```text
-//! independent nodes ──► ISTHMUS (this crate) ──► nodes | tollways | kernels
+//! independent nodes ──► isthmus (this crate) ──► nodes | tollways | kernels
 //!                              ▲
 //!                    datum is the authority (deeds, court)
 //! ```
@@ -109,8 +109,8 @@ pub mod witness;
 pub mod work;
 
 // There is no `registry` module. It held a `Band` enum of ten variants
-// -- ten possible holders, EVER, an eleventh needing a new variant and a
-// recompile -- over a `BANDS: [_; 12]` table fixed at compile time.
+// -- ten possible holders, ever, an eleventh needing a new variant and a
+// recompile -- over a `bands: [_; 12]` table fixed at compile time.
 //
 // That is the same defect as `grants_available() -> 6`, one level up:
 // the count of grants was fixed, and so was the count of parties who
@@ -161,7 +161,7 @@ pub fn revisions() -> Vec<String> {
     // which chain it is and what it has seen. A chain's name is not in
     // its stored bytes, so without this an `Act::Anchor` naming a peer
     // has nothing to bind the name to, and the substrate is
-    // downstream-only. Emitted ONLY by a chain that took a name, so a
+    // downstream-only. Emitted only by a chain that took a name, so a
     // peer that has not opted into being addressable is byte-identical
     // to IS-5/1 — the incompatibility is opt-in, by the side choosing
     // it, and declared here either way.
@@ -172,16 +172,16 @@ pub fn revisions() -> Vec<String> {
     // and append nothing.
     // IS-6/2: §8.1 replay. A repeated `Act::Open` folds to nothing —
     // `IS-2` §6.1's rule, applied where it had never been applied. A
-    // BEHAVIOUR change: an IS-6/1 reader opens a second axis where this
+    // behaviour change: an IS-6/1 reader opens a second axis where this
     // one opens none, so the two disagree about the shape of the space
     // and must not be treated as compatible.
-    // IS-3/2: §5.6 — a tag inside a grant is DERIVED from the record
+    // IS-3/2: §5.6 — a tag inside a grant is derived from the record
     // kind and the holder's own deed, never declared as a constant.
     // A constant encodes an assumption about who else exists, and a
     // substrate cannot know that. Deed::tag_for is the derivation.
     // IS-6/3: tag 9 `Sublet` — estates within estates. Additive on the
     // wire; an older reader refuses tag 9 rather than misfolding. The
-    // theorems are RESTATED, not weakened: H2 (live deeds disjoint)
+    // theorems are restated, not weakened: H2 (live deeds disjoint)
     // becomes H2′ (disjoint at the same depth, and inside the parent),
     // which reduces to H2 where nothing is sublet.
     // IS-6/4: tag 10 `Bind` — a holder's presenting key on the record
@@ -200,10 +200,10 @@ pub fn revisions() -> Vec<String> {
     // the court's declaration; under enforcement the first attestation
     // must answer it over exact frame bytes, or the session never goes
     // live. A replayed session's answer covers a dead token. A
-    // BEHAVIOUR change at enforcing courts, so the revision moves.
+    // behaviour change at enforcing courts, so the revision moves.
     // IS-1/5: §7.1.1 — the closure carries its shape as a declared-
     // complex definition (one shape codec in the whole system), with
-    // def_len = 0 the EXPLICIT legacy "shape unknown". Closes the
+    // def_len = 0 the explicit legacy "shape unknown". Closes the
     // tag-51 defect class: a hexagon and a five-simplex over the same
     // six orbs are distinct bytes.
     // IS-4/1: §5 — the witness frame (arm, observer, subject,

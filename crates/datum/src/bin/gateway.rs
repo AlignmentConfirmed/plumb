@@ -20,7 +20,7 @@ use std::sync::{Arc, RwLock};
 use datum::bounty::Bounty;
 use datum::query::{Guarantee, Query};
 use datum::reward::RewardBook;
-// The x402 machinery lives HERE, in the edge binary — the
+// The x402 machinery lives here, in the edge binary — the
 // quarantine: no library a node links contains one byte of HTTP.
 use isthmus::deed::Ledger;
 use isthmus::layout::Layout;
@@ -229,7 +229,7 @@ pub struct TransferAuthorization {
     pub valid_before: u64,
     /// The authorization's one-time nonce.
     pub nonce: [u8; 32],
-    /// Signature recovery byte — the PAYER's, never ours.
+    /// Signature recovery byte — the payer's, never ours.
     pub v: u8,
     /// Signature r.
     pub r: [u8; 32],
@@ -237,12 +237,12 @@ pub struct TransferAuthorization {
     pub s: [u8; 32],
 }
 
-/// EIP-3009 `transferWithAuthorization` calldata, ASSEMBLED for the
+/// EIP-3009 `transferWithAuthorization` calldata, assembled for the
 /// facilitator — the gateway never signs and never executes.
 ///
 /// The selector `0xe3ee160e` is the standard's, hard-coded because
 /// this workspace carries BLAKE3 and not keccak — and importing an
-/// EVM stack to recompute a well-known constant would be spending a
+/// evm stack to recompute a well-known constant would be spending a
 /// dependency to re-derive a number the standard already states.
 #[must_use]
 pub fn eip3009_calldata(auth: &TransferAuthorization) -> Vec<u8> {
@@ -307,7 +307,7 @@ pub fn handle(method: &str, path: &str, body: &[u8], gateway: &Gateway) -> (u16,
             }
         }
         ("POST", "/authorize") => {
-            // R5: the calldata assembler, SERVED. The payer's wallet
+            // R5: the calldata assembler, served. The payer's wallet
             // signed the authorization; the facilitator needs the
             // standard's calldata. Fixed-width raw body — 169 bytes,
             // one shape, no parser surface:
@@ -365,7 +365,7 @@ fn parse_authorization(body: &[u8]) -> Option<TransferAuthorization> {
 }
 
 fn refusal_json(refused: &AnswerRefused) -> String {
-    // The refusal NAMES itself — an HTTP peer gets the same honesty a
+    // The refusal names itself — an HTTP peer gets the same honesty a
     // wire peer does.
     format!("{{\"refused\":\"{refused:?}\"}}").replace('\n', " ")
 }
@@ -584,7 +584,7 @@ mod tests {
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
         let body = response.split("\r\n\r\n").nth(1).unwrap_or("");
 
-        // The facilitator: verify the receipt OFFLINE, against the
+        // The facilitator: verify the receipt offline, against the
         // chain alone — the V20/V21 recipe, over HTTP-carried bytes.
         let receipt_bytes = hex_to_bytes(&field(body, "receipt"));
         let attestation_bytes = hex_to_bytes(&field(body, "attestation"));

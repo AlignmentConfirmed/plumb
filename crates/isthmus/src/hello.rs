@@ -106,7 +106,7 @@ impl Uplink {
 // Reserving 64 globally was carving one tag out of every edge forever so
 // that the negotiation could refer to itself.
 //
-// THE FIRST RECORD ON AN EDGE IS THE DECLARATION.
+// the first RECORD ON AN edge IS the declaration.
 //
 // Position, not number. It is structural, costs no tag on any edge, and
 // composes with the deed model: after the declaration every frame is

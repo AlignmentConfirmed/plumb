@@ -95,7 +95,7 @@ impl Receipt {
     /// attestation packed after it on the receipt frame). Because the
     /// receipt is self-describing (every field is length-prefixed
     /// internally), the split between it and a following attestation
-    /// is found by parsing FORWARD, never by subtracting a fixed
+    /// is found by parsing forward, never by subtracting a fixed
     /// attestation width — which is what lets a variable-length
     /// topological signature ride behind a receipt with no wire break,
     /// while the `0x01` bytes stay byte-for-byte unchanged.

@@ -7,7 +7,7 @@
 //! plumbd status <dir> [interval_secs]
 //! ```
 //!
-//! `keygen` draws a fresh identity from OS entropy and writes ONLY the
+//! `keygen` draws a fresh identity from OS entropy and writes only the
 //! seed to `<path>` (mode 0600, refuses to overwrite). Nothing in this
 //! binary's participant-facing path accepts a hand-chosen or
 //! repeated-digit seed as a substitute — a role that needs a key reads
@@ -47,7 +47,7 @@
 //! ```
 //!
 //! A client-facing role (producer, client, solver, witness, join,
-//! carrier) dials over TLS automatically whenever BOTH `court =` and
+//! carrier) dials over TLS automatically whenever both `court =` and
 //! `chain =` are set and the named holder has a live `Act::Certify`
 //! on that chain — the fingerprint comes from the chain, never from a
 //! config line, because the chain is the whole trust anchor here. No
@@ -59,7 +59,7 @@
 //! exists so two machines can prove the seam. Real producers are
 //! kernels attached through the SDK.
 //!
-//! `role = join` is how a STRANGER gets onto a live network in one
+//! `role = join` is how a stranger gets onto a live network in one
 //! command: point `seed_file =` at a path (generated on the spot if
 //! it does not exist yet) and `peer =` at a court running
 //! `register = true`, and run it. One connection proves possession of
@@ -310,7 +310,7 @@ fn hex_encode(bytes: &[u8]) -> String {
     out
 }
 
-/// The seed feeding this role's key: a `plumbd keygen`-made FILE
+/// The seed feeding this role's key: a `plumbd keygen`-made file
 /// (never round-tripped through a config a person might commit or
 /// paste), or — for tests and fixtures only — inline hex. Either
 /// source, once named, is validated here: a malformed value is a
@@ -366,7 +366,7 @@ impl std::fmt::Display for KeygenBroken {
     }
 }
 
-/// Draw a fresh identity from OS entropy and persist ONLY the seed —
+/// Draw a fresh identity from OS entropy and persist only the seed —
 /// no static/hardcoded/repeated-digit seed is ever an acceptable
 /// substitute for this path. Refuses outright rather than clobbering
 /// an existing identity file.
@@ -520,7 +520,7 @@ fn main() {
             if config.require_signatures {
                 println!("plumbd: signature enforcement ON (S4)");
             }
-            // R3 — epochs are LIVE: the court opens one at start if
+            // R3 — epochs are live: the court opens one at start if
             // none is open, so bind windows can actually bite.
             if let Ok(mut guard) = book.write() {
                 if guard.open_epoch().is_none() {
@@ -593,7 +593,7 @@ fn main() {
             if config.register {
                 println!("plumbd: live registration OPEN (P2) — an unbound key that proves possession gets a deed and a bind, no restart");
             }
-            // P4 — a court that turns TLS on certifies ITSELF: it
+            // P4 — a court that turns TLS on certifies itself: it
             // already holds this ledger, so proving possession over a
             // wire challenge (P2's proof) is not the question — the
             // question is just "does the chain know this fingerprint
@@ -757,7 +757,7 @@ fn main() {
             let mut lap: i64 = 1;
             // The bound-safe ceiling: past this, an envelope would
             // exceed a default court's record bound — so the client
-            // LAPS, restarting n with a fresh charge. Every lap is
+            // laps, restarting n with a fresh charge. Every lap is
             // new structure; the record size never grows.
             let cap: u32 = 900;
             println!(
@@ -1025,7 +1025,7 @@ fn main() {
 }
 
 /// P7 — continuous monitoring, compiled: reads what is actually
-/// TRUE (a live TCP reachability probe, a decoded `.xdct` reward-book
+/// true (a live TCP reachability probe, a decoded `.xdct` reward-book
 /// snapshot, the decoded chain) rather than pattern-matching log
 /// text. Loops until killed (Ctrl-C); there is nothing to clean up.
 fn run_status_loop(dir: &std::path::Path, interval_secs: u64) {
@@ -1033,9 +1033,9 @@ fn run_status_loop(dir: &std::path::Path, interval_secs: u64) {
     loop {
         let report = render_status_report(dir);
         // Clear screen, home cursor — a plain repaint, not a scrolling
-        // log; ANSI, which every terminal this binary ships for reads.
+        // log; ansi, which every terminal this binary ships for reads.
         print!("\x1B[2J\x1B[H{report}");
-        // Rust block-buffers stdout when it is not a TTY (redirected
+        // Rust block-buffers stdout when it is not a tty (redirected
         // to a file, piped, watched by another process) — an
         // unflushed monitor is a contradiction, so flush every frame
         // rather than trust the next print to eventually force it.
@@ -1045,7 +1045,7 @@ fn run_status_loop(dir: &std::path::Path, interval_secs: u64) {
 }
 
 /// One row: what a `.conf` file in the directory claims to be, and
-/// whether its listener is ACTUALLY answering right now.
+/// whether its listener is actually answering right now.
 struct NodeRow {
     name: String,
     role: String,
@@ -1060,10 +1060,10 @@ fn probe_tcp(addr: &str) -> Option<bool> {
 }
 
 /// A read-only `key = value` lookup, deliberately separate from the
-/// shared `parse()`: that function WARNS on every key it does not
+/// shared `parse()`: that function warns on every key it does not
 /// recognize, which is correct for loading a role this binary is
 /// about to run and wrong for a status scan that reads configs
-/// belonging to a DIFFERENT binary (the gateway) it never loads.
+/// belonging to a different binary (the gateway) it never loads.
 fn quiet_lookup(text: &str, key: &str) -> Option<String> {
     text.lines().find_map(|line| {
         let line = line.split('#').next().unwrap_or("").trim();
@@ -1103,9 +1103,9 @@ fn render_status_report(dir: &std::path::Path) -> String {
         let Ok(text) = std::fs::read_to_string(entry) else {
             continue;
         };
-        // A quiet, read-only lookup — NOT the shared `parse()`, which
+        // A quiet, read-only lookup — not the shared `parse()`, which
         // warns on every key it does not recognize. The gateway and
-        // kernel binaries each have their OWN config shape (no
+        // kernel binaries each have their own config shape (no
         // `role =`; `facilitator =` names a gateway, `budget =` names
         // a kernel — K3's config, deliberately its own small parser,
         // not plumbd's), so running either through plumbd's parser

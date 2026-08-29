@@ -66,7 +66,7 @@ impl Bounty {
 /// Why an answer to a bounty refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnswerRefused {
-    /// The query poses a CONJECTURE and the answer is not a proof —
+    /// The query poses a conjecture and the answer is not a proof —
     /// a cycle cannot answer a theorem.
     NotAProof,
     /// The proof closes onto a different boundary than the one the
@@ -75,7 +75,7 @@ pub enum AnswerRefused {
     /// The body is not a declared-domain claim — a bounty prices a
     /// declared universe, so the answer must live in one.
     NotDeclared(ComplexBroken),
-    /// The answer's universe is not the one the POSER fixed. However
+    /// The answer's universe is not the one the poser fixed. However
     /// beautifully it closes, closing your own geometry earns no
     /// rebate here.
     NotThePosersUniverse,
@@ -144,11 +144,11 @@ pub fn verify_answer(
         if proof.complex != conjecture.universe {
             return Err(AnswerRefused::NotThePosersUniverse);
         }
-        // SQ5 — the lemma market: cited lemmas CONTRIBUTE their
+        // SQ5 — the lemma market: cited lemmas contribute their
         // settled boundaries. A settled lemma's target held (that is
         // what settling means), so the composite closes iff
         // ∂(witness) = conjecture.target − Σ(cited targets). The
-        // lemma's boundary is read from its CONTENT ADDRESS — the
+        // lemma's boundary is read from its content address — the
         // ledger stores the structure, never a summary that could
         // drift — and its derivation is never re-paid (the cache,
         // spent as a cache).
@@ -369,7 +369,7 @@ pub fn settle_refinement(
         });
     }
 
-    // O4 — the optional quality tier: a certificate is a PROOF CLAIM
+    // O4 — the optional quality tier: a certificate is a PROOF claim
     // whose prescribed boundary is exactly original − refined, one
     // dimension up. The SQ1 evaluator does the rest.
     let homologous = match certificate {

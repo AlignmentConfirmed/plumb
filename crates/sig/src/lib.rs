@@ -1,4 +1,4 @@
-//! # SIG — the identity physics (scheme `0x01`).
+//! # sig — the identity physics (scheme `0x01`).
 //!
 //! Ed25519 over a BLAKE3 **envelope hash**, per `IMPLEMENTATION.md`.
 //! The hash covers the whole opaque frame — `tag ‖ LE32(len) ‖ value` —

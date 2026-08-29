@@ -1,4 +1,4 @@
-//! THE AUTHORITY — the founding edge's chain, held here.
+//! The authority — the founding edge's chain, held here.
 //!
 //! ```text
 //! .tlv -> kernel -> local mesh -> substrate -> local mesh | kernel
@@ -52,7 +52,7 @@ pub const FOUNDING: &str = "ledger/founding.tlv";
 /// the wire half of the uplink, and not yet built.
 pub const CHAIN: &str = "datum";
 
-/// The founding acts are REBUILT in the lab, not here.
+/// The founding acts are rebuilt in the lab, not here.
 ///
 /// `found()` read both ancestors' live registries off this machine and
 /// rebuilt the chain for byte-comparison against [`stored`]. That is a

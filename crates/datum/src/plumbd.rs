@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! producer ──TCP──► court
-//!   1. declaration        the FIRST record on the edge, both ways (IS-5)
+//!   1. declaration        the first record on the edge, both ways (IS-5)
 //!   2. claim envelopes    tags 80/82, opaque in transit
 //!   3. credit             the court's book, work_id-primary
 //! ```
@@ -41,12 +41,12 @@ use crate::witnessing;
 /// which is what makes P4 a substitution at the edges rather than a
 /// second copy of the session logic.
 pub trait ReadWrite: Read + Write + Send {
-    /// Signal "no more writes coming" WITHOUT fully closing — so a
+    /// Signal "no more writes coming" without fully closing — so a
     /// peer still mid-read-loop gets a clean end to its input rather
     /// than a drop. Needed by a relay (the carrier) that must not
     /// close its upstream leg while records it forwarded might still
     /// be unread by the peer: closing a socket with unread data of
-    /// its OWN still queued sends RST instead of FIN, and RST at a
+    /// its own still queued sends RST instead of FIN, and RST at a
     /// record boundary elsewhere reads as a graceful departure — a
     /// carrier that closes early can make a court silently drop
     /// records that genuinely arrived.
@@ -153,10 +153,10 @@ pub fn read_record(
                 let got = match stream.read(&mut chunk) {
                     Ok(got) => got,
                     // A reset at a record boundary is a peer that left
-                    // with unread data in ITS buffer (e.g. a fixture
+                    // with unread data in its buffer (e.g. a fixture
                     // producer that never reads the market
                     // announcement) — TCP sends RST instead of FIN.
-                    // P4's TLS wrap surfaces the SAME shape of
+                    // P4's TLS wrap surfaces the same shape of
                     // departure as `UnexpectedEof` instead: a peer
                     // that drops the connection without a TLS
                     // close_notify alert (rustls's own docs call this
@@ -265,13 +265,13 @@ pub struct SessionRules {
     /// at once, total. `0` is unwalled (today's behaviour) — every
     /// connection gets a thread, unconditionally.
     pub max_total_connections: usize,
-    /// P3 — no more than this many sessions held at once FROM ONE IP.
+    /// P3 — no more than this many sessions held at once from one IP.
     /// `0` is unwalled.
     pub max_connections_per_ip: usize,
     /// P3 — a connection that has not sent its declaration within
     /// this long is dropped before it ever reaches the work loop.
     /// `None` is unwalled: `read_hello` blocks forever, as it always
-    /// has. A bare TCP accept spawns a thread before ANY check runs —
+    /// has. A bare TCP accept spawns a thread before any check runs —
     /// this wall bounds what an unauthenticated connection can hold.
     pub handshake_deadline: Option<std::time::Duration>,
     /// The live count behind the wall — shared across every session
@@ -283,12 +283,12 @@ pub struct SessionRules {
     /// every accepted connection in TLS before `court_session` ever
     /// sees it — every inbound tag (claims, registration, market
     /// answers, witness records) rides the same encrypted channel,
-    /// since they all cross the SAME accept loop.
+    /// since they all cross the same accept loop.
     pub tls: Option<Arc<rustls::ServerConfig>>,
 }
 
 /// How many sessions a court is holding right now: in total, and per
-/// peer IP. Checked and updated ONLY at accept time and at a
+/// peer IP. Checked and updated only at accept time and at a
 /// session's end — never inside a session, which has no reason to
 /// know the wall exists.
 #[derive(Debug, Default)]
@@ -381,7 +381,7 @@ fn receipt_for(
         .map(|()| wire)
 }
 
-/// Settle one work value against a LOCKED book — verify and commit together
+/// Settle one work value against a locked book — verify and commit together
 /// under the caller's lock. The single-shot `court_settle`/greeter paths use
 /// this; the settler pool uses [`settle_work_parallel`], which verifies off
 /// the lock.
@@ -442,7 +442,7 @@ fn settle_work_parallel(
     let Some(market) = &rules.market else {
         return credit_plain();
     };
-    // Verify under the SHARED read lock — concurrent with other verifiers.
+    // Verify under the shared read lock — concurrent with other verifiers.
     // The guard is dropped at the end of this block, before the write lock.
     let verified = {
         let guard = match book.read() {
@@ -453,7 +453,7 @@ fn settle_work_parallel(
     };
     match verified {
         Ok(verified) => {
-            // Commit under the EXCLUSIVE write lock — the one atomic act.
+            // Commit under the exclusive write lock — the one atomic act.
             let mut guard = match book.write() {
                 Ok(guard) => guard,
                 Err(_) => return SettleOutcome::refused(),
@@ -462,7 +462,7 @@ fn settle_work_parallel(
                 Ok(answer) => {
                     let epoch = guard.open_epoch().unwrap_or(0);
                     drop(guard); // release the book before the section deposit
-                    // §6h: the settled claim is deposited into the CONVERGENCE
+                    // §6h: the settled claim is deposited into the convergence
                     // section, built forward from settlement — the section is
                     // the convergent state itself, not derived from the log.
                     deposit_section(section, value, market.query.domain_tag);
@@ -535,7 +535,7 @@ impl TorsionCache {
             .ok()
             .and_then(|guard| guard.declaration_of(tag))
             .and_then(|bytes| assay::complex::DeclaredComplex::decode(&bytes).ok());
-        // #70: flag an EXOTIC universe the first time this court resolves it
+        // #70: flag an exotic universe the first time this court resolves it
         // — impossible in a crystallographic domain, so it is an anomaly
         // signal worth surfacing. Never a rejection: the book's exact SNF
         // settles any torsion regardless.
@@ -579,7 +579,7 @@ pub struct SessionReport {
     /// Witnesses this session's own watcher re-derived (the subject
     /// crossed the same session).
     pub watched: usize,
-    /// Watched witnesses whose subjects FAILED re-derivation — a
+    /// Watched witnesses whose subjects failed re-derivation — a
     /// dispute on the record.
     pub disputed: usize,
     /// Live registrations that landed this session (P2) — an unbound
@@ -590,7 +590,7 @@ pub struct SessionReport {
 
 /// The state a completed [`court_handshake`] hands to [`court_settle`]:
 /// the live stream and everything the record loop reads from, captured
-/// once so the two halves compose EXACTLY as the old single-shot
+/// once so the two halves compose exactly as the old single-shot
 /// session did. The read `buffer` crosses the seam on purpose —
 /// `read_hello` may leave residual bytes the first `read_record`
 /// continues from, so framing continuity is preserved. Phase 5's
@@ -625,10 +625,10 @@ pub fn court_handshake<'a>(
     witnesses: &'a WitnessLog,
 ) -> Result<SessionState<'a>, NodeBroken> {
     let (holder, bound) = (rules.holder.as_str(), rules.bound);
-    // A snapshot for framing OUR OWN declaration and challenge tag —
+    // A snapshot for framing our own declaration and challenge tag —
     // read once, at session start, exactly as a per-thread clone did
     // before this ledger could change live. Admission checks in
-    // `court_settle` re-lock for the CURRENT state on purpose: a
+    // `court_settle` re-lock for the current state on purpose: a
     // registration that lands mid-session must be visible to that same
     // session's next claim.
     let opening = ledger
@@ -660,7 +660,7 @@ pub fn court_handshake<'a>(
         .map_err(|_| NodeBroken::CannotFrame)?;
     stream.write_all(&challenge_frame)?;
 
-    // The native market: the question is ANNOUNCED on the wire the
+    // The native market: the question is announced on the wire the
     // session already speaks. HTTP exists only for foreign payers, at
     // the gateway edge; a Plumbline solver never touches it.
     if let Some(market) = &rules.market {
@@ -682,12 +682,12 @@ pub fn court_handshake<'a>(
     })
 }
 
-/// One court session's record loop, factored so the SAME per-record
+/// One court session's record loop, factored so the same per-record
 /// dispatch runs whether a single worker pumps every frame
 /// ([`court_settle`]) or a greeter pumps until the session goes live and
 /// a settler pumps the rest (Phase 5's two-pool [`serve`]). Byte
-/// behaviour is identical either way: the split is only WHERE the pump
-/// runs, never WHAT it does per frame — so the state that crosses the
+/// behaviour is identical either way: the split is only where the pump
+/// runs, never what it does per frame — so the state that crosses the
 /// greeter→settler seam is exactly this struct.
 #[derive(Default)]
 struct Survey {
@@ -740,7 +740,7 @@ impl Survey {
         Ok(())
     }
 
-    /// Dispatch ONE already-read record. Returns [`Flow::Stop`] only for
+    /// Dispatch one already-read record. Returns [`Flow::Stop`] only for
     /// the refused-registration case that closes the session (exactly as
     /// the single-shot loop's early `return` did); every other outcome
     /// is [`Flow::Continue`] (a per-frame `continue` or fall-through).
@@ -792,7 +792,7 @@ impl Survey {
             if !self.session_live {
                 let attestation_bytes = frame.get(layout.header()..).unwrap_or(&[]);
                 if let Some(request) = self.pending_register.take() {
-                    // P2: proof of possession over THIS session's own
+                    // P2: proof of possession over this session's own
                     // challenge, then the ledger-level rules — never
                     // the ordinary admission path, which would
                     // (correctly) refuse a key that is not bound yet.
@@ -841,7 +841,7 @@ impl Survey {
                         // client waiting on a response cannot tell
                         // refusal from slowness any other way, and
                         // this session's challenge is already spent —
-                        // looping back to await a NEW attestation
+                        // looping back to await a new attestation
                         // would just deadlock a client that is, in
                         // turn, waiting on this ack.
                         Err(()) => {
@@ -851,7 +851,7 @@ impl Survey {
                     }
                     return Ok(Flow::Continue);
                 }
-                // The first attestation must answer THIS session's
+                // The first attestation must answer this session's
                 // challenge. A stale answer — a replayed session —
                 // refuses, and the session never goes live.
                 let epoch = {
@@ -863,7 +863,7 @@ impl Survey {
                     admission::admit(&guard, epoch, challenge_frame, attestation_bytes)
                 };
                 match admitted {
-                    // Go live AND remember who: the holder the escrow
+                    // Go live and remember who: the holder the escrow
                     // scheduler will weight this session by (Phase 5).
                     Ok(holder) => {
                         self.session_live = true;
@@ -903,7 +903,7 @@ impl Survey {
             .declaration_of(tag)
             .is_some()
         {
-            // UC4, LIVE: a tag with a registered definition on this
+            // UC4, live: a tag with a registered definition on this
             // court's chain is judged against that definition — the
             // discipline the chain taught, applied on the wire. Under
             // enforcement the attestation rules still apply upstream;
@@ -926,14 +926,14 @@ impl Survey {
             }
         } else if tag == witnessing::WITNESS_TAG {
             // IS-4: a witness put something on the record. The court
-            // KEEPS it — decoded (refuse-not-repair), never judged
+            // keeps it — decoded (refuse-not-repair), never judged
             // here; judging is a watcher's act, and a watcher is
             // handed its subject elsewhere.
             let value = frame.get(layout.header()..).unwrap_or(&[]);
             match isthmus::witness::Witness::decode(value) {
                 Ok(witness) => {
                     // The watcher, live (IS-4 §6): if the witnessed
-                    // subject crossed THIS session, the court was
+                    // subject crossed this session, the court was
                     // handed it — so it watches, and a failed
                     // re-derivation is a dispute on the record.
                     if let Some(subject) = self
@@ -1061,7 +1061,7 @@ pub fn court_session(
 }
 
 /// A session past its handshake and (when the court enforces)
-/// authenticated, waiting for a settler. Carries only OWNED state so it
+/// authenticated, waiting for a settler. Carries only owned state so it
 /// can cross the greeter→settler thread boundary; the settler supplies
 /// the shared court handles from its own clones.
 struct LiveSession {
@@ -1092,12 +1092,12 @@ enum GreetOutcome {
 /// book. Returns only on listener failure. `on_session` sees each
 /// session's report — the binary logs it; a test asserts on the book.
 ///
-/// The two-stage scheduler (sched Phase 5): a GREETER pool runs the
+/// The two-stage scheduler (sched Phase 5): a greeter pool runs the
 /// cheap handshake and reads until the session goes live — learning the
-/// holder — then enqueues the authenticated session into a per-HOLDER
-/// fair queue; a SETTLER pool drains that queue and runs the expensive
+/// holder — then enqueues the authenticated session into a per-holder
+/// fair queue; a settler pool drains that queue and runs the expensive
 /// survey/credit. The greeter pool sits behind the Phase 1–3 per-IP wall
-/// (anti-flood BEFORE identity is known); the settler queue is keyed by
+/// (anti-flood before identity is known); the settler queue is keyed by
 /// holder — an economic identity, never the IP — which is the seam an
 /// escrow weight plugs into (#55). Load still decides only who is served
 /// and when, never what work is worth (sched's boundary test).
@@ -1125,12 +1125,12 @@ pub fn serve(
     // Accept → per-IP fair queue (Phase 1–3, anti-flood) → greeter.
     let greeter_queue: Arc<crate::sched::FairQueue<std::net::IpAddr, TcpStream>> =
         Arc::new(crate::sched::FairQueue::new());
-    // Greeter → per-HOLDER fair queue (the priority seam #55 weights) →
+    // Greeter → per-holder fair queue (the priority seam #55 weights) →
     // settler. The empty key is the base lane: a non-enforce court or a
     // fresh registration has no authenticated holder yet.
     let settler_queue: Arc<crate::sched::Transit<LiveSession>> =
         Arc::new(crate::sched::Transit::tuned());
-    // Reader → per-WORK-CLAIM transit (#60): the full metric. Each work
+    // Reader → per-work-claim transit (#60): the full metric. Each work
     // record a reader pulls off its connection is offered here with its
     // support (cheap witness decode) and graded torsion (O(1) cached from
     // the Act::Declare'd complex); a settler pool drains it in metric order
@@ -1139,9 +1139,9 @@ pub fn serve(
     let work_transit: Arc<crate::sched::Transit<WorkJob>> =
         Arc::new(crate::sched::Transit::tuned());
     let torsion_cache: Arc<TorsionCache> = Arc::new(TorsionCache::default());
-    // The CONVERGENCE section (§6h): the court's convergent settlement state,
+    // The convergence section (§6h): the court's convergent settlement state,
     // built forward as the settler pool deposits each settled claim (torsion
-    // per grade converges, free axes accumulate). Held here so it is WRITTEN
+    // per grade converges, free axes accumulate). Held here so it is written
     // by real settlement, not a disconnected type; a court reports its growth.
     let section: Arc<Mutex<crate::section::Section>> =
         Arc::new(Mutex::new(crate::section::Section::new()));
@@ -1182,8 +1182,8 @@ pub fn serve(
         let witnesses = Arc::clone(witnesses);
         let on_session = Arc::clone(&on_session);
         std::thread::spawn(move || {
-            // The READER pool drains the escrow-weighted session scheduler
-            // (#55: escrow PROJECTED from the ledger at take-time, #57), then
+            // The reader pool drains the escrow-weighted session scheduler
+            // (#55: escrow projected from the ledger at take-time, #57), then
             // reads each session's records and hands every work claim to the
             // work-transit for metric-ordered settlement off this thread.
             while let Some(claim) = settler_queue
@@ -1230,7 +1230,7 @@ pub fn serve(
                     &settle,
                 );
                 // The wall was charged at accept and held across the
-                // handshake AND the queue wait; release it however the
+                // handshake and the queue wait; release it however the
                 // session ends.
                 release_wall(&rules.connections, ip);
                 settler_queue.complete(&support);
@@ -1289,7 +1289,7 @@ pub fn serve(
     loop {
         match listener.accept() {
             Ok((stream, peer)) => {
-                // P3 — the wall: checked and CHARGED before the session
+                // P3 — the wall: checked and charged before the session
                 // is queued. An over-quota connection is dropped here, at
                 // zero cost past the accept itself; `max_total_connections
                 // = 0` / `max_connections_per_ip = 0` opt a wall out.
@@ -1314,9 +1314,9 @@ pub fn serve(
                 if !admitted {
                     continue; // the connection is simply dropped: no thread, no response
                 }
-                // Past the anti-Sybil wall, the SCHEDULER decides: admit
+                // Past the anti-Sybil wall, the scheduler decides: admit
                 // to the greeter pool if the per-IP queue has room, else
-                // tell the peer to WAIT with a named BUSY frame — never
+                // tell the peer to wait with a named busy frame — never
                 // dropped in silence.
                 match governor.admit(&greeter_queue.load(&ip)) {
                     crate::sched::Admission::Admit => greeter_queue.offer(ip, stream),
@@ -1357,7 +1357,7 @@ fn greet_session(
     book: &Arc<RwLock<RewardBook>>,
     witnesses: &WitnessLog,
 ) -> GreetOutcome {
-    // P3's deadline is set on the RAW socket, before P4 might wrap it —
+    // P3's deadline is set on the raw socket, before P4 might wrap it —
     // it has to bound a stalled TLS handshake too. The clone shares the
     // same fd; court_handshake lifts the deadline once the declaration
     // arrives.
@@ -1508,7 +1508,7 @@ fn dial(
     dial_with_timeout(addr, tls_fingerprint, None)
 }
 
-/// [`dial`], setting a read timeout on the RAW socket first — a
+/// [`dial`], setting a read timeout on the raw socket first — a
 /// timeout has to bound a stalled TLS handshake too, not just a
 /// stalled read afterward, the same reasoning `serve`'s handshake
 /// wall applies on the accept side.
@@ -1539,13 +1539,13 @@ fn dial_with_timeout(
 /// A client's final act before dropping a connection to a court: say
 /// "no more input from me," then drain whatever the court still has
 /// queued — a market announcement this role never reads, say — before
-/// the actual close. Skipping this leaves data unread in THIS side's
+/// the actual close. Skipping this leaves data unread in this side's
 /// own receive buffer at close, which makes the OS send RST instead
 /// of FIN; a RST at a record boundary elsewhere reads as a graceful
-/// departure, and the cost lands on the COURT, which may not have
+/// departure, and the cost lands on the court, which may not have
 /// finished reading the records this side just sent. Every function
 /// that writes to a court and then walks away needs this — a market
-/// being posted is a fact about the COURT, not about which client
+/// being posted is a fact about the court, not about which client
 /// role happens to be dialing it.
 fn finish_politely(stream: &mut dyn ReadWrite) {
     let _ = stream.shutdown_write();
@@ -1615,9 +1615,9 @@ fn produce_inner(
 /// Join a live network in one connection: declare with no deed (there
 /// is none yet — a fresh empty ledger is exactly the right thing to
 /// declare with), prove possession of a freshly generated key over
-/// THIS session's own challenge (registering, not admitting), and —
+/// this session's own challenge (registering, not admitting), and —
 /// once the court's ack shows the bind landed — send one signed claim
-/// on the SAME connection through the now-ordinary admission path.
+/// on the same connection through the now-ordinary admission path.
 /// Registration and first credit in one run: no restart, no
 /// re-genesis, no operator hand-editing a config.
 pub fn register_and_produce(
@@ -1670,7 +1670,7 @@ pub fn register_and_produce(
     )
     .map_err(|_| NodeBroken::Unsatisfiable)?;
 
-    // Bound now — the SAME connection's challenge was already spent
+    // Bound now — the same connection's challenge was already spent
     // proving possession, so this claim answers admission the
     // ordinary way: envelope, then the attestation over it.
     stream.write_all(envelope)?;
@@ -1710,7 +1710,7 @@ pub fn carrier_session(
     let _client_hello = read_hello(&mut client, &mut client_buf, layout, &ours, bound)?;
     send_hello(&mut client, layout, hello_tag(ledger, holder), &ours)?;
 
-    // Face upstream: declare, hear the court. THIS leg is a plain
+    // Face upstream: declare, hear the court. this leg is a plain
     // court-facing dial like any other — it gets TLS the same way.
     let mut court = dial(upstream, upstream_tls_fingerprint)?;
     send_hello(&mut court, layout, hello_tag(ledger, holder), &ours)?;
@@ -1718,7 +1718,7 @@ pub fn carrier_session(
     let _court_hello = read_hello(&mut court, &mut court_buf, layout, &ours, bound)?;
 
     // IS-2/2: the court's session challenge follows its declaration.
-    // Relay it to the client VERBATIM — the client's answer signs the
+    // Relay it to the client verbatim — the client's answer signs the
     // exact frame bytes, so carriage costs the freshness nothing,
     // for the same reason it costs the signature nothing.
     if let Some((_tag, challenge)) = read_record(&mut court, &mut court_buf, layout, bound)? {
@@ -1825,7 +1825,7 @@ pub fn witness_to(
     Ok(sent)
 }
 
-/// Answer a court's posted question NATIVELY: attach, answer the
+/// Answer a court's posted question natively: attach, answer the
 /// challenge, hear the query announcement (tag 85), send the claim,
 /// and take the signed receipt back on the wire (tag 81). The whole
 /// x402 loop with zero HTTP — the gateway edge exists only for

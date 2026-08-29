@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! 0-cells   the words of the universe (bounded length, length-lex)
-//! 1-cells   the LEGAL single-step rewrites — and nothing else
+//! 1-cells   the legal single-step rewrites — and nothing else
 //! ```
 //!
 //! The soundness bar, met by construction: the compiler emits a
@@ -221,7 +221,7 @@ impl Compiled {
     /// SQ6 — grow the confluence dimension: one 2-cell per **diamond**
     /// (a word with two distinct one-step successors that rejoin in
     /// one step), with boundary `left path − right path`. Squier's
-    /// observation, made byte-checkable: the critical branchings ARE
+    /// observation, made byte-checkable: the critical branchings are
     /// cells, and "two derivations of one lemma commute" is exhibited
     /// by the diamond that fills them — verified as ∂∂ = 0 one
     /// dimension up, by the same evaluator as everything else.

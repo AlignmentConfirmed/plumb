@@ -1,6 +1,6 @@
 //! X1 — the query: a demand-posed problem, addressable from outside.
 //!
-//! A query is what a PAYER fixes: the space demanded, the vocabulary
+//! A query is what a payer fixes: the space demanded, the vocabulary
 //! the answer must arrive under, the guarantee class the price buys,
 //! and the opaque problem statement. Its identity is the BLAKE3 of
 //! that canonical encoding — and deliberately **not** the funding
@@ -67,7 +67,7 @@ pub struct Query {
 }
 
 impl Query {
-    /// Canonical bytes — everything the POSER fixes, nothing that
+    /// Canonical bytes — everything the poser fixes, nothing that
     /// funding changes.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
@@ -144,9 +144,9 @@ impl Query {
     }
 }
 
-/// SQ4 — a conjecture: a query whose statement pins BOTH the universe
+/// SQ4 — a conjecture: a query whose statement pins both the universe
 /// and the theorem. Without this, a posed question flattens to
-/// "exhibit any closure" — the poser could not say WHICH boundary
+/// "exhibit any closure" — the poser could not say which boundary
 /// they are paying to see closed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Conjecture {

@@ -1,4 +1,4 @@
-//! # Assay — THE CONVERGENCE ENGINE
+//! # Assay — the convergence engine
 //!
 //! Given a manifold's oriented boundary, does the flux through it
 //! cancel? If it cancels **on every axis**, the manifold closes, and
@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! isthmus  ->  nothing          the superhighway (never imports assay)
-//! kernels  ->  ASSAY            the exits, which query this
+//! kernels  ->  assay            the exits, which query this
 //! assay    ->  nothing          multi-axial physical laws (leaf)
 //! nodes    ->  assay + isthmus  produce / verify; wire claims re-derive
 //! datum    ->  isthmus + assay + edges  court + rewards + measurements
@@ -248,7 +248,7 @@ pub fn assess(boundary: &Boundary) -> Convergence {
     if residue.is_zero() {
         return Convergence::Closed(Upsilon(()));
     }
-    // NO TOTAL IS TAKEN. There was one here, to tell two open arms
+    // NO total IS taken. There was one here, to tell two open arms
     // apart, and it added flux across axes that are not commensurable
     // — the fold this crate exists to refuse, used to label its own
     // refusals. The residue says everything the label said.

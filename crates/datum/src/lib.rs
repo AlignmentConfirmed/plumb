@@ -1,11 +1,11 @@
-//! # DATUM — THE AUTHORITY (highway court + measurement bench).
+//! # Datum — the authority (highway court + measurement bench).
 //!
 //! ```text
 //! independent nodes (producer | verifier | carrier)
 //!         │
-//!    ISTHMUS  superhighway   (issuer: frames, skip-unknown, session)
+//!    isthmus  superhighway   (issuer: frames, skip-unknown, session)
 //!         │
-//!    DATUM    this crate     (authority: deeds, rewards, measurements)
+//!    datum    this crate     (authority: deeds, rewards, measurements)
 //!         ▲
 //!    tollways: domain meshes
 //!         │
@@ -21,7 +21,7 @@
 //!
 //! **Issuer vs authority.** `isthmus` executes and holds nothing that
 //! outlives a process. This crate holds the record at
-//! [`ledger::FOUNDING`]; a deed is real when it is in that chain. Git
+//! [`ledger::founding`]; a deed is real when it is in that chain. Git
 //! is the append-only guarantee.
 //!
 //! **Decentralized nodes.** Peers are independent. There is no

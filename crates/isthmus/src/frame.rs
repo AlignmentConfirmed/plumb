@@ -16,24 +16,24 @@
 use crate::layout::{self, Layout, Tag};
 use crate::session::Unsatisfiable;
 
-// `HEADER` was a const here. Twice.
+// `header` was a const here. Twice.
 //
 // First `= 5`, then `= size_of::<u8>() + size_of::<u32>()`, which was
 // worse for being plausible. Both defects survived the rewrite:
 //
-//   size_of::<u8>() PINS THE TAG AT ONE BYTE. 256 values, permanently,
+//   size_of::<u8>() pins the tag AT one byte. 256 values, permanently,
 //   in the crate that had just removed a capacity of six attachments
 //   and a capacity of ten holders. Same shape, one level down: a limit
 //   expressed as a type, so raising it means editing the type wherever
 //   it appears.
 //
-//   THE SUM COLLAPSES THE HEADER TO A SCALAR. `5` is all that survives.
+//   the sum collapses the header TO A scalar. `5` is all that survives.
 //   It cannot say where the length begins, how wide the tag is, or what
 //   the fields are called -- so every one of those got answered by hand
 //   somewhere else, a `1` here and a `1..5` there, and those hand
 //   answers were the thing that had to stay in step.
 //
-// Adding widths is a READING of a layout, not the layout.
+// Adding widths is a reading of a layout, not the layout.
 //
 // `crate::layout::Layout` is the structure. `Layout::header()` folds the
 // fields and is one reading among several -- `offset_of`, `width_of`,

@@ -92,7 +92,7 @@ pub enum ComplexBroken {
         /// A cell with nonzero net boundary flux.
         cell: u32,
     },
-    /// The witness chain's boundary does not equal the PRESCRIBED
+    /// The witness chain's boundary does not equal the prescribed
     /// target (SQ1): a missing premise or a dangling conclusion, and
     /// the refusal names where.
     BoundaryMismatch {
@@ -416,7 +416,7 @@ impl DeclaredComplex {
 /// Why [`DeclaredComplex::solve`] could not construct a witness.
 ///
 /// Distinct from [`ComplexBroken`] on purpose: that enum names why a
-/// GIVEN witness failed to verify; this one names why no witness was
+/// given witness failed to verify; this one names why no witness was
 /// found in the first place — a different operation with different
 /// failure modes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -428,7 +428,7 @@ pub enum SolveRefused {
     /// is not the same question, and [`crate::snf`]'s whole point is
     /// that gap.
     NoIntegralSolution,
-    /// No RATIONAL chain closes onto this target at all — the
+    /// No rational chain closes onto this target at all — the
     /// boundary is genuinely outside `∂_dim`'s image, full stop.
     NoRationalSolution,
 }
@@ -450,7 +450,7 @@ impl DeclaredComplex {
     ///
     /// See [`crate::snf`]'s module docs for the real gap this doesn't
     /// close: an integral solution may use a licensed cell with a
-    /// NEGATIVE coefficient, which is not the same thing as a
+    /// negative coefficient, which is not the same thing as a
     /// legitimate forward derivation using that cell.
     pub fn solve(&self, dim: u32, target: &[(u32, Exact)]) -> Result<Vec<(u32, Exact)>, SolveRefused> {
         let dim = dim as usize;
@@ -496,12 +496,12 @@ impl DeclaredComplex {
     /// see [`crate::simplex`]) `dim`-chain closing onto `target`.
     ///
     /// Unlike [`DeclaredComplex::solve`], this operates on the exact
-    /// RATIONAL coefficients directly — no LCM scaling, since there is
+    /// rational coefficients directly — no LCM scaling, since there is
     /// no integrality question here at all. That is also its
     /// limitation, stated rather than hidden: the returned witness may
     /// carry fractional coefficients, which is not "half a licensed
     /// step" made meaningful, just the LP relaxation's honest answer.
-    /// A caller that needs an INTEGER sparsest witness has a strictly
+    /// A caller that needs an integer sparsest witness has a strictly
     /// harder problem this does not solve.
     pub fn solve_sparsest(&self, dim: u32, target: &[(u32, Exact)]) -> Result<Vec<(u32, Exact)>, SolveRefused> {
         let dim = dim as usize;
@@ -541,7 +541,7 @@ impl DeclaredComplex {
     ///
     /// This is the producer's aligned physics — the court's own
     /// incidence algebra, minimizing the L1 cost the O1 rebate pays
-    /// for — while `x ≥ 0` keeps every step a legitimate FORWARD
+    /// for — while `x ≥ 0` keeps every step a legitimate forward
     /// application of a licensed cell (SQ3), so it never returns a
     /// backward-edge "proof" the way sign-free [`DeclaredComplex::solve`]
     /// can. For a dim-1 rewrite graph (totally unimodular) the LP
